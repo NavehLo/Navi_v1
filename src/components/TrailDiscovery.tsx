@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { MapPin, Loader2 } from 'lucide-react';
+import { MapPin, Loader2, ChevronUp, ChevronDown } from 'lucide-react';
 import GPXLoader from './GPXLoader';
 
 export interface TrailInfo {
@@ -26,6 +26,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
   const [filterRegion, setFilterRegion] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<string | null>(null);
   const [showUploader, setShowUploader] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const onSelectTrailRef = useRef(onSelectTrail);
   useEffect(() => {
@@ -231,14 +232,25 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
   const types = Array.from(new Set(trails.map(t => t.type)));
 
   return (
-    <div className="absolute bottom-6 left-4 right-4 z-40 flex flex-col md:w-96 md:bottom-6 md:right-6 md:left-auto md:top-6 bg-black/80 backdrop-blur-xl border border-white/10 rounded-3xl p-5 shadow-2xl transition-all" dir="rtl">
-      <h2 className="text-xl font-extrabold text-white mb-5 flex items-center gap-2 tracking-tight">
-        <MapPin className="text-orange-500 fill-orange-500/20" size={24} /> 
-        גלה מסלולים
-      </h2>
+    <div className={`absolute left-4 right-4 z-40 flex flex-col md:w-[380px] md:bottom-6 md:right-6 md:left-auto md:top-6 md:max-h-[calc(100vh-3rem)] bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl transition-all
+      ${isExpanded ? 'bottom-6 top-24 rounded-3xl p-5' : 'bottom-6 rounded-2xl p-4 md:rounded-3xl md:p-5'} 
+      `} dir="rtl">
       
-      <div className="flex flex-col gap-4 mb-5">
-        <div className="flex flex-wrap gap-2">
+      <div 
+        className="flex justify-between items-center cursor-pointer md:cursor-default" 
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <h2 className={`font-extrabold text-white flex items-center gap-2 tracking-tight transition-all ${isExpanded ? 'text-xl mb-2 md:mb-5' : 'text-lg md:text-xl md:mb-5'}`}>
+          <MapPin className="text-orange-500 fill-orange-500/20" size={24} /> 
+          גלה מסלולים
+        </h2>
+        <button className="md:hidden text-zinc-400 p-1 flex items-center justify-center bg-white/5 rounded-full hover:bg-white/10 transition-colors">
+          {isExpanded ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
+        </button>
+      </div>
+      
+      <div className={`flex-col gap-4 md:flex overflow-hidden ${isExpanded ? 'flex flex-1 mt-2 md:mt-0' : 'hidden'}`}>
+        <div className="flex flex-wrap gap-2 shrink-0">
           {types.map(type => (
             <button
               key={type}
@@ -249,41 +261,41 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
             </button>
           ))}
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 shrink-0 pb-2 border-b border-white/5">
           {regions.map(region => (
             <button
               key={region}
               onClick={() => setFilterRegion(filterRegion === region ? null : region)}
-              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all shadow-sm ${filterRegion === region ? 'bg-emerald-500 text-white shadow-emerald-500/30' : 'bg-white/5 text-zinc-300 border border-white/10 hover:bg-white/10'}`}
+              className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all border ${filterRegion === region ? 'bg-white/20 text-white border-white/20' : 'bg-transparent text-zinc-400 border-white/10 hover:bg-white/5'}`}
             >
               {region}
             </button>
           ))}
         </div>
-      </div>
 
-      <div className="flex-1 overflow-y-auto min-h-[250px] max-h-[45vh] md:max-h-none flex flex-col gap-3 custom-scrollbar pr-2 pb-2">
-        {filteredTrails.length === 0 ? (
-          <div className="text-zinc-500 text-center py-10 text-sm font-medium">לא נמצאו מסלולים. נסה לשנות את הסינון.</div>
-        ) : (
-          filteredTrails.map(t => (
-            <div key={t.id} onClick={() => onSelectTrail(t.path, t.name)} className="bg-white/5 border border-white/5 p-4 rounded-2xl cursor-pointer hover:bg-white/10 hover:border-orange-500/40 transition-all flex justify-between items-center group shadow-sm">
-              <div className="flex flex-col gap-1.5">
-                <span className="text-white font-bold text-sm group-hover:text-orange-400 transition-colors">{t.name}</span>
-                <span className="text-[10px] font-bold tracking-wide text-zinc-400 uppercase bg-black/30 w-fit px-2 py-0.5 rounded-md">{t.type} • {t.region}</span>
+        <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar flex flex-col gap-3 min-h-0">
+          {filteredTrails.length === 0 ? (
+            <div className="text-zinc-500 text-center py-10 text-sm font-medium">לא נמצאו מסלולים. נסה לשנות את הסינון.</div>
+          ) : (
+            filteredTrails.map(t => (
+              <div key={t.id} onClick={() => onSelectTrail(t.path, t.name)} className="bg-white/5 border border-white/5 p-4 rounded-2xl cursor-pointer hover:bg-white/10 hover:border-orange-500/40 transition-all flex justify-between items-center group shadow-sm">
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-white font-bold text-sm group-hover:text-orange-400 transition-colors">{t.name}</span>
+                  <span className="text-[10px] font-bold tracking-wide text-zinc-400 uppercase bg-black/30 w-fit px-2 py-0.5 rounded-md">{t.type} • {t.region}</span>
+                </div>
               </div>
-            </div>
-          ))
-        )}
-      </div>
+            ))
+          )}
+        </div>
 
-      <div className="mt-5 pt-4 border-t border-white/10 text-center">
-        <button
-          onClick={() => setShowUploader(true)}
-          className="text-orange-400/80 hover:text-orange-400 text-sm font-bold transition-colors w-full py-2 rounded-xl hover:bg-orange-500/10"
-        >
-          העלה קובץ GPX אישי
-        </button>
+        <div className="mt-5 pt-4 border-t border-white/10 text-center">
+          <button
+            onClick={() => setShowUploader(true)}
+            className="shrink-0 w-full mt-2 text-xs font-bold text-orange-400 p-3 rounded-xl border border-orange-500/20 bg-orange-500/5 hover:bg-orange-500/10 transition-colors"
+          >
+            העלה קובץ GPX אישי
+          </button>
+        </div>
       </div>
 
       {loading && (
