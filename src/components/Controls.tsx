@@ -1,3 +1,5 @@
+import { Home } from "lucide-react";
+
 export default function Controls({
     onStyleChange,
     onToggle3D,
@@ -12,7 +14,10 @@ export default function Controls({
     onCompass,
     mapBearing,
     onFitToTrail,
+    onFitToTrail,
     hasTrail,
+    onHome,
+    tourProgress,
   }: {
     onStyleChange: (style: string) => void;
     onToggle3D: () => void;
@@ -28,10 +33,13 @@ export default function Controls({
     mapBearing: number;
     onFitToTrail: () => void;
     hasTrail: boolean;
+    hasTrail: boolean;
+    onHome?: () => void;
+    tourProgress?: number;
   }) {
     if (isTourActive) {
       return (
-        <div className="absolute bottom-24 left-4 right-4 md:left-1/2 md:top-auto md:right-auto md:-translate-x-1/2 flex flex-col md:flex-row gap-2 z-20" dir="rtl">
+        <div className="absolute bottom-12 left-4 right-4 md:left-1/2 md:top-auto md:right-auto md:-translate-x-1/2 flex flex-col md:flex-row gap-2 z-20" dir="rtl">
           {/* Virtual Tour Primary Button */}
           <div className="flex bg-zinc-900/90 rounded-xl p-1.5 border border-white/10 backdrop-blur-md gap-1 shadow-2xl flex-1 md:w-48">
             <button
@@ -73,6 +81,19 @@ export default function Controls({
     return (
       <div className="absolute left-4 top-4 flex flex-col gap-3 z-10 w-48" dir="rtl">
 
+        {/* Home Button */}
+        {hasTrail && onHome && (
+          <div className="flex bg-zinc-900/90 rounded-lg p-1.5 border border-white/10 backdrop-blur-md">
+            <button
+              onClick={onHome}
+              className="flex-1 flex items-center justify-center gap-2 text-sm text-white font-bold py-2 hover:bg-white/10 transition-colors rounded"
+            >
+              <Home className="w-4 h-4" />
+              מסך הבית
+            </button>
+          </div>
+        )}
+
         {/* Map style + live location */}
         <div className="flex flex-col bg-zinc-900/90 rounded-lg p-1.5 border border-white/10 backdrop-blur-md gap-1">
           <div className="flex gap-1">
@@ -109,7 +130,7 @@ export default function Controls({
             onClick={onFitToTrail}
             className="w-full bg-zinc-900/90 rounded-lg border border-white/10 backdrop-blur-md text-xs text-amber-400 font-bold py-2 px-3 hover:bg-white/10 transition-colors"
           >
-            חזור למסלול
+            חזור למפת המסלול
           </button>
         )}
 
@@ -130,7 +151,7 @@ export default function Controls({
               onClick={onToggleTour}
               className="w-full text-sm font-bold py-2.5 rounded transition-colors bg-orange-500 text-white hover:bg-orange-400"
             >
-              סיור וירטואלי
+              {(tourProgress && tourProgress > 0 && tourProgress < 1) ? 'המשך סיור' : 'סיור וירטואלי'}
             </button>
           </div>
         )}

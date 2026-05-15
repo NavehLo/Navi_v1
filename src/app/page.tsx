@@ -285,6 +285,8 @@ export default function TrailApp() {
         mapBearing={mapBearing}
         onFitToTrail={handleFitToTrail}
         hasTrail={!!trail}
+        onHome={() => setTrail(null)}
+        tourProgress={progress}
       />
 
       {/* AI Assistant Overlay */}
