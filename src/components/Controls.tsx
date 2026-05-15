@@ -14,7 +14,6 @@ export default function Controls({
     onCompass,
     mapBearing,
     onFitToTrail,
-    onFitToTrail,
     hasTrail,
     onHome,
     tourProgress,
@@ -32,7 +31,6 @@ export default function Controls({
     onCompass: () => void;
     mapBearing: number;
     onFitToTrail: () => void;
-    hasTrail: boolean;
     hasTrail: boolean;
     onHome?: () => void;
     tourProgress?: number;
