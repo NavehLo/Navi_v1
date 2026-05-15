@@ -6,9 +6,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive }: {
   const [collapsed, setCollapsed] = useState(isTourActive || false);
 
   useEffect(() => {
-    if (isTourActive) {
-      setCollapsed(true);
-    }
+    setCollapsed(!!isTourActive);
   }, [isTourActive]);
   const generateElevationPath = () => {
     if (!trail.elevations || trail.elevations.length === 0) return "";
@@ -29,8 +27,20 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive }: {
   };
 
   if (collapsed) {
+    if (isTourActive) {
+      return (
+        <button 
+          onClick={() => alert("אנא עצור את הסיור כדי להרחיב את נתוני המסלול.")} 
+          className="absolute bottom-40 right-4 md:top-[120px] md:right-4 md:bottom-auto bg-zinc-900/90 text-white px-4 py-2.5 rounded-full shadow-xl border border-white/10 z-10 backdrop-blur-md flex items-center gap-2 font-bold text-xs"
+        >
+          <ChevronUp className="w-4 h-4" />
+          הרחב נתונים
+        </button>
+      );
+    }
+
     return (
-      <div className={`absolute ${isTourActive ? 'top-[140px] md:top-[120px]' : 'bottom-16'} left-4 right-4 md:top-4 md:right-4 md:left-auto md:bottom-auto bg-zinc-900/90 p-4 rounded-2xl shadow-xl border border-white/10 z-10 md:w-96 backdrop-blur-md flex justify-between items-center transition-all`} dir="rtl">
+      <div className={`absolute bottom-16 left-4 right-4 md:top-4 md:right-4 md:left-auto md:bottom-auto bg-zinc-900/90 p-4 rounded-2xl shadow-xl border border-white/10 z-10 md:w-96 backdrop-blur-md flex justify-between items-center transition-all`} dir="rtl">
         <div className="flex items-center gap-3 overflow-hidden">
           {onClose && (
             <button onClick={onClose} className="p-2 bg-white/5 hover:bg-white/10 rounded-full transition-colors flex-shrink-0">

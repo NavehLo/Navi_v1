@@ -31,7 +31,7 @@ export default function Controls({
   }) {
     if (isTourActive) {
       return (
-        <div className="absolute bottom-16 left-4 right-4 md:left-1/2 md:top-auto md:right-auto md:-translate-x-1/2 flex flex-col md:flex-row gap-2 z-20" dir="rtl">
+        <div className="absolute bottom-24 left-4 right-4 md:left-1/2 md:top-auto md:right-auto md:-translate-x-1/2 flex flex-col md:flex-row gap-2 z-20" dir="rtl">
           {/* Virtual Tour Primary Button */}
           <div className="flex bg-zinc-900/90 rounded-xl p-1.5 border border-white/10 backdrop-blur-md gap-1 shadow-2xl flex-1 md:w-48">
             <button
