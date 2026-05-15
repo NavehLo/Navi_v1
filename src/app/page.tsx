@@ -266,7 +266,7 @@ export default function TrailApp() {
 
       {/* Stats UI Layer */}
       {trail && (
-        <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} />
+        <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} />
       )}
 
       {/* Map Controls */}

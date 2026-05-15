@@ -1,7 +1,15 @@
 import { TrailData } from "../hooks/useTrailData";
-import { X, ArrowRight } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronUp } from "lucide-react";
+import { useState, useEffect } from "react";
 
-export default function StatsPanel({ trail, progress, onClose }: { trail: TrailData, progress: number, onClose?: () => void }) {
+export default function StatsPanel({ trail, progress, onClose, isTourActive }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean }) {
+  const [collapsed, setCollapsed] = useState(isTourActive || false);
+
+  useEffect(() => {
+    if (isTourActive) {
+      setCollapsed(true);
+    }
+  }, [isTourActive]);
   const generateElevationPath = () => {
     if (!trail.elevations || trail.elevations.length === 0) return "";
     const w = 300;
@@ -20,21 +28,46 @@ export default function StatsPanel({ trail, progress, onClose }: { trail: TrailD
     return path;
   };
 
+  if (collapsed) {
+    return (
+      <div className={`absolute ${isTourActive ? 'top-[140px] md:top-[120px]' : 'bottom-16'} left-4 right-4 md:top-4 md:right-4 md:left-auto md:bottom-auto bg-zinc-900/90 p-4 rounded-2xl shadow-xl border border-white/10 z-10 md:w-96 backdrop-blur-md flex justify-between items-center transition-all`} dir="rtl">
+        <div className="flex items-center gap-3 overflow-hidden">
+          {onClose && (
+            <button onClick={onClose} className="p-2 bg-white/5 hover:bg-white/10 rounded-full transition-colors flex-shrink-0">
+              <ArrowRight className="w-4 h-4 text-zinc-300" />
+            </button>
+          )}
+          <div className="text-white font-bold text-sm truncate" title={trail.name}>{trail.name}</div>
+        </div>
+        <button onClick={() => {
+          if (!isTourActive) setCollapsed(false);
+          else alert("אנא עצור את הסיור כדי להרחיב את נתוני המסלול.");
+        }} className="text-xs bg-white/10 text-white px-3 py-1.5 rounded-full hover:bg-white/20 flex-shrink-0 mr-2 flex items-center gap-1">
+          <ChevronUp className="w-3 h-3" />
+          הרחב
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="absolute bottom-6 left-4 right-4 md:top-4 md:right-4 md:left-auto md:bottom-auto bg-zinc-900/90 p-5 md:p-6 rounded-3xl shadow-xl border border-white/10 z-10 md:w-96 backdrop-blur-md transition-all">
-      <div className="flex items-center gap-4">
+    <div className={`absolute ${isTourActive ? 'top-[140px] md:top-[120px]' : 'bottom-16'} left-4 right-4 md:top-4 md:right-4 md:left-auto md:bottom-auto bg-zinc-900/90 p-5 md:p-6 rounded-3xl shadow-xl border border-white/10 z-10 md:w-96 backdrop-blur-md transition-all`} dir="rtl">
+      <div className="flex justify-between items-center gap-4">
         {onClose && (
           <button 
             onClick={onClose} 
-            className="p-2.5 bg-white/5 hover:bg-white/10 rounded-full transition-colors flex-shrink-0"
+            className="p-2 bg-white/5 hover:bg-white/10 rounded-full transition-colors flex-shrink-0"
             title="חזור למפה"
           >
-            <ArrowRight className="w-6 h-6 text-zinc-300" />
+            <ArrowRight className="w-5 h-5 text-zinc-300" />
           </button>
         )}
-        <div className="text-xl font-bold text-white tracking-tight truncate flex-1" title={trail.name}>{trail.name}</div>
+        <div className="text-lg md:text-xl font-bold text-white tracking-tight truncate flex-1" title={trail.name}>{trail.name}</div>
+        <button onClick={() => setCollapsed(true)} className="p-2 bg-white/5 hover:bg-white/10 rounded-full transition-colors flex-shrink-0">
+          <ChevronDown className="w-5 h-5 text-zinc-300" />
+        </button>
       </div>
-      <div className="flex justify-between border-t border-white/10 pt-4 mt-5">
+      <div className="flex justify-between border-t border-white/10 pt-4 mt-4">
         <div className="text-center flex-1 z-border-l border-white/5 last:border-0 px-2">
           <div className="text-xs text-zinc-400 uppercase tracking-widest mb-1.5 font-bold">אורך מסלול</div>
           <div className="text-2xl font-bold text-sky-400">
