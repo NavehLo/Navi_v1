@@ -233,7 +233,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
 
   return (
     <div className={`absolute left-4 right-4 z-40 flex flex-col md:w-[380px] md:bottom-6 md:right-6 md:left-auto md:top-6 md:max-h-[calc(100vh-3rem)] bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl transition-all
-      ${isExpanded ? 'bottom-6 top-24 rounded-3xl p-5' : 'bottom-6 rounded-2xl p-4 md:rounded-3xl md:p-5'} 
+      ${isExpanded ? 'bottom-16 top-24 rounded-3xl p-5 md:bottom-6' : 'bottom-16 rounded-2xl p-4 md:rounded-3xl md:p-5 md:bottom-6'} 
       `} dir="rtl">
       
       <div 
