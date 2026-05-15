@@ -3,7 +3,7 @@ import mapboxgl from "mapbox-gl";
 import { TrailData } from "./useTrailData";
 import { getBearing } from "../utils/trailUtils";
 
-const FLY_SEC_PER_PT = 0.55;
+const SEC_PER_KM = 45;
 
 export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
   // External state just for UI reactivity
@@ -31,13 +31,40 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
   }, []);
 
   const lerpCoord = useCallback((t: number) => {
-    if (!trail) return [0, 0, 0];
-    const n = trail.coords.length - 1;
-    const fi = Math.min(t * n, n);
-    const lo = Math.floor(fi), hi = Math.min(lo + 1, n);
-    const frac = fi - lo;
+    if (!trail || !trail.accumulatedDistances) return [0, 0, 0];
+    const targetDistance = t * trail.totalDistance;
+    const n = trail.accumulatedDistances.length;
+
+    // Fast boundary checks
+    if (targetDistance <= 0) return trail.coords[0] || [0, 0, 0];
+    if (targetDistance >= trail.totalDistance) return trail.coords[n - 1] || [0, 0, 0];
+
+    // Binary search to find the segment
+    let low = 0;
+    let high = n - 1;
+    let lo = 0;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      if (trail.accumulatedDistances[mid] <= targetDistance) {
+        lo = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+
+    const hi = Math.min(lo + 1, n - 1);
+    const distLo = trail.accumulatedDistances[lo];
+    const distHi = trail.accumulatedDistances[hi];
+    
+    if (hi === lo || distHi === distLo) {
+      return trail.coords[lo] || [0,0,0];
+    }
+
+    const frac = (targetDistance - distLo) / (distHi - distLo);
     const c1 = trail.coords[lo];
     const c2 = trail.coords[hi];
+    
     return [
       c1[0] + (c2[0] - c1[0]) * frac,
       c1[1] + (c2[1] - c1[1]) * frac,
@@ -47,7 +74,7 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
 
   const runLoop = useCallback(() => {
     if (!map || !trail) return;
-    const totalDuration = trail.coords.length * FLY_SEC_PER_PT * 1000;
+    const totalDuration = trail.totalDistance * SEC_PER_KM * 1000;
 
     const tick = (ts: DOMHighResTimeStamp) => {
       if (!isActiveRef.current) return; // paused — stop silently
@@ -104,7 +131,7 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
   const startTour = useCallback(() => {
     if (!map || !trail) return;
 
-    const totalDuration = trail.coords.length * FLY_SEC_PER_PT * 1000;
+    const totalDuration = trail.totalDistance * SEC_PER_KM * 1000;
     const currentProgress = Math.min(virtualElapsedRef.current / totalDuration, 1);
     const isResume = currentProgress > 0 && currentProgress < 1;
 

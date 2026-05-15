@@ -31,16 +31,16 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive }: {
       return (
         <button 
           onClick={() => alert("אנא עצור את הסיור כדי להרחיב את נתוני המסלול.")} 
-          className="absolute bottom-40 right-4 md:top-[120px] md:right-4 md:bottom-auto bg-zinc-900/90 text-white px-4 py-2.5 rounded-full shadow-xl border border-white/10 z-10 backdrop-blur-md flex items-center gap-2 font-bold text-xs"
+          className="absolute md:hidden bottom-[140px] right-4 bg-zinc-900/90 text-white px-4 py-2.5 rounded-full shadow-xl border border-white/10 z-10 backdrop-blur-md flex items-center gap-2 font-bold text-xs"
         >
           <ChevronUp className="w-4 h-4" />
-          הרחב נתונים
+          הרחב
         </button>
       );
     }
 
     return (
-      <div className={`absolute bottom-16 left-4 right-4 md:top-4 md:right-4 md:left-auto md:bottom-auto bg-zinc-900/90 p-4 rounded-2xl shadow-xl border border-white/10 z-10 md:w-96 backdrop-blur-md flex justify-between items-center transition-all`} dir="rtl">
+      <div className="absolute bottom-16 left-4 right-4 md:top-4 md:right-4 md:left-auto md:bottom-auto bg-zinc-900/90 p-4 rounded-2xl shadow-xl border border-white/10 z-10 md:w-96 backdrop-blur-md flex justify-between items-center transition-all" dir="rtl">
         <div className="flex items-center gap-3 overflow-hidden">
           {onClose && (
             <button onClick={onClose} className="p-2 bg-white/5 hover:bg-white/10 rounded-full transition-colors flex-shrink-0">
