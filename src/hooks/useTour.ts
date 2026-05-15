@@ -184,7 +184,7 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
     progress,
     setProgressByJump: (pct: number) => {
       if (!trail) return;
-      virtualElapsedRef.current = (pct / 100) * (trail.coords.length * FLY_SEC_PER_PT * 1000);
+      virtualElapsedRef.current = (pct / 100) * (trail.totalDistance * SEC_PER_KM * 1000);
       const newT = pct / 100;
       setProgress(newT);
     }
