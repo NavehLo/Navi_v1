@@ -209,8 +209,8 @@ export default function TrailApp() {
       });
 
       // Fit bounds to the new trail so it shows on screen fully ONLY IF IT IS NEW
-      if (currentTrailIdRef.current !== trail.id) {
-        currentTrailIdRef.current = trail.id || "temp";
+      if (currentTrailIdRef.current !== trail.name) {
+        currentTrailIdRef.current = trail.name || "temp";
         const bounds = new mapboxgl.LngLatBounds();
         trail.coords.forEach(c => bounds.extend([c[1], c[0]]));
         map.fitBounds(bounds, { padding: 80, duration: 1500, pitch: 45 });
