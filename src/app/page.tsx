@@ -113,6 +113,30 @@ export default function TrailApp() {
     initializedMap.on('rotate', () => setMapBearing(initializedMap.getBearing()));
   }, []);
 
+  // Handle Android/Smartphone back button
+  useEffect(() => {
+    if (trail) {
+      // Add a history entry when a trail becomes active
+      window.history.pushState({ trailLoaded: true }, "");
+    }
+  }, [trail]);
+
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      if (trail) {
+        const confirmExit = window.confirm("האם ברצונך לצאת ממפת המסלול ולחזור למסך הבית?");
+        if (confirmExit) {
+          setTrail(null);
+        } else {
+          // Push state again to keep them on the trail
+          window.history.pushState({ trailLoaded: true }, "");
+        }
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [trail, setTrail]);
+
   const handleStyleChange = useCallback((styleKey: string) => {
     if (!map) return;
     const styleUrl = styleKey === 'satellite' ? 'mapbox://styles/mapbox/satellite-streets-v12' :

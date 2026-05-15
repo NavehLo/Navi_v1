@@ -142,7 +142,10 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
       // Resume from exact position
       runLoop();
     } else {
-      // Fresh start — jump immediately to trail start point
+      // Fresh start
+      virtualElapsedRef.current = 0;
+      setProgress(0);
+      
       const startPt = lerpByDist(0);
       const targetZoom = Math.max(map.getZoom(), 17);
       map.jumpTo({
@@ -165,6 +168,15 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
       }, 50);
     }
   }, [map, trail, lerpByDist, runLoop]);
+
+  // Reset tour state when a new trail is loaded
+  useEffect(() => {
+    setProgress(0);
+    virtualElapsedRef.current = 0;
+    isActiveRef.current = false;
+    setIsActive(false);
+    cancelLoop();
+  }, [trail, cancelLoop]);
 
   const stopTour = useCallback(() => {
     isActiveRef.current = false;
