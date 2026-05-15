@@ -30,14 +30,13 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
     }
   }, []);
 
-  const lerpCoord = useCallback((t: number) => {
+  const lerpByDist = useCallback((dist: number) => {
     if (!trail || !trail.accumulatedDistances) return [0, 0, 0];
-    const targetDistance = t * trail.totalDistance;
     const n = trail.accumulatedDistances.length;
 
     // Fast boundary checks
-    if (targetDistance <= 0) return trail.coords[0] || [0, 0, 0];
-    if (targetDistance >= trail.totalDistance) return trail.coords[n - 1] || [0, 0, 0];
+    if (dist <= 0) return trail.coords[0] || [0, 0, 0];
+    if (dist >= trail.totalDistance) return trail.coords[n - 1] || [0, 0, 0];
 
     // Binary search to find the segment
     let low = 0;
@@ -45,7 +44,7 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
     let lo = 0;
     while (low <= high) {
       const mid = Math.floor((low + high) / 2);
-      if (trail.accumulatedDistances[mid] <= targetDistance) {
+      if (trail.accumulatedDistances[mid] <= dist) {
         lo = mid;
         low = mid + 1;
       } else {
@@ -61,7 +60,7 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
       return trail.coords[lo] || [0,0,0];
     }
 
-    const frac = (targetDistance - distLo) / (distHi - distLo);
+    const frac = (dist - distLo) / (distHi - distLo);
     const c1 = trail.coords[lo];
     const c2 = trail.coords[hi];
     
@@ -88,8 +87,10 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
       const t = Math.min(virtualElapsedRef.current / totalDuration, 1);
       setProgress(t);
 
-      const pt = lerpCoord(t);
-      const ptAhead = lerpCoord(Math.min(t + 0.015, 1));
+      const targetDistance = t * trail.totalDistance;
+      const pt = lerpByDist(targetDistance);
+      // Look ahead exactly 30 meters (0.03 km) for bearing, regardless of trail length
+      const ptAhead = lerpByDist(Math.min(targetDistance + 0.03, trail.totalDistance));
 
       let targetBearing = currentBearingRef.current;
       if (ptAhead[0] !== pt[0] || ptAhead[1] !== pt[1]) {
@@ -107,14 +108,11 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
       map.setBearing(currentBearingRef.current);
 
       if (map.getSource('fly-pos')) {
-        if (ts - lastGeoJsonUpdateRef.current > 40) {
-          (map.getSource('fly-pos') as mapboxgl.GeoJSONSource).setData({
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: [pt[1], pt[0], pt[2] || 0] },
-            properties: {}
-          });
-          lastGeoJsonUpdateRef.current = ts;
-        }
+        (map.getSource('fly-pos') as mapboxgl.GeoJSONSource).setData({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [pt[1], pt[0], pt[2] || 0] },
+          properties: {}
+        });
       }
 
       if (t < 1) {
@@ -126,7 +124,7 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
     };
 
     rafRef.current = requestAnimationFrame(tick);
-  }, [map, trail, lerpCoord]);
+  }, [map, trail, lerpByDist]);
 
   const startTour = useCallback(() => {
     if (!map || !trail) return;
@@ -145,7 +143,7 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
       runLoop();
     } else {
       // Fresh start — jump immediately to trail start point
-      const startPt = lerpCoord(0);
+      const startPt = lerpByDist(0);
       const targetZoom = Math.max(map.getZoom(), 17);
       map.jumpTo({
         center: [startPt[1], startPt[0]],
@@ -166,7 +164,7 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
         if (isActiveRef.current) runLoop();
       }, 50);
     }
-  }, [map, trail, lerpCoord, runLoop]);
+  }, [map, trail, lerpByDist, runLoop]);
 
   const stopTour = useCallback(() => {
     isActiveRef.current = false;
