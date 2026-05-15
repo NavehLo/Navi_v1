@@ -206,6 +206,9 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
 
     return () => {
       map.off('style.load', tryAddLayers);
+      // Clean up lingering popups
+      document.querySelectorAll('.trail-hover-popup').forEach(p => p.remove());
+      
       // Don't remove layers on unmount, just hide data
       try {
         if (map && map.isStyleLoaded() && map.getSource(sourceId)) {

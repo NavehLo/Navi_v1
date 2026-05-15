@@ -21,7 +21,7 @@ export default function StatsPanel({ trail, progress, onClose }: { trail: TrailD
   };
 
   return (
-    <div className="absolute top-4 right-4 bg-zinc-900/90 p-6 rounded-3xl shadow-xl border border-white/10 z-10 w-96 backdrop-blur-md transition-all">
+    <div className="absolute bottom-6 left-4 right-4 md:top-4 md:right-4 md:left-auto md:bottom-auto bg-zinc-900/90 p-5 md:p-6 rounded-3xl shadow-xl border border-white/10 z-10 md:w-96 backdrop-blur-md transition-all">
       <div className="flex items-center gap-4">
         {onClose && (
           <button 
