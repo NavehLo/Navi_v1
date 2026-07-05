@@ -19,6 +19,8 @@ const AUDIO_MIME: Record<string, string> = {
   wav: "audio/wav",
 };
 
+export const AI_PROVIDER_STORAGE_KEY = "ai_provider";
+
 export function useAIGuide() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isSynthesizerActive, setIsSynthesizerActive] = useState(false);
@@ -123,6 +125,11 @@ export function useAIGuide() {
     audioRef.current?.pause();
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 
+    const providerPref = typeof window !== "undefined"
+      ? localStorage.getItem(AI_PROVIDER_STORAGE_KEY) || "auto"
+      : "auto";
+    if (cacheKey) cacheKey = `${providerPref}:${cacheKey}`;
+
     const cached = cacheKey ? cacheRef.current.get(cacheKey) : undefined;
     if (cached) {
       setCurrentScript(cached.text);
@@ -148,7 +155,8 @@ export function useAIGuide() {
           lat: coord[0],
           lon: coord[1],
           month: currentMonth,
-          type: typeName
+          type: typeName,
+          provider: localStorage.getItem(AI_PROVIDER_STORAGE_KEY) || undefined
         })
       });
 

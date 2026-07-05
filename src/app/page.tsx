@@ -7,10 +7,14 @@ import StatsPanel from "@/components/StatsPanel";
 import TrailDiscovery from "@/components/TrailDiscovery";
 import Controls from "@/components/Controls";
 import AIAssistantUI from "@/components/AIAssistantUI";
+import SettingsPanel from "@/components/SettingsPanel";
+import PersonalArea from "@/components/PersonalArea";
 import { useTrailData } from "@/hooks/useTrailData";
 import { useTour } from "@/hooks/useTour";
 import { useAIGuide } from "@/hooks/useAIGuide";
 import { usePOIGeofence } from "@/hooks/usePOIGeofence";
+import { useAuth } from "@/hooks/useAuth";
+import { saveTrail, recordTour, SavedTrail } from "@/lib/personalArea";
 
 const MemoizedMapComponent = memo(MapComponent);
 const MemoizedTrailDiscovery = memo(TrailDiscovery);
@@ -79,13 +83,71 @@ export default function TrailApp() {
   const [mapBearing, setMapBearing] = useState(0);
   const [styleRev, setStyleRev] = useState(0);
   
-  const { trail, setTrail, loadTrailFile, loadTrailFromUrl, trailError, trailLoading } = useTrailData();
+  const { trail, setTrail, trailSource, loadTrailFile, loadTrailFromUrl, loadTrailFromText, trailError, trailLoading } = useTrailData();
   const { isActive: isTourActive, startTour, stopTour, speed: tourSpeed, setSpeed: setTourSpeed, progress, setProgressByJump } = useTour(map, trail);
   const { requestGuideForPoint, unlockAudio, isSpeaking, isLoading, currentScript, stopSpeaking } = useAIGuide();
 
   // Real GPS "field mode": continuous tracking that feeds the POI geofence
   const [isFieldMode, setIsFieldMode] = useState(false);
   const [gpsPos, setGpsPos] = useState<{ lat: number; lon: number } | null>(null);
+
+  // Auth + personal area + settings
+  const { user, signInWithGoogle, signOut, isAuthAvailable } = useAuth();
+  const [showSettings, setShowSettings] = useState(false);
+  const [showPersonalArea, setShowPersonalArea] = useState(false);
+  const [saveTrailState, setSaveTrailState] = useState<'idle' | 'saving' | 'saved'>('idle');
+
+  // Reset the save indicator whenever a different trail loads
+  useEffect(() => {
+    setSaveTrailState('idle');
+  }, [trail?.name]);
+
+  const handleSaveTrail = useCallback(async () => {
+    if (!trail || !user) return;
+    setSaveTrailState('saving');
+    try {
+      await saveTrail({
+        name: trail.name,
+        sourceUrl: trailSource?.kind === 'url' ? trailSource.url : null,
+        sourceContent: trailSource?.kind === 'file' ? trailSource.content : null,
+        totalDistance: trail.totalDistance,
+      });
+      setSaveTrailState('saved');
+    } catch (e) {
+      console.error('Save trail failed:', e);
+      alert('שגיאה בשמירת המסלול. ודא שהרצת את קובץ הסכמה ב-Supabase.');
+      setSaveTrailState('idle');
+    }
+  }, [trail, user, trailSource]);
+
+  const handleLoadSavedTrail = useCallback((saved: SavedTrail) => {
+    setShowPersonalArea(false);
+    if (saved.source_url) {
+      loadTrailFromUrl(saved.source_url, saved.name);
+    } else if (saved.source_content) {
+      loadTrailFromText(saved.source_content, saved.name);
+    } else {
+      alert('למסלול השמור אין מקור לטעינה.');
+    }
+  }, [loadTrailFromUrl, loadTrailFromText]);
+
+  // Record a completed virtual tour in the personal history (once per trail load)
+  const tourRecordedRef = useRef(false);
+  useEffect(() => {
+    tourRecordedRef.current = false;
+  }, [trail?.name]);
+  useEffect(() => {
+    if (!user || !trail || tourRecordedRef.current) return;
+    if (progress >= 0.995) {
+      tourRecordedRef.current = true;
+      recordTour({
+        trailName: trail.name,
+        distanceKm: trail.totalDistance,
+        completedPct: 100,
+        mode: 'virtual',
+      }).catch((e) => console.error('Tour history record failed:', e));
+    }
+  }, [progress, user, trail]);
 
   // Virtual position of the tour camera, interpolated from progress
   // (index-based, mirroring the progress-bar jump logic below)
@@ -361,7 +423,26 @@ export default function TrailApp() {
         hasTrail={!!trail}
         onHome={() => setTrail(null)}
         tourProgress={progress}
+        onOpenSettings={() => setShowSettings(true)}
+        authAvailable={isAuthAvailable}
+        isSignedIn={!!user}
+        onAuthClick={() => user ? setShowPersonalArea(true) : signInWithGoogle()}
+        onSaveTrail={handleSaveTrail}
+        saveTrailState={saveTrailState}
       />
+
+      {/* Settings modal */}
+      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
+
+      {/* Personal area modal */}
+      {showPersonalArea && user && (
+        <PersonalArea
+          user={user}
+          onClose={() => setShowPersonalArea(false)}
+          onSignOut={() => { signOut(); setShowPersonalArea(false); }}
+          onLoadSavedTrail={handleLoadSavedTrail}
+        />
+      )}
 
       {/* AI Assistant Overlay */}
       {trail && (

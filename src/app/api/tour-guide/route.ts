@@ -15,19 +15,31 @@ const TTS_INSTRUCTIONS =
 
 type Provider = 'openai' | 'gemini' | 'claude';
 
-// Explicit AI_PROVIDER wins if its key is set; otherwise first available key.
-function pickTextProvider(): Provider | null {
-  const has: Record<Provider, boolean> = {
+function availableProviders(): Record<Provider, boolean> {
+  return {
     openai: !!process.env.OPENAI_API_KEY,
     gemini: !!process.env.GEMINI_API_KEY,
     claude: !!process.env.ANTHROPIC_API_KEY,
   };
+}
+
+// Priority: user's in-app choice → AI_PROVIDER env → first available key.
+function pickTextProvider(requested?: string): Provider | null {
+  const has = availableProviders();
+  const req = requested?.toLowerCase() as Provider | undefined;
+  if (req && has[req]) return req;
   const explicit = process.env.AI_PROVIDER?.toLowerCase() as Provider | undefined;
   if (explicit && has[explicit]) return explicit;
   if (has.openai) return 'openai';
   if (has.gemini) return 'gemini';
   if (has.claude) return 'claude';
   return null;
+}
+
+// Lets the settings UI show only providers that actually have a key configured.
+// Booleans only — no secrets leave the server.
+export async function GET() {
+  return NextResponse.json({ providers: availableProviders() });
 }
 
 // ── Text generation, one function per provider ────────────────────────────────
@@ -99,7 +111,13 @@ async function generateText(provider: Provider, system: string, user: string): P
 
 // ── Text-to-speech. Claude has no TTS, so audio always comes from OpenAI or
 //    Gemini when their key is present; otherwise null → browser speechSynthesis.
-async function generateSpeech(text: string): Promise<{ audio: string; format: string } | null> {
+//    When the user picked a provider that has TTS, prefer that provider's voice.
+async function generateSpeech(text: string, preferred: Provider): Promise<{ audio: string; format: string } | null> {
+  const geminiFirst = preferred === 'gemini' && !!process.env.GEMINI_API_KEY;
+  if (geminiFirst) {
+    const g = await generateSpeechGemini(text);
+    if (g) return g;
+  }
   if (process.env.OPENAI_API_KEY) {
     try {
       const res = await fetch('https://api.openai.com/v1/audio/speech', {
@@ -127,41 +145,45 @@ async function generateSpeech(text: string): Promise<{ audio: string; format: st
     }
   }
 
-  if (process.env.GEMINI_API_KEY) {
-    try {
-      const model = process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts';
-      const voice = process.env.GEMINI_TTS_VOICE || 'Kore';
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text }] }],
-            generationConfig: {
-              responseModalities: ['AUDIO'],
-              speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
-            },
-          }),
-        }
-      );
-      if (!res.ok) {
-        console.error('Gemini TTS error:', res.status, await res.text());
-        return null;
-      }
-      const data = await res.json();
-      const part = data.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
-      if (!part) return null;
-      // Gemini returns raw PCM (e.g. audio/L16;rate=24000) — wrap in a WAV header
-      const rate = parseInt(/rate=(\d+)/.exec(part.inlineData.mimeType || '')?.[1] || '24000', 10);
-      return { audio: pcmToWav(part.inlineData.data, rate), format: 'wav' };
-    } catch (e) {
-      console.error('Gemini TTS failed:', e);
-      return null;
-    }
+  if (!geminiFirst && process.env.GEMINI_API_KEY) {
+    return generateSpeechGemini(text);
   }
 
   return null;
+}
+
+async function generateSpeechGemini(text: string): Promise<{ audio: string; format: string } | null> {
+  try {
+    const model = process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts';
+    const voice = process.env.GEMINI_TTS_VOICE || 'Kore';
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text }] }],
+          generationConfig: {
+            responseModalities: ['AUDIO'],
+            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
+          },
+        }),
+      }
+    );
+    if (!res.ok) {
+      console.error('Gemini TTS error:', res.status, await res.text());
+      return null;
+    }
+    const data = await res.json();
+    const part = data.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
+    if (!part) return null;
+    // Gemini returns raw PCM (e.g. audio/L16;rate=24000) — wrap in a WAV header
+    const rate = parseInt(/rate=(\d+)/.exec(part.inlineData.mimeType || '')?.[1] || '24000', 10);
+    return { audio: pcmToWav(part.inlineData.data, rate), format: 'wav' };
+  } catch (e) {
+    console.error('Gemini TTS failed:', e);
+    return null;
+  }
 }
 
 // Wrap 16-bit mono PCM (base64) in a minimal WAV header so browsers can play it.
@@ -189,9 +211,9 @@ function pcmToWav(pcmBase64: string, sampleRate: number): string {
 
 export async function POST(request: Request) {
   try {
-    const { lat, lon, month, type } = await request.json();
+    const { lat, lon, month, type, provider: requestedProvider } = await request.json();
     const typeDesc = POI_TYPE_HE[type] ?? type ?? 'נקודת עניין';
-    const provider = pickTextProvider();
+    const provider = pickTextProvider(requestedProvider);
 
     // No provider key configured → mocked text, no audio (dev/demo mode)
     if (!provider) {
@@ -207,7 +229,7 @@ export async function POST(request: Request) {
     const text = await generateText(provider, SYSTEM_PROMPT, userPrompt);
 
     // Chain to TTS; audio stays null on failure — text alone is a valid response
-    const speech = await generateSpeech(text);
+    const speech = await generateSpeech(text, provider);
 
     return NextResponse.json({
       text,

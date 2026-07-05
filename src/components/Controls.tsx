@@ -1,4 +1,4 @@
-import { Home } from "lucide-react";
+import { Home, Settings, UserCircle2, BookmarkPlus, Check } from "lucide-react";
 
 export default function Controls({
     onStyleChange,
@@ -19,6 +19,12 @@ export default function Controls({
     hasTrail,
     onHome,
     tourProgress,
+    onOpenSettings,
+    authAvailable,
+    isSignedIn,
+    onAuthClick,
+    onSaveTrail,
+    saveTrailState,
   }: {
     onStyleChange: (style: string) => void;
     onToggle3D: () => void;
@@ -38,6 +44,12 @@ export default function Controls({
     hasTrail: boolean;
     onHome?: () => void;
     tourProgress?: number;
+    onOpenSettings?: () => void;
+    authAvailable?: boolean;
+    isSignedIn?: boolean;
+    onAuthClick?: () => void;
+    onSaveTrail?: () => void;
+    saveTrailState?: 'idle' | 'saving' | 'saved';
   }) {
     return (
       <>
@@ -93,6 +105,32 @@ export default function Controls({
           </div>
         ) : (
           <div className="absolute left-4 top-4 flex flex-col gap-3 z-10 w-48" dir="rtl">
+            {/* Settings + personal area */}
+            <div className="flex gap-2">
+              {onOpenSettings && (
+                <button
+                  onClick={onOpenSettings}
+                  className="flex-1 flex items-center justify-center gap-1.5 bg-zinc-900/90 rounded-lg border border-white/10 backdrop-blur-md text-xs text-zinc-300 font-bold py-2 hover:bg-white/10 transition-colors"
+                  title="הגדרות"
+                >
+                  <Settings size={14} /> הגדרות
+                </button>
+              )}
+              {authAvailable && onAuthClick && (
+                <button
+                  onClick={onAuthClick}
+                  className={`flex-1 flex items-center justify-center gap-1.5 bg-zinc-900/90 rounded-lg border backdrop-blur-md text-xs font-bold py-2 transition-colors ${
+                    isSignedIn
+                      ? 'border-orange-500/40 text-orange-400 hover:bg-orange-500/10'
+                      : 'border-white/10 text-zinc-300 hover:bg-white/10'
+                  }`}
+                  title={isSignedIn ? 'האזור האישי' : 'התחבר עם Google'}
+                >
+                  <UserCircle2 size={14} /> {isSignedIn ? 'אזור אישי' : 'התחבר'}
+                </button>
+              )}
+            </div>
+
             {/* Map style + live location */}
             <div className="flex flex-col bg-zinc-900/90 rounded-lg p-1.5 border border-white/10 backdrop-blur-md gap-1">
               <div className="flex gap-1">
@@ -139,6 +177,27 @@ export default function Controls({
                 className="w-full bg-zinc-900/90 rounded-lg border border-white/10 backdrop-blur-md text-xs text-amber-400 font-bold py-2 px-3 hover:bg-white/10 transition-colors"
               >
                 חזור למפת המסלול
+              </button>
+            )}
+
+            {/* Save trail to personal area */}
+            {hasTrail && isSignedIn && onSaveTrail && (
+              <button
+                onClick={onSaveTrail}
+                disabled={saveTrailState !== 'idle'}
+                className={`w-full flex items-center justify-center gap-1.5 rounded-lg border backdrop-blur-md text-xs font-bold py-2 px-3 transition-colors ${
+                  saveTrailState === 'saved'
+                    ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400'
+                    : 'bg-zinc-900/90 border-white/10 text-sky-400 hover:bg-white/10'
+                }`}
+              >
+                {saveTrailState === 'saved' ? (
+                  <><Check size={14} /> נשמר באזור האישי</>
+                ) : saveTrailState === 'saving' ? (
+                  'שומר...'
+                ) : (
+                  <><BookmarkPlus size={14} /> שמור מסלול</>
+                )}
               </button>
             )}
 

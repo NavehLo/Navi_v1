@@ -18,8 +18,14 @@ export interface TrailData {
   pois: { index: number, coord: Coordinate3D, type: string }[];
 }
 
+// Where the current trail came from — needed to persist it to the personal area
+export type TrailSource =
+  | { kind: 'url'; url: string }
+  | { kind: 'file'; content: string };
+
 export function useTrailData() {
   const [trail, setTrail] = useState<TrailData | null>(null);
+  const [trailSource, setTrailSource] = useState<TrailSource | null>(null);
   const [trailError, setTrailError] = useState<string | null>(null);
   const [trailLoading, setTrailLoading] = useState(false);
 
@@ -74,6 +80,7 @@ export function useTrailData() {
         }
 
         processCoordinates(parsedCoords, trailName);
+        setTrailSource({ kind: 'file', content: text });
       } catch (err: any) {
         setTrailError('שגיאה בעיבוד הקובץ: ' + (err?.message || String(err)));
       }
@@ -122,6 +129,42 @@ export function useTrailData() {
       }
 
       processCoordinates(parsedCoords, trailName);
+      setTrailSource({ kind: 'url', url });
+      setTrailLoading(false);
+    } catch (err: any) {
+      setTrailError('שגיאה בטעינת המסלול: ' + (err?.message || String(err)));
+      setTrailLoading(false);
+    }
+  };
+
+  // Reload a trail persisted as raw GPX/KML text (saved personal uploads)
+  const loadTrailFromText = (text: string, fallbackName: string) => {
+    setTrailError(null);
+    setTrailLoading(true);
+    try {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(text, 'text/xml');
+      if (xmlDoc.querySelector('parsererror')) {
+        setTrailError('המסלול השמור פגום ולא ניתן לטעינה.');
+        setTrailLoading(false);
+        return;
+      }
+
+      let trailName = fallbackName;
+      const nameNode = xmlDoc.getElementsByTagName('name')[0];
+      if (nameNode?.textContent) trailName = nameNode.textContent.trim();
+
+      const isKml = xmlDoc.documentElement.nodeName.toLowerCase().includes('kml');
+      const parsedCoords = isKml ? parseKML(xmlDoc) : parseGPX(xmlDoc);
+
+      if (parsedCoords.length === 0) {
+        setTrailError('לא נמצאו נקודות מסלול במסלול השמור.');
+        setTrailLoading(false);
+        return;
+      }
+
+      processCoordinates(parsedCoords, trailName);
+      setTrailSource({ kind: 'file', content: text });
       setTrailLoading(false);
     } catch (err: any) {
       setTrailError('שגיאה בטעינת המסלול: ' + (err?.message || String(err)));
@@ -189,5 +232,5 @@ export function useTrailData() {
     });
   };
 
-  return { trail, setTrail, trailError, trailLoading, loadTrailFile, loadTrailFromUrl, processCoordinates };
+  return { trail, setTrail, trailSource, trailError, trailLoading, loadTrailFile, loadTrailFromUrl, loadTrailFromText, processCoordinates };
 }
