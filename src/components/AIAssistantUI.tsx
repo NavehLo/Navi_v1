@@ -1,4 +1,4 @@
-import { Volume2, Loader2, StopCircle } from "lucide-react";
+import { Volume2, Loader2, StopCircle, X } from "lucide-react";
 
 interface AIAssistantUIProps {
   isLoading: boolean;
@@ -46,11 +46,21 @@ export default function AIAssistantUI({ isLoading, isSpeaking, currentScript, on
           </div>
 
           {!isLoading && isSpeaking && (
-            <button 
+            <button
               onClick={onStop}
               className="text-zinc-500 hover:text-red-400 transition-colors p-1"
             >
               <StopCircle className="w-6 h-6" />
+            </button>
+          )}
+
+          {/* Text-only mode (no audio) — allow dismissing back to the idle button */}
+          {!isLoading && !isSpeaking && currentScript && (
+            <button
+              onClick={onStop}
+              className="text-zinc-500 hover:text-white transition-colors p-1"
+            >
+              <X className="w-5 h-5" />
             </button>
           )}
         </div>

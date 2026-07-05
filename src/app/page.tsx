@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, memo, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, memo, useRef } from "react";
 import mapboxgl from "mapbox-gl";
 import MapComponent from "@/components/Map";
 import StatsPanel from "@/components/StatsPanel";
@@ -10,6 +10,7 @@ import AIAssistantUI from "@/components/AIAssistantUI";
 import { useTrailData } from "@/hooks/useTrailData";
 import { useTour } from "@/hooks/useTour";
 import { useAIGuide } from "@/hooks/useAIGuide";
+import { usePOIGeofence } from "@/hooks/usePOIGeofence";
 
 const MemoizedMapComponent = memo(MapComponent);
 const MemoizedTrailDiscovery = memo(TrailDiscovery);
@@ -80,32 +81,33 @@ export default function TrailApp() {
   
   const { trail, setTrail, loadTrailFile, loadTrailFromUrl, trailError, trailLoading } = useTrailData();
   const { isActive: isTourActive, startTour, stopTour, speed: tourSpeed, setSpeed: setTourSpeed, progress, setProgressByJump } = useTour(map, trail);
-  const { requestGuideForPoint, isSpeaking, isLoading, currentScript, stopSpeaking } = useAIGuide();
+  const { requestGuideForPoint, unlockAudio, isSpeaking, isLoading, currentScript, stopSpeaking } = useAIGuide();
 
-  // AI Automatic trigger logic during Tour
-  if (typeof window !== 'undefined' && !(window as any)._lastTriggeredPOI) {
-    (window as any)._lastTriggeredPOI = {};
-  }
+  // Real GPS "field mode": continuous tracking that feeds the POI geofence
+  const [isFieldMode, setIsFieldMode] = useState(false);
+  const [gpsPos, setGpsPos] = useState<{ lat: number; lon: number } | null>(null);
 
-  // Trigger guide at Start, Middle, End
-  /* 
-  if (isTourActive && trail && trail.pois) {
-    const currentPOI = trail.pois.find((p) => {
-      const poiProgress = trail.coords.length > 1 ? p.index / (trail.coords.length - 1) : 0;
-      return Math.abs(progress - poiProgress) < 0.003;
-    });
+  // Virtual position of the tour camera, interpolated from progress
+  // (index-based, mirroring the progress-bar jump logic below)
+  const virtualPos = useMemo(() => {
+    if (!trail || !isTourActive) return null;
+    const n = trail.coords.length - 1;
+    if (n < 1) return null;
+    const fi = Math.min(progress * n, n);
+    const lo = Math.floor(fi), hi = Math.min(lo + 1, n), frac = fi - lo;
+    const c1 = trail.coords[lo], c2 = trail.coords[hi];
+    return { lat: c1[0] + (c2[0] - c1[0]) * frac, lon: c1[1] + (c2[1] - c1[1]) * frac };
+  }, [trail, isTourActive, progress]);
 
-    if (currentPOI && !(window as any)._lastTriggeredPOI[currentPOI.type]) {
-      (window as any)._lastTriggeredPOI[currentPOI.type] = true;
-      requestGuideForPoint(currentPOI.coord, currentPOI.type);
-    }
-  }
+  // During a virtual tour the camera is the "traveler"; in field mode it's the real GPS
+  const guidePos = isTourActive ? virtualPos : (isFieldMode ? gpsPos : null);
 
-  // Reset triggers when tour is not active to allow re-playing
-  if (!isTourActive && typeof window !== 'undefined') {
-    (window as any)._lastTriggeredPOI = {};
-  }
-  */
+  const { reset: resetGeofence } = usePOIGeofence(
+    trail,
+    guidePos,
+    (poi) => requestGuideForPoint(poi.coord, poi.type, `${trail!.name}:${poi.index}`),
+    { enabled: isTourActive || isFieldMode }
+  );
 
   const handleMapLoad = useCallback((initializedMap: mapboxgl.Map) => {
     setMap(initializedMap);
@@ -158,6 +160,24 @@ export default function TrailApp() {
     }
   }, [map, is3D]);
 
+  const updateUserLocLayer = useCallback((longitude: number, latitude: number) => {
+    if (!map) return;
+    if (!map.getSource("user-loc")) {
+      map.addSource("user-loc", {
+        type: "geojson",
+        data: { type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [longitude, latitude] } }
+      });
+      map.addLayer({
+        id: "user-loc-dot", type: "circle", source: "user-loc",
+        paint: { "circle-radius": 8, "circle-color": "#38bdf8", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 }
+      });
+    } else {
+      (map.getSource("user-loc") as mapboxgl.GeoJSONSource).setData({
+        type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [longitude, latitude] }
+      });
+    }
+  }, [map]);
+
   const handleLocateUser = useCallback(() => {
     if (!navigator.geolocation || !map) {
       alert("הדפדפן שלך לא תומך באיתור מיקום");
@@ -165,25 +185,45 @@ export default function TrailApp() {
     }
     navigator.geolocation.getCurrentPosition((pos) => {
       const { longitude, latitude } = pos.coords;
-      if (!map.getSource("user-loc")) {
-        map.addSource("user-loc", {
-          type: "geojson",
-          data: { type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [longitude, latitude] } }
-        });
-        map.addLayer({
-          id: "user-loc-dot", type: "circle", source: "user-loc",
-          paint: { "circle-radius": 8, "circle-color": "#38bdf8", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 }
-        });
-      } else {
-        (map.getSource("user-loc") as mapboxgl.GeoJSONSource).setData({
-          type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [longitude, latitude] }
-        });
-      }
+      updateUserLocLayer(longitude, latitude);
       map.easeTo({ center: [longitude, latitude], zoom: 14, duration: 1500 });
     }, (err) => {
       alert("שגיאה באיתור מיקום: " + err.message);
     });
-  }, [map]);
+  }, [map, updateUserLocLayer]);
+
+  // Field mode: continuous GPS tracking via watchPosition
+  useEffect(() => {
+    if (!isFieldMode) {
+      setGpsPos(null);
+      return;
+    }
+    if (!navigator.geolocation) {
+      alert("הדפדפן שלך לא תומך באיתור מיקום");
+      setIsFieldMode(false);
+      return;
+    }
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const { longitude, latitude } = pos.coords;
+        setGpsPos({ lat: latitude, lon: longitude });
+        updateUserLocLayer(longitude, latitude);
+      },
+      (err) => {
+        alert("שגיאה באיתור מיקום: " + err.message);
+        setIsFieldMode(false);
+      },
+      { enableHighAccuracy: true }
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [isFieldMode, updateUserLocLayer]);
+
+  const handleToggleFieldMode = useCallback(() => {
+    setIsFieldMode(prev => {
+      if (!prev) unlockAudio(); // toggle-on is a user gesture — unlock audio for TTS
+      return !prev;
+    });
+  }, [unlockAudio]);
 
   const handleZoomIn = useCallback(() => map?.zoomIn(), [map]);
   const handleZoomOut = useCallback(() => map?.zoomOut(), [map]);
@@ -298,11 +338,21 @@ export default function TrailApp() {
         onStyleChange={handleStyleChange}
         onToggle3D={handleToggle3D}
         is3D={is3D}
-        onToggleTour={() => isTourActive ? stopTour() : startTour()}
+        onToggleTour={() => {
+          if (isTourActive) {
+            stopTour();
+          } else {
+            unlockAudio(); // first user gesture unlocks audio for auto-narration
+            if (progress === 0 || progress >= 1) resetGeofence();
+            startTour();
+          }
+        }}
         isTourActive={isTourActive}
         tourSpeed={tourSpeed}
         onTourSpeedChange={setTourSpeed}
         onLocateUser={handleLocateUser}
+        isFieldMode={isFieldMode}
+        onToggleFieldMode={handleToggleFieldMode}
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
         onCompass={handleCompass}
@@ -314,17 +364,18 @@ export default function TrailApp() {
       />
 
       {/* AI Assistant Overlay */}
-      {/* 
       {trail && (
-        <AIAssistantUI 
+        <AIAssistantUI
           isLoading={isLoading}
           isSpeaking={isSpeaking}
           currentScript={currentScript}
           onStop={stopSpeaking}
-          onManualTrigger={() => requestGuideForPoint(trail.start!, 'start')}
+          onManualTrigger={() => {
+            unlockAudio();
+            requestGuideForPoint(trail.pois[0].coord, trail.pois[0].type, `${trail.name}:${trail.pois[0].index}`);
+          }}
         />
-      )} 
-      */}
+      )}
 
       {/* Tour Progress Bar */}
       {trail && progress > 0 && Math.floor(progress * trail.coords.length) < trail.coords.length && (

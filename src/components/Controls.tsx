@@ -9,6 +9,8 @@ export default function Controls({
     tourSpeed,
     onTourSpeedChange,
     onLocateUser,
+    isFieldMode,
+    onToggleFieldMode,
     onZoomIn,
     onZoomOut,
     onCompass,
@@ -26,6 +28,8 @@ export default function Controls({
     tourSpeed?: number;
     onTourSpeedChange?: (speed: number) => void;
     onLocateUser: () => void;
+    isFieldMode?: boolean;
+    onToggleFieldMode?: () => void;
     onZoomIn: () => void;
     onZoomOut: () => void;
     onCompass: () => void;
@@ -101,6 +105,15 @@ export default function Controls({
               >
                 מיקום חי
               </button>
+              {hasTrail && onToggleFieldMode && (
+                <button
+                  onClick={onToggleFieldMode}
+                  className={`text-xs p-2 rounded text-center border-t border-white/5 font-bold transition-colors ${isFieldMode ? 'bg-sky-500 text-white' : 'text-sky-400 hover:bg-white/10'}`}
+                  title="מעקב GPS רציף — המדריך יופעל אוטומטית ליד נקודות עניין"
+                >
+                  {isFieldMode ? 'מצב שטח פעיל' : 'מצב שטח'}
+                </button>
+              )}
             </div>
 
             {/* Zoom + Compass */}
