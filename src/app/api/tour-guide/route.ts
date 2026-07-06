@@ -211,21 +211,22 @@ function pcmToWav(pcmBase64: string, sampleRate: number): string {
 
 export async function POST(request: Request) {
   try {
-    const { lat, lon, month, type, provider: requestedProvider } = await request.json();
+    const { lat, lon, month, type, name, provider: requestedProvider } = await request.json();
     const typeDesc = POI_TYPE_HE[type] ?? type ?? 'נקודת עניין';
+    const place = name ? `${typeDesc} "${name}"` : typeDesc;
     const provider = pickTextProvider(requestedProvider);
 
     // No provider key configured → mocked text, no audio (dev/demo mode)
     if (!provider) {
       console.warn('No AI provider key found. Returning mocked response.');
       return NextResponse.json({
-        text: `ברוכים הבאים ל${typeDesc} בנ"צ ${lat.toFixed(3)}, ${lon.toFixed(3)}. בחודש ${month} הפריחה כאן בשיאה, אפשר לראות כאן כלניות ונוריות. תהנו מהסיור!`,
+        text: `ברוכים הבאים ל${place} בנ"צ ${lat.toFixed(3)}, ${lon.toFixed(3)}. בחודש ${month} הפריחה כאן בשיאה, אפשר לראות כאן כלניות ונוריות. תהנו מהסיור!`,
         audio: null,
         audioFormat: 'mp3',
       });
     }
 
-    const userPrompt = `המטייל נמצא עכשיו ב${typeDesc}, בנ.צ: קו רוחב ${lat}, קו אורך ${lon}. חודש נוכחי: ${month}. הקרא מדריך לנקודה זו.`;
+    const userPrompt = `המטייל נמצא עכשיו ב${place}, בנ.צ: קו רוחב ${lat}, קו אורך ${lon}. חודש נוכחי: ${month}. הקרא מדריך קצר לנקודה זו — אם יש שם למקום, התייחס אליו ולמה שמייחד אותו.`;
     const text = await generateText(provider, SYSTEM_PROMPT, userPrompt);
 
     // Chain to TTS; audio stays null on failure — text alone is a valid response

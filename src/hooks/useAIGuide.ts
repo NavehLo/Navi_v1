@@ -119,7 +119,7 @@ export function useAIGuide() {
     setCurrentScript(null);
   }, []);
 
-  const requestGuideForPoint = useCallback(async (coord: Coordinate3D, typeName: string, cacheKey?: string) => {
+  const requestGuideForPoint = useCallback(async (coord: Coordinate3D, typeName: string, cacheKey?: string, poiName?: string | null) => {
     // Newest request wins: cancel in-flight fetch and current narration
     abortRef.current?.abort();
     audioRef.current?.pause();
@@ -156,6 +156,7 @@ export function useAIGuide() {
           lon: coord[1],
           month: currentMonth,
           type: typeName,
+          name: poiName || undefined,
           provider: localStorage.getItem(AI_PROVIDER_STORAGE_KEY) || undefined
         })
       });

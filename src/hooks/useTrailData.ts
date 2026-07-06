@@ -1,6 +1,13 @@
 import { useState } from 'react';
 import { Coordinate3D, parseGPX, parseKML, getDistance } from '../utils/trailUtils';
 
+export interface TrailPOI {
+  index: number;
+  coord: Coordinate3D;
+  type: string;
+  name?: string | null;
+}
+
 export interface TrailData {
   name: string;
   coords: Coordinate3D[];
@@ -15,7 +22,7 @@ export interface TrailData {
   start: Coordinate3D | null;
   end: Coordinate3D | null;
   geoJson: any;
-  pois: { index: number, coord: Coordinate3D, type: string }[];
+  pois: TrailPOI[];
 }
 
 // Where the current trail came from — needed to persist it to the personal area

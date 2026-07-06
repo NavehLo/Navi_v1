@@ -13,6 +13,7 @@ import { useTrailData } from "@/hooks/useTrailData";
 import { useTour } from "@/hooks/useTour";
 import { useAIGuide } from "@/hooks/useAIGuide";
 import { usePOIGeofence } from "@/hooks/usePOIGeofence";
+import { useTrailPOIs } from "@/hooks/useTrailPOIs";
 import { useAuth } from "@/hooks/useAuth";
 import { saveTrail, recordTour, SavedTrail } from "@/lib/personalArea";
 
@@ -164,11 +165,15 @@ export default function TrailApp() {
   // During a virtual tour the camera is the "traveler"; in field mode it's the real GPS
   const guidePos = isTourActive ? virtualPos : (isFieldMode ? gpsPos : null);
 
+  // Real POIs discovered along the trail (waterfalls, viewpoints, ruins...),
+  // enriching the synthetic start/midway/end. Best-effort; falls back gracefully.
+  const enrichedPois = useTrailPOIs(trail);
+
   const { reset: resetGeofence } = usePOIGeofence(
-    trail,
+    enrichedPois,
     guidePos,
-    (poi) => requestGuideForPoint(poi.coord, poi.type, `${trail!.name}:${poi.index}`),
-    { enabled: isTourActive || isFieldMode }
+    (poi) => requestGuideForPoint(poi.coord, poi.type, `${trail!.name}:${poi.index}:${poi.type}`, poi.name),
+    { enabled: isTourActive || isFieldMode, resetKey: trail?.name }
   );
 
   const handleMapLoad = useCallback((initializedMap: mapboxgl.Map) => {
@@ -372,6 +377,59 @@ export default function TrailApp() {
       }
     };
   }, [map, trail, styleRev]);
+
+  // Render discovered POI markers (with Hebrew labels) on the map
+  useEffect(() => {
+    if (!map) return;
+
+    const namedPois = enrichedPois.filter(p => p.type !== 'start' && p.type !== 'end' && p.type !== 'midway');
+
+    const syncPoiLayers = () => {
+      if (!map.getStyle()) return;
+      const fc = {
+        type: 'FeatureCollection',
+        features: namedPois.map(p => ({
+          type: 'Feature',
+          properties: { label: p.name ? `${p.type} · ${p.name}` : p.type },
+          geometry: { type: 'Point', coordinates: [p.coord[1], p.coord[0]] },
+        })),
+      };
+      if (!map.getSource('trail-pois')) {
+        map.addSource('trail-pois', { type: 'geojson', data: fc as any });
+        map.addLayer({
+          id: 'trail-poi-dot', type: 'circle', source: 'trail-pois',
+          paint: {
+            'circle-radius': 6,
+            'circle-color': '#22d3ee',
+            'circle-stroke-color': '#ffffff',
+            'circle-stroke-width': 2,
+          },
+        });
+        map.addLayer({
+          id: 'trail-poi-label', type: 'symbol', source: 'trail-pois',
+          layout: {
+            'text-field': ['get', 'label'],
+            'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
+            'text-size': 12,
+            'text-offset': [0, 1.4],
+            'text-anchor': 'top',
+            'text-allow-overlap': false,
+          },
+          paint: {
+            'text-color': '#e0f2fe',
+            'text-halo-color': '#0c4a6e',
+            'text-halo-width': 1.5,
+          },
+        });
+      } else {
+        (map.getSource('trail-pois') as mapboxgl.GeoJSONSource).setData(fc as any);
+      }
+    };
+
+    try { syncPoiLayers(); } catch (e) {}
+    map.on('style.load', syncPoiLayers);
+    return () => { map.off('style.load', syncPoiLayers); };
+  }, [map, enrichedPois, styleRev]);
 
   return (
     <div className="w-full h-screen relative bg-zinc-900 overflow-hidden m-0 p-0 select-none touch-none" dir="rtl">
