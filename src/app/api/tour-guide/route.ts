@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { rateLimit, clientIp } from '../../../lib/rateLimit';
+import { bearerToken, checkAndIncrementGuideQuota } from '../../../lib/supabaseServer';
+
+// Per signed-in user (real quota, tied to identity via Supabase).
+const DAILY_LIMIT_PER_USER = parseInt(process.env.GUIDE_DAILY_LIMIT_PER_USER || '30', 10);
+// Per IP, only for anonymous (not signed in) callers.
+const DAILY_LIMIT_ANON = parseInt(process.env.GUIDE_DAILY_LIMIT_ANON || '8', 10);
 
 // ── POI type → Hebrew description (unknown types pass through for future use) ──
 const POI_TYPE_HE: Record<string, string> = {
@@ -238,9 +244,30 @@ function pcmToWav(pcmBase64: string, sampleRate: number): string {
 
 export async function POST(request: Request) {
   try {
-    // 20 guide requests per minute per IP — generous for a tour, caps abuse
-    if (!rateLimit(`guide:${clientIp(request)}`, 20, 60_000)) {
+    // Burst protection for everyone: 20 requests/min per IP, regardless of login
+    if (!(await rateLimit(`guide:${clientIp(request)}`, 20, 60_000))) {
       return NextResponse.json({ error: 'יותר מדי בקשות. נסה שוב בעוד רגע.' }, { status: 429 });
+    }
+
+    // Real per-user daily quota (ties cost to an actual account, not just an IP)
+    const token = bearerToken(request);
+    if (token) {
+      const quota = await checkAndIncrementGuideQuota(token, DAILY_LIMIT_PER_USER);
+      if (quota.configured && !quota.allowed) {
+        return NextResponse.json(
+          { error: `הגעת למכסה היומית (${DAILY_LIMIT_PER_USER} קריינויות ליום). נסה שוב מחר.` },
+          { status: 429 }
+        );
+      }
+    } else {
+      // Not signed in — fall back to a modest daily cap per IP
+      const allowed = await rateLimit(`guide:daily:${clientIp(request)}`, DAILY_LIMIT_ANON, 24 * 60 * 60 * 1000);
+      if (!allowed) {
+        return NextResponse.json(
+          { error: 'הגעת למכסה היומית להתנסות ללא התחברות. התחבר עם Google לקבלת מכסה גדולה יותר.' },
+          { status: 429 }
+        );
+      }
     }
 
     const { lat, lon, month, type, name, provider: requestedProvider } = await request.json();

@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Coordinate3D } from "../utils/trailUtils";
+import { supabase } from "../lib/supabase";
 
 // Tiny silent WAV — played once on a user gesture to unlock the shared
 // audio element for later programmatic playback (iOS Safari autoplay policy).
@@ -147,9 +148,18 @@ export function useAIGuide() {
     const currentMonth = monthNames[new Date().getMonth()];
 
     try {
+      // Attach the signed-in user's token so the server can enforce a real
+      // per-account daily quota instead of just an IP-based one.
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (supabase) {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData.session?.access_token;
+        if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+      }
+
       const response = await fetch('/api/tour-guide', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         signal: controller.signal,
         body: JSON.stringify({
           lat: coord[0],
@@ -162,6 +172,13 @@ export function useAIGuide() {
       });
 
       const data = await response.json();
+
+      if (!response.ok) {
+        // Rate limit / quota message — show it in the guide UI instead of failing silently
+        setCurrentScript(data.error || 'שגיאה בקבלת המדריך. נסה שוב.');
+        return;
+      }
+
       if (data.text) {
         const format = data.audioFormat || "mp3";
         if (cacheKey) cacheRef.current.set(cacheKey, { text: data.text, audioB64: data.audio ?? null, audioFormat: format });

@@ -83,7 +83,7 @@ out center ${MAX_RESULTS * 2};
 export async function POST(request: Request) {
   try {
     // POI discovery is heavier (external Overpass) — 10/min per IP
-    if (!rateLimit(`pois:${clientIp(request)}`, 10, 60_000)) {
+    if (!(await rateLimit(`pois:${clientIp(request)}`, 10, 60_000))) {
       return NextResponse.json({ pois: [] }, { status: 429 });
     }
 
