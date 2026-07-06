@@ -292,6 +292,34 @@ export default function TrailApp() {
     });
   }, [unlockAudio]);
 
+  // Open a shared trail link: /?trail=<encoded url> auto-loads that trail
+  const didLoadFromUrlRef = useRef(false);
+  useEffect(() => {
+    if (didLoadFromUrlRef.current) return;
+    didLoadFromUrlRef.current = true;
+    const shared = new URLSearchParams(window.location.search).get('trail');
+    if (shared) {
+      loadTrailFromUrl(shared);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [loadTrailFromUrl]);
+
+  // Share the current trail (only trails with a URL source can be re-opened)
+  const handleShare = useCallback(async () => {
+    if (!trail || trailSource?.kind !== 'url') return;
+    const shareUrl = `${window.location.origin}/?trail=${encodeURIComponent(trailSource.url)}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: `מסלול: ${trail.name}`, text: `בוא לטייל ב${trail.name} עם Navi`, url: shareUrl });
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+        alert('הקישור למסלול הועתק ללוח 📋');
+      }
+    } catch (e) {
+      // user cancelled the share sheet — ignore
+    }
+  }, [trail, trailSource]);
+
   const handleZoomIn = useCallback(() => map?.zoomIn(), [map]);
   const handleZoomOut = useCallback(() => map?.zoomOut(), [map]);
   const handleCompass = useCallback(() => map?.easeTo({ bearing: 0, pitch: map.getPitch(), duration: 800 }), [map]);
@@ -487,6 +515,8 @@ export default function TrailApp() {
         onAuthClick={() => user ? setShowPersonalArea(true) : signInWithGoogle()}
         onSaveTrail={handleSaveTrail}
         saveTrailState={saveTrailState}
+        canShare={trailSource?.kind === 'url'}
+        onShare={handleShare}
       />
 
       {/* Settings modal */}

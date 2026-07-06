@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
+import { rateLimit, clientIp } from '../../../lib/rateLimit';
 
 export interface DiscoveredPOI {
   lat: number;
@@ -81,6 +82,11 @@ out center ${MAX_RESULTS * 2};
 
 export async function POST(request: Request) {
   try {
+    // POI discovery is heavier (external Overpass) — 10/min per IP
+    if (!rateLimit(`pois:${clientIp(request)}`, 10, 60_000)) {
+      return NextResponse.json({ pois: [] }, { status: 429 });
+    }
+
     const { coords } = (await request.json()) as { coords: [number, number][] };
     if (!Array.isArray(coords) || coords.length < 2) {
       return NextResponse.json({ error: 'coords required' }, { status: 400 });

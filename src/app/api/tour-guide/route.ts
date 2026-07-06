@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import crypto from 'crypto';
+import { rateLimit, clientIp } from '../../../lib/rateLimit';
 
 // ── POI type → Hebrew description (unknown types pass through for future use) ──
 const POI_TYPE_HE: Record<string, string> = {
@@ -113,6 +115,19 @@ async function generateText(provider: Provider, system: string, user: string): P
 //    Gemini when their key is present; otherwise null → browser speechSynthesis.
 //    When the user picked a provider that has TTS, prefer that provider's voice.
 async function generateSpeech(text: string, preferred: Provider): Promise<{ audio: string; format: string } | null> {
+  const cacheKey = ttsCacheKey(text);
+  const cached = audioCache.get(cacheKey);
+  if (cached) return cached;
+
+  const result = await generateSpeechUncached(text, preferred);
+  if (result) {
+    if (audioCache.size > 200) audioCache.delete(audioCache.keys().next().value!);
+    audioCache.set(cacheKey, result);
+  }
+  return result;
+}
+
+async function generateSpeechUncached(text: string, preferred: Provider): Promise<{ audio: string; format: string } | null> {
   const geminiFirst = preferred === 'gemini' && !!process.env.GEMINI_API_KEY;
   if (geminiFirst) {
     const g = await generateSpeechGemini(text);
@@ -150,6 +165,18 @@ async function generateSpeech(text: string, preferred: Provider): Promise<{ audi
   }
 
   return null;
+}
+
+// Server-side audio cache keyed by voice signature + text. Saves a second TTS
+// call when the same narration is requested again on a warm instance.
+const audioCache = new Map<string, { audio: string; format: string }>();
+
+function ttsCacheKey(text: string): string {
+  const sig = [
+    process.env.OPENAI_API_KEY ? `o:${process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts'}:${process.env.OPENAI_TTS_VOICE || 'nova'}` : '',
+    process.env.GEMINI_API_KEY ? `g:${process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts'}:${process.env.GEMINI_TTS_VOICE || 'Kore'}` : '',
+  ].join('|');
+  return crypto.createHash('sha1').update(sig + '::' + text).digest('hex');
 }
 
 async function generateSpeechGemini(text: string): Promise<{ audio: string; format: string } | null> {
@@ -211,6 +238,11 @@ function pcmToWav(pcmBase64: string, sampleRate: number): string {
 
 export async function POST(request: Request) {
   try {
+    // 20 guide requests per minute per IP — generous for a tour, caps abuse
+    if (!rateLimit(`guide:${clientIp(request)}`, 20, 60_000)) {
+      return NextResponse.json({ error: 'יותר מדי בקשות. נסה שוב בעוד רגע.' }, { status: 429 });
+    }
+
     const { lat, lon, month, type, name, provider: requestedProvider } = await request.json();
     const typeDesc = POI_TYPE_HE[type] ?? type ?? 'נקודת עניין';
     const place = name ? `${typeDesc} "${name}"` : typeDesc;

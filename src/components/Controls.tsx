@@ -1,4 +1,4 @@
-import { Home, Settings, UserCircle2, BookmarkPlus, Check } from "lucide-react";
+import { Home, Settings, UserCircle2, BookmarkPlus, Check, Share2 } from "lucide-react";
 
 export default function Controls({
     onStyleChange,
@@ -25,6 +25,8 @@ export default function Controls({
     onAuthClick,
     onSaveTrail,
     saveTrailState,
+    canShare,
+    onShare,
   }: {
     onStyleChange: (style: string) => void;
     onToggle3D: () => void;
@@ -50,6 +52,8 @@ export default function Controls({
     onAuthClick?: () => void;
     onSaveTrail?: () => void;
     saveTrailState?: 'idle' | 'saving' | 'saved';
+    canShare?: boolean;
+    onShare?: () => void;
   }) {
     return (
       <>
@@ -170,14 +174,25 @@ export default function Controls({
               <button onClick={onZoomOut} className="flex-1 text-white text-lg font-bold py-2 hover:bg-white/10 transition-colors">&#8722;</button>
             </div>
 
-            {/* Fit to trail */}
+            {/* Fit to trail + share */}
             {hasTrail && (
-              <button
-                onClick={onFitToTrail}
-                className="w-full bg-zinc-900/90 rounded-lg border border-white/10 backdrop-blur-md text-xs text-amber-400 font-bold py-2 px-3 hover:bg-white/10 transition-colors"
-              >
-                חזור למפת המסלול
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={onFitToTrail}
+                  className="flex-1 bg-zinc-900/90 rounded-lg border border-white/10 backdrop-blur-md text-xs text-amber-400 font-bold py-2 px-3 hover:bg-white/10 transition-colors"
+                >
+                  חזור למפת המסלול
+                </button>
+                {canShare && onShare && (
+                  <button
+                    onClick={onShare}
+                    title="שתף מסלול"
+                    className="shrink-0 bg-zinc-900/90 rounded-lg border border-white/10 backdrop-blur-md text-emerald-400 font-bold py-2 px-3 hover:bg-white/10 transition-colors flex items-center justify-center"
+                  >
+                    <Share2 size={15} />
+                  </button>
+                )}
+              </div>
             )}
 
             {/* Save trail to personal area */}
