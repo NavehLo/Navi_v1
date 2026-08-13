@@ -15,7 +15,7 @@ import { useAIGuide } from "@/hooks/useAIGuide";
 import { usePOIGeofence } from "@/hooks/usePOIGeofence";
 import { useTrailPOIs } from "@/hooks/useTrailPOIs";
 import { useAuth } from "@/hooks/useAuth";
-import { saveTrail, recordTour, SavedTrail } from "@/lib/personalArea";
+import { saveTrail, recordTour, SavedTrail, describeSupabaseError, clearPersonalCache } from "@/lib/personalArea";
 
 const MemoizedMapComponent = memo(MapComponent);
 const MemoizedTrailDiscovery = memo(TrailDiscovery);
@@ -116,7 +116,7 @@ export default function TrailApp() {
       setSaveTrailState('saved');
     } catch (e) {
       console.error('Save trail failed:', e);
-      alert('שגיאה בשמירת המסלול. ודא שהרצת את קובץ הסכמה ב-Supabase.');
+      alert(describeSupabaseError(e));
       setSaveTrailState('idle');
     }
   }, [trail, user, trailSource]);
@@ -527,7 +527,7 @@ export default function TrailApp() {
         <PersonalArea
           user={user}
           onClose={() => setShowPersonalArea(false)}
-          onSignOut={() => { signOut(); setShowPersonalArea(false); }}
+          onSignOut={() => { clearPersonalCache(); signOut(); setShowPersonalArea(false); }}
           onLoadSavedTrail={handleLoadSavedTrail}
         />
       )}

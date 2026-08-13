@@ -251,6 +251,7 @@ export async function POST(request: Request) {
 
     // Real per-user daily quota (ties cost to an actual account, not just an IP)
     const token = bearerToken(request);
+    let quotaEnforced = false;
     if (token) {
       const quota = await checkAndIncrementGuideQuota(token, DAILY_LIMIT_PER_USER);
       if (quota.configured && !quota.allowed) {
@@ -259,12 +260,22 @@ export async function POST(request: Request) {
           { status: 429 }
         );
       }
-    } else {
-      // Not signed in — fall back to a modest daily cap per IP
+      quotaEnforced = quota.configured;
+    }
+
+    // No per-account quota was applied — either the caller isn't signed in, or
+    // Supabase is unreachable (e.g. a paused free-tier project). Either way the
+    // per-IP daily cap has to hold the line, otherwise an outage on their side
+    // turns into unmetered TTS spend on ours.
+    if (!quotaEnforced) {
       const allowed = await rateLimit(`guide:daily:${clientIp(request)}`, DAILY_LIMIT_ANON, 24 * 60 * 60 * 1000);
       if (!allowed) {
         return NextResponse.json(
-          { error: 'הגעת למכסה היומית להתנסות ללא התחברות. התחבר עם Google לקבלת מכסה גדולה יותר.' },
+          {
+            error: token
+              ? 'שירות המכסה אינו זמין כרגע, ולכן חלה מכסה יומית מצומצמת. נסה שוב מאוחר יותר.'
+              : 'הגעת למכסה היומית להתנסות ללא התחברות. התחבר עם Google לקבלת מכסה גדולה יותר.',
+          },
           { status: 429 }
         );
       }

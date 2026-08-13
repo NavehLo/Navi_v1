@@ -20,6 +20,29 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Keeping Supabase awake
+
+Supabase pauses free-tier projects after **7 days without activity**. When that
+happens Google login, the personal area and the per-user guide quota all stop
+working (the rest of the app keeps running — see `src/lib/personalArea.ts` for
+how the UI degrades).
+
+`vercel.json` registers a daily cron that calls `/api/keepalive`, which performs
+one anonymous read against the database. That single request is enough to keep
+the project counted as active.
+
+- Set a `CRON_SECRET` env var in Vercel to lock the route down — Vercel Cron
+  sends it automatically as `Authorization: Bearer $CRON_SECRET`. Without the
+  var the route stays open.
+- The route answers `503` when Supabase is unreachable, so a failed ping shows
+  up in Vercel's logs instead of passing silently.
+- Not on Vercel? Any daily scheduler works, e.g. a GitHub Actions job running
+  `curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://<your-app>/api/keepalive`.
+
+Once a project is already paused, the cron can't revive it — unpause it from the
+Supabase dashboard (possible for 90 days after the pause; the project ref, URL
+and anon key stay the same, so no redeploy is needed).
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

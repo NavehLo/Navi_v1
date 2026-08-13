@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import type { User } from "@supabase/supabase-js";
-import { X, MapPin, History, Star, Trash2, Loader2, LogOut, Route } from "lucide-react";
+import { X, MapPin, History, Star, Trash2, Loader2, LogOut, Route, WifiOff, RefreshCw } from "lucide-react";
 import {
   SavedTrail,
   TourHistoryEntry,
@@ -10,6 +10,9 @@ import {
   listTourHistory,
   listTrailNotes,
   upsertTrailNote,
+  cachePersonalData,
+  readCachedPersonalData,
+  describeSupabaseError,
 } from "../lib/personalArea";
 
 interface PersonalAreaProps {
@@ -27,22 +30,37 @@ export default function PersonalArea({ user, onClose, onSignOut, onLoadSavedTrai
   const [history, setHistory] = useState<TourHistoryEntry[] | null>(null);
   const [notes, setNotes] = useState<Map<string, TrailNote>>(new Map());
   const [error, setError] = useState<string | null>(null);
+  const [cachedAt, setCachedAt] = useState<string | null>(null); // מוצג כשהנתונים מגיעים מהמטמון
+  const [refreshing, setRefreshing] = useState(false);
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [ratingDraft, setRatingDraft] = useState<number | null>(null);
 
+  const readOnly = cachedAt !== null; // אין חיבור — אפשר לצפות ולטעון, לא לערוך
+
   const refresh = useCallback(async () => {
     setError(null);
+    setRefreshing(true);
     try {
       const [t, h, n] = await Promise.all([listSavedTrails(), listTourHistory(), listTrailNotes()]);
       setTrails(t);
       setHistory(h);
       setNotes(new Map(n.map((x) => [x.trail_name, x])));
-    } catch (e: any) {
+      setCachedAt(null);
+      cachePersonalData(user.id, { trails: t, history: h, notes: n });
+    } catch (e) {
       console.error("Personal area load failed:", e);
-      setError("שגיאה בטעינת הנתונים. ודא שהרצת את קובץ הסכמה ב-Supabase.");
+      setError(describeSupabaseError(e));
+      // נפילה חזרה לתמונת המצב האחרונה, כדי שהמסלולים השמורים יישארו זמינים
+      const cached = readCachedPersonalData(user.id);
+      setTrails(cached?.trails ?? []);
+      setHistory(cached?.history ?? []);
+      setNotes(new Map((cached?.notes ?? []).map((x) => [x.trail_name, x])));
+      setCachedAt(cached?.cachedAt ?? null);
+    } finally {
+      setRefreshing(false);
     }
-  }, []);
+  }, [user.id]);
 
   useEffect(() => {
     refresh();
@@ -52,9 +70,12 @@ export default function PersonalArea({ user, onClose, onSignOut, onLoadSavedTrai
     if (!window.confirm("למחוק את המסלול השמור?")) return;
     try {
       await deleteSavedTrail(id);
-      setTrails((prev) => prev?.filter((t) => t.id !== id) ?? null);
+      const next = (trails ?? []).filter((t) => t.id !== id);
+      setTrails(next);
+      cachePersonalData(user.id, { trails: next, history: history ?? [], notes: [...notes.values()] });
     } catch (e) {
       console.error(e);
+      setError(describeSupabaseError(e));
     }
   };
 
@@ -69,14 +90,15 @@ export default function PersonalArea({ user, onClose, onSignOut, onLoadSavedTrai
     if (!editingNote) return;
     try {
       await upsertTrailNote({ trailName: editingNote, rating: ratingDraft, note: noteDraft || null });
-      setNotes((prev) => {
-        const next = new Map(prev);
-        next.set(editingNote, { trail_name: editingNote, rating: ratingDraft, note: noteDraft || null });
-        return next;
-      });
+      const next = new Map(notes);
+      next.set(editingNote, { trail_name: editingNote, rating: ratingDraft, note: noteDraft || null });
+      setNotes(next);
+      cachePersonalData(user.id, { trails: trails ?? [], history: history ?? [], notes: [...next.values()] });
       setEditingNote(null);
     } catch (e) {
       console.error(e);
+      setError(describeSupabaseError(e));
+      setEditingNote(null);
     }
   };
 
@@ -153,16 +175,38 @@ export default function PersonalArea({ user, onClose, onSignOut, onLoadSavedTrai
         {/* Content */}
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 flex flex-col gap-3 min-h-[200px]">
           {error && (
-            <div className="bg-red-950/60 border border-red-500/40 rounded-xl p-3 text-red-300 text-xs">{error}</div>
+            <div className="bg-red-950/60 border border-red-500/40 rounded-xl p-3 text-red-300 text-xs flex items-start justify-between gap-3">
+              <span>{error}</span>
+              <button
+                onClick={refresh}
+                disabled={refreshing}
+                className="shrink-0 flex items-center gap-1 font-bold text-red-200 hover:text-white transition-colors disabled:opacity-50"
+              >
+                <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} /> נסה שוב
+              </button>
+            </div>
+          )}
+
+          {readOnly && (
+            <div className="bg-amber-950/50 border border-amber-500/30 rounded-xl p-3 text-amber-300 text-xs flex items-center gap-2">
+              <WifiOff size={14} className="shrink-0" />
+              <span>
+                מוצגים נתונים שמורים מהמכשיר (עודכנו {new Date(cachedAt!).toLocaleDateString("he-IL")}).
+                אפשר לטעון מסלולים, אבל שמירה ועריכה לא זמינות כרגע.
+              </span>
+            </div>
           )}
 
           {tab === "trails" && (
             trails === null ? (
               <Loader2 className="w-6 h-6 animate-spin text-orange-500 mx-auto mt-8" />
             ) : trails.length === 0 ? (
-              <p className="text-zinc-500 text-sm text-center mt-8">
-                אין עדיין מסלולים שמורים.<br />טען מסלול ולחץ על "שמור מסלול".
-              </p>
+              // בלי התניה ב-error, כישלון טעינה היה נראה כמו "אין מסלולים"
+              error ? null : (
+                <p className="text-zinc-500 text-sm text-center mt-8">
+                  אין עדיין מסלולים שמורים.<br />טען מסלול ולחץ על "שמור מסלול".
+                </p>
+              )
             ) : (
               trails.map((t) => (
                 <div key={t.id} className="bg-white/5 border border-white/5 rounded-2xl p-4">
@@ -177,7 +221,11 @@ export default function PersonalArea({ user, onClose, onSignOut, onLoadSavedTrai
                         נשמר {new Date(t.created_at).toLocaleDateString("he-IL")}
                       </span>
                     </button>
-                    <button onClick={() => handleDelete(t.id)} className="text-zinc-600 hover:text-red-400 transition-colors p-1">
+                    <button
+                      onClick={() => handleDelete(t.id)}
+                      disabled={readOnly}
+                      className="text-zinc-600 hover:text-red-400 transition-colors p-1 disabled:opacity-30 disabled:hover:text-zinc-600"
+                    >
                       <Trash2 size={15} />
                     </button>
                   </div>
@@ -185,7 +233,8 @@ export default function PersonalArea({ user, onClose, onSignOut, onLoadSavedTrai
                     <Stars trailName={t.name} />
                     <button
                       onClick={() => openNoteEditor(t.name)}
-                      className="text-[11px] font-bold text-sky-400 hover:text-sky-300 transition-colors"
+                      disabled={readOnly}
+                      className="text-[11px] font-bold text-sky-400 hover:text-sky-300 transition-colors disabled:opacity-40 disabled:hover:text-sky-400"
                     >
                       {notes.get(t.name)?.note ? "ערוך הערה" : "הוסף הערה ודירוג"}
                     </button>
@@ -202,9 +251,11 @@ export default function PersonalArea({ user, onClose, onSignOut, onLoadSavedTrai
             history === null ? (
               <Loader2 className="w-6 h-6 animate-spin text-orange-500 mx-auto mt-8" />
             ) : history.length === 0 ? (
-              <p className="text-zinc-500 text-sm text-center mt-8">
-                אין עדיין סיורים בהיסטוריה.<br />צא לסיור וירטואלי והוא יתועד כאן אוטומטית.
-              </p>
+              error ? null : (
+                <p className="text-zinc-500 text-sm text-center mt-8">
+                  אין עדיין סיורים בהיסטוריה.<br />צא לסיור וירטואלי והוא יתועד כאן אוטומטית.
+                </p>
+              )
             ) : (
               history.map((h) => (
                 <div key={h.id} className="bg-white/5 border border-white/5 rounded-2xl p-4 flex justify-between items-center">
