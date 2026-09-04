@@ -39,7 +39,16 @@ export async function POST(request: Request) {
       dicta:
         'text' in dicta
           ? { ok: true, text: dicta.text, changed: dicta.text !== text, error: null }
-          : { ok: false, text: null, changed: false, error: dicta.error },
+          : {
+              ok: false,
+              text: null,
+              changed: false,
+              error: dicta.error,
+              // What Nakdan actually sent back. Without it an unrecognised
+              // shape is a dead end: the response cannot be inspected from a
+              // machine that has no route to DICTA in the first place.
+              raw: dicta.raw ?? null,
+            },
       // Named so a wrong or retired endpoint is visible rather than guessed at.
       endpoint: dictaEndpoint(),
     });

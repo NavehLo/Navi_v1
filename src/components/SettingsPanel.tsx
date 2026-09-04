@@ -55,7 +55,7 @@ interface NiqqudCheck {
   text: string;
   active: "lexicon" | "dicta";
   lexicon: { text: string; changed: boolean };
-  dicta: { ok: boolean; text: string | null; changed: boolean; error: string | null };
+  dicta: { ok: boolean; text: string | null; changed: boolean; error: string | null; raw?: string | null };
   endpoint: string;
 }
 
@@ -554,6 +554,19 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
                   <p className="text-zinc-500 text-[10px] mt-1">
                     הקריינות עדיין תעבוד — היא נופלת חזרה לטבלה הפנימית.
                   </p>
+                  {niqqudCheck.dicta.raw && (
+                    <details className="mt-2">
+                      <summary className="text-zinc-500 text-[10px] cursor-pointer">
+                        מה Nakdan החזיר בפועל
+                      </summary>
+                      <pre
+                        className="text-zinc-500 text-[9px] mt-1 whitespace-pre-wrap break-all max-h-40 overflow-y-auto"
+                        dir="ltr"
+                      >
+                        {niqqudCheck.dicta.raw}
+                      </pre>
+                    </details>
+                  )}
                 </>
               )}
               <p className="text-zinc-600 text-[9px] mt-1.5 break-all" dir="ltr">{niqqudCheck.endpoint}</p>

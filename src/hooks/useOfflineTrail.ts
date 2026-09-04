@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { TrailPOI } from './useTrailData';
 import { supabase } from '../lib/supabase';
 import { poiKeyFor } from '../lib/poiKey';
@@ -33,6 +33,14 @@ interface PrefetchResult {
   audio: string | null;
   audioFormat: string;
   voice: { provider: string; voiceId: string | null; signature: string } | null;
+}
+
+type PendingReason = 'batch-limit' | 'quota' | 'no-provider' | 'error';
+
+interface Pending {
+  poiKey: string;
+  reason: PendingReason;
+  detail?: string;
 }
 
 function base64ToBlob(base64: string, format: string): Blob {
@@ -101,6 +109,12 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
     [trailSlug]
   );
 
+  // Two points can share a narration key — the same OSM element met twice on
+  // the route, or two unnamed points that round to the same coordinates. The
+  // server narrates each key once, so counting raw points made a finished
+  // download read as "6 of 8" forever.
+  const distinctCount = useMemo(() => new Set(pois.map(keyFor)).size, [pois, keyFor]);
+
   const download = useCallback(async () => {
     if (!trailSlug || pois.length === 0) return;
     if (!isOfflineAudioSupported()) {
@@ -109,12 +123,14 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
       return;
     }
 
+    const total = distinctCount;
+
     cancelRef.current = false;
     setStatus('downloading');
     setMessage(null);
-    setProgress({ done: 0, total: pois.length, bytes: 0 });
+    setProgress({ done: 0, total, bytes: 0 });
 
-    const body = {
+    const basePois = {
       trailSlug,
       provider: localStorage.getItem(AI_PROVIDER_STORAGE_KEY) || undefined,
       voice: readVoicePrefs(),
@@ -150,10 +166,13 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
       for (let round = 0; round < pois.length + 2; round++) {
         if (cancelRef.current) return;
 
+        // What the device already holds goes with every round. The server then
+        // spends its per-request budget on points that are still missing,
+        // instead of re-doing ones we have.
         const res = await fetch('/api/tour-guide/prefetch', {
           method: 'POST',
           headers,
-          body: JSON.stringify(body),
+          body: JSON.stringify({ ...basePois, have: [...stored] }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'שגיאה בהורדת המסלול');
@@ -189,21 +208,30 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
 
           stored.add(result.poiKey);
           bytes += blob?.size ?? 0;
-          setProgress({ done: stored.size, total: pois.length, bytes });
+          setProgress({ done: stored.size, total, bytes });
           setSavedKeys(new Set(stored));
         }
 
-        const pending: string[] = data.pending ?? [];
+        const pending: Pending[] = data.pending ?? [];
         if (pending.length === 0) break;
 
-        const soFar = `הורדו ${stored.size} מתוך ${pois.length} נקודות.`;
+        const soFar = `הורדו ${stored.size} מתוך ${total} נקודות.`;
 
-        // The quota is checked before the stall guard below, and must be: a
-        // round blocked entirely by the quota also stores nothing, so testing
-        // the stall first reported "cannot be generated" for what is really
-        // "you are out of budget" — two different problems with two different
-        // answers.
-        if (data.quotaReached) {
+        // Every stopping condition below names the reason the *server* gave,
+        // rather than inferring one from what else is in the payload. The
+        // inference was wrong in practice: a point held back by the
+        // per-request batch limit was reported as one that "cannot be
+        // generated".
+        const reasons = new Set(pending.map((p) => p.reason));
+
+        if (reasons.has('no-provider')) {
+          setStatus('error');
+          setMessage(`${soFar} לא הוגדר ספק AI בשרת.`);
+          await refresh();
+          return;
+        }
+
+        if (reasons.has('quota') || data.quotaReached) {
           setStatus('error');
           setMessage(
             data.quotaScope === 'anon'
@@ -214,16 +242,25 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
           return;
         }
 
-        // Nothing new stored and no quota to blame: the server genuinely cannot
-        // make progress on the rest.
+        const failed = pending.filter((p) => p.reason === 'error');
+        if (failed.length > 0 && stored.size === before) {
+          setStatus('error');
+          setMessage(`${soFar} ייצור ${failed.length} נקודות נכשל: ${failed[0].detail ?? 'שגיאה לא ידועה'}`);
+          await refresh();
+          return;
+        }
+
+        // Only 'batch-limit' left, which means "ask again" — so a round that
+        // stored nothing anyway means the server is handing back points the
+        // device already has. That happens when narrations do not survive
+        // between requests, and it is worth naming: on a serverless host it
+        // also means the same point is generated, and paid for, more than once.
         if (stored.size === before) {
           setStatus('error');
           setMessage(
-            data.hasProvider === false
-              ? `${soFar} לא הוגדר ספק AI בשרת.`
-              : data.failures > 0
-                ? `${soFar} ייצור השאר נכשל — בדוק את מפתח ה-API ואת יתרת הקרדיטים.`
-                : `${soFar} השאר לא ניתנות לייצור כרגע.`
+            data.durableCache === false
+              ? `${soFar} השרת אינו שומר את הקריינויות בין בקשות — בדוק את SUPABASE_SERVICE_ROLE_KEY ואת טבלאות ה-cache.`
+              : `${soFar} השרת מחזיר נקודות שכבר קיימות במכשיר ולא מתקדם. נסה שוב בעוד רגע.`
           );
           await refresh();
           return;
@@ -239,7 +276,7 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
       setMessage(e?.message || 'שגיאה בהורדת המסלול.');
       await refresh();
     }
-  }, [trailSlug, pois, refresh, currentSignature]);
+  }, [trailSlug, pois, refresh, currentSignature, distinctCount]);
 
   const remove = useCallback(async () => {
     if (!trailSlug) return;
@@ -247,11 +284,22 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
     await deleteTrailNarrations(trailSlug);
     setStatus('idle');
     setMessage(null);
-    setProgress({ done: 0, total: pois.length, bytes: 0 });
+    setProgress({ done: 0, total: distinctCount, bytes: 0 });
     await refresh();
-  }, [trailSlug, pois.length, refresh]);
+  }, [trailSlug, distinctCount, refresh]);
 
   const isSaved = useCallback((poi: TrailPOI) => savedKeys.has(keyFor(poi)), [savedKeys, keyFor]);
 
-  return { download, remove, isSaved, savedCount: savedKeys.size, status, message, progress };
+  return {
+    download,
+    remove,
+    isSaved,
+    savedCount: savedKeys.size,
+    // How many narrations this trail actually has, which is not the same as how
+    // many points it has.
+    total: distinctCount,
+    status,
+    message,
+    progress,
+  };
 }
