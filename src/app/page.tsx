@@ -608,6 +608,7 @@ export default function TrailApp() {
           offlineStateFor={(poi) => (offlineTrail.isSaved(poi) ? 'saved' : 'missing')}
           offline={{
             savedCount: offlineTrail.savedCount,
+            total: offlineTrail.total,
             status: offlineTrail.status,
             message: offlineTrail.message,
             progress: offlineTrail.progress,

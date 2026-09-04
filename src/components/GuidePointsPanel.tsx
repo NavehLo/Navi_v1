@@ -14,6 +14,9 @@ export type PointOfflineState = "missing" | "saved";
 
 export interface OfflineControls {
   savedCount: number;
+  // Narrations, not points: two points can share one. Counting points made a
+  // complete download read as "6 of 8".
+  total: number;
   status: "idle" | "downloading" | "done" | "error";
   message: string | null;
   progress: { done: number; total: number; bytes: number };
@@ -90,7 +93,7 @@ export default function GuidePointsPanel({
                 ) : (
                   <>
                     <Download size={14} />
-                    {offline.savedCount >= pois.length ? "רענן הורדה" : "הורד מסלול לשימוש בשטח"}
+                    {offline.savedCount >= offline.total ? "רענן הורדה" : "הורד מסלול לשימוש בשטח"}
                   </>
                 )}
               </button>
@@ -106,7 +109,7 @@ export default function GuidePointsPanel({
             </div>
             {offline.savedCount > 0 && offline.status !== "downloading" && (
               <div className="text-zinc-500 text-[11px] mt-2">
-                {offline.savedCount} מתוך {pois.length} נקודות שמורות במכשיר
+                {offline.savedCount} מתוך {offline.total} נקודות שמורות במכשיר
                 {offline.progress.bytes > 0 ? ` · ${formatBytes(offline.progress.bytes)}` : ""}
               </div>
             )}

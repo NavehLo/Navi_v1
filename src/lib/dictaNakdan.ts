@@ -20,7 +20,7 @@
 // and the lexicon answers instead. That is what keeps a service we do not
 // control from putting words in the guide's mouth.
 
-import { stripNiqqud } from './hebrewMarks';
+import { hasNiqqud, stripNiqqud } from './hebrewMarks';
 
 const DEFAULT_ENDPOINT = 'https://nakdan-5-1.loadbalancer.dicta.org.il/api';
 const TIMEOUT_MS = 6000;
@@ -38,39 +38,85 @@ function letters(text: string): string {
 
 // Nakdan returns one entry per token. A token is either a separator (spaces
 // and punctuation, passed through) or a word with ranked options, the first
-// being its reading in context. The exact field names have moved between
-// versions, so each shape it has used is accepted and anything unrecognised
-// falls back to the original token.
-function readToken(token: unknown): string | null {
-  if (typeof token === 'string') return token;
-  if (!token || typeof token !== 'object') return null;
-  const t = token as Record<string, unknown>;
-  const original = typeof t.word === 'string' ? t.word : typeof t.orig === 'string' ? t.orig : typeof t.text === 'string' ? t.text : '';
-  if (t.sep === true || t.isSep === true) return original;
-
-  const options = Array.isArray(t.options) ? t.options : Array.isArray(t.nakdanOptions) ? t.nakdanOptions : [];
-  const first: unknown = options[0];
-  const option = first && typeof first === 'object' ? (first as Record<string, unknown>) : null;
-  const vocalized =
-    typeof first === 'string' ? first : option ? (option.w ?? option.word ?? option.vocalized) : null;
-
-  // Some versions mark a morphological split inside the option with a pipe.
-  return typeof vocalized === 'string' && vocalized.length > 0 ? vocalized.replace(/\|/g, '') : original || null;
-}
-
-function tokensOf(data: unknown): unknown[] | null {
-  if (Array.isArray(data)) return data;
-  if (data && typeof data === 'object') {
-    const d = data as Record<string, unknown>;
-    for (const field of ['tokens', 'data', 'result', 'results']) {
-      const value = d[field];
-      if (Array.isArray(value)) return value;
+// being its reading in context. Field names have moved between versions, and
+// the shape could not be verified from the machine this was written on, so the
+// reader is deliberately permissive: it takes the best string it can find and
+// leaves the judging to the round-trip check below, which is the real guard.
+// Returning an empty string for a token it cannot read is safe — the check
+// then rejects the whole response rather than speaking a mangled sentence.
+function firstString(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object') {
+    for (const key of ['w', 'word', 'vocalized', 'nakdan', 'text', 'val', 'value']) {
+      const inner = (value as Record<string, unknown>)[key];
+      if (typeof inner === 'string' && inner.length > 0) return inner;
     }
   }
   return null;
 }
 
-export type DictaResult = { text: string } | { error: string };
+function readToken(token: unknown): string {
+  if (typeof token === 'string') return token;
+  if (!token || typeof token !== 'object') return '';
+  const t = token as Record<string, unknown>;
+
+  const original =
+    typeof t.word === 'string' ? t.word
+    : typeof t.orig === 'string' ? t.orig
+    : typeof t.text === 'string' ? t.text
+    : '';
+
+  if (t.sep === true || t.isSep === true) return original;
+
+  for (const field of ['options', 'nakdanOptions', 'opts']) {
+    const list = t[field];
+    if (!Array.isArray(list) || list.length === 0) continue;
+    const picked = firstString(list[0]);
+    // Some versions mark a morphological split inside the option with a pipe.
+    if (picked) return picked.replace(/\|/g, '');
+  }
+
+  // No option list at all: take a string the token carries that is actually
+  // vocalized. Testing for marks rather than just for Hebrew matters — a token
+  // usually carries the original spelling too, and it comes first.
+  for (const value of Object.values(t)) {
+    if (typeof value === 'string' && hasNiqqud(value)) return value.replace(/\|/g, '');
+  }
+  return original;
+}
+
+// The tokens live under a different key in each version, and at least one
+// version double-encodes the body as a JSON string. Rather than enumerate,
+// take the first array of objects found near the top.
+function tokensOf(data: unknown): unknown[] | null {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === 'object') {
+    const d = data as Record<string, unknown>;
+    for (const field of ['tokens', 'data', 'result', 'results', 'output']) {
+      const value = d[field];
+      if (Array.isArray(value)) return value;
+    }
+    for (const value of Object.values(d)) {
+      if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object') return value;
+    }
+  }
+  return null;
+}
+
+// `raw` carries a truncated sample of whatever Nakdan actually returned. It is
+// the whole point of the settings check: the response shape could not be
+// verified from a machine that cannot reach DICTA at all, so when the reader
+// above does not recognise it, the app has to be able to show what it got.
+export type DictaResult = { text: string } | { error: string; raw?: string };
+
+function sample(value: unknown): string {
+  try {
+    const text = typeof value === 'string' ? value : JSON.stringify(value);
+    return text.length > 900 ? text.slice(0, 900) + '…' : text;
+  } catch {
+    return String(value).slice(0, 900);
+  }
+}
 
 export async function vocalizeWithDicta(text: string): Promise<DictaResult> {
   if (!text.trim()) return { text };
@@ -105,27 +151,32 @@ export async function vocalizeWithDicta(text: string): Promise<DictaResult> {
     return { error: `Nakdan ${res.status}: ${body.slice(0, 200) || res.statusText}` };
   }
 
+  const body = await res.text();
   let data: unknown;
   try {
-    data = await res.json();
+    data = JSON.parse(body);
+    // At least one version returns the payload as a JSON-encoded string.
+    if (typeof data === 'string') data = JSON.parse(data);
   } catch {
-    return { error: 'Nakdan החזיר תשובה שאינה JSON' };
+    return { error: 'Nakdan החזיר תשובה שאינה JSON', raw: sample(body) };
   }
 
   const tokens = tokensOf(data);
-  if (!tokens || tokens.length === 0) return { error: 'תשובת Nakdan לא הכילה טוקנים' };
-
-  const parts: string[] = [];
-  for (const token of tokens) {
-    const part = readToken(token);
-    if (part === null) return { error: 'מבנה תשובה לא מוכר מ-Nakdan' };
-    parts.push(part);
+  if (!tokens || tokens.length === 0) {
+    return { error: 'תשובת Nakdan לא הכילה טוקנים', raw: sample(data) };
   }
-  const vocalized = parts.join('');
+
+  const vocalized = tokens.map(readToken).join('');
+  if (!vocalized.trim()) {
+    return { error: 'מבנה תשובה לא מוכר מ-Nakdan', raw: sample(data) };
+  }
 
   if (letters(vocalized) !== letters(text)) {
     // Never worth risking: the guide would read words nobody wrote.
-    return { error: 'Nakdan החזיר טקסט שאינו זהה למקור מלבד הניקוד — התוצאה נפסלה' };
+    return {
+      error: 'Nakdan החזיר טקסט שאינו זהה למקור מלבד הניקוד — התוצאה נפסלה',
+      raw: sample(data),
+    };
   }
 
   return { text: vocalized };
