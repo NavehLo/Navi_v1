@@ -1,5 +1,6 @@
-import { X, Play, Headphones, Download, Trash2, Loader2 } from "lucide-react";
+import { X, Play, Headphones, Download, Trash2, Loader2, CloudOff } from "lucide-react";
 import { TrailData, TrailPOI } from "../hooks/useTrailData";
+import { PoiSource } from "../hooks/useTrailPOIs";
 
 // Answers, directly, the question "how many narrations are there and where?".
 // Until now the only way to find out was to run the tour and count.
@@ -33,6 +34,11 @@ interface GuidePointsPanelProps {
   // as "plays in the field".
   offlineStateFor?: (poi: TrailPOI) => PointOfflineState;
   offline?: OfflineControls;
+  // Where this list came from. Discovery through OpenStreetMap fails often
+  // enough — it is a free, throttled public service — that a short list needs
+  // to say whether it is the trail's real one or all that could be had.
+  poiSource?: PoiSource;
+  poiDiscoveryFailed?: boolean;
 }
 
 function formatBytes(bytes: number): string {
@@ -48,6 +54,8 @@ export default function GuidePointsPanel({
   onPlay,
   offlineStateFor,
   offline,
+  poiSource = "live",
+  poiDiscoveryFailed = false,
 }: GuidePointsPanelProps) {
   const acc = trail.accumulatedDistances;
 
@@ -75,6 +83,20 @@ export default function GuidePointsPanel({
           {pois.length} נקודות קריינות במסלול הזה. הקריינות תופעל אוטומטית בהגעה לכל נקודה,
           ואפשר להשמיע כל אחת גם מכאן.
         </p>
+
+        {/* A short list after a failed discovery is not the same as a short
+            trail. Saying which one this is stops an OpenStreetMap outage from
+            reading as "my points were deleted". */}
+        {poiDiscoveryFailed && (
+          <div className="mx-6 mb-3 shrink-0 flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-300 text-[11px]">
+            <CloudOff size={13} className="shrink-0 mt-0.5" />
+            <span>
+              {poiSource === "cache"
+                ? "לא ניתן לרענן כרגע את נקודות העניין מ-OpenStreetMap — מוצגת הרשימה האחרונה שנשמרה במכשיר."
+                : "לא ניתן לטעון כרגע את נקודות העניין מ-OpenStreetMap, ולכן מוצגות נקודות הבסיס בלבד. הקריינויות שהורדו לא נמחקו — סגור ופתח את המסלול שוב בעוד רגע."}
+            </span>
+          </div>
+        )}
 
         {/* Download the whole trail for walking it with no reception */}
         {offline && pois.length > 0 && (

@@ -290,11 +290,22 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
 
   const isSaved = useCallback((poi: TrailPOI) => savedKeys.has(keyFor(poi)), [savedKeys, keyFor]);
 
+  // How many of the points *currently listed* are saved — not how many
+  // narrations the device holds for this trail. They come apart when the point
+  // list shrinks (an OpenStreetMap outage drops the trail to its base points,
+  // and the narrations downloaded for the rest stay on the device), and the
+  // counter then contradicted the badges beside it: "6 of 3 saved" with a
+  // single ✓ on the list.
+  const savedCount = useMemo(
+    () => pois.reduce((n, poi) => (savedKeys.has(keyFor(poi)) ? n + 1 : n), 0),
+    [pois, savedKeys, keyFor]
+  );
+
   return {
     download,
     remove,
     isSaved,
-    savedCount: savedKeys.size,
+    savedCount,
     // How many narrations this trail actually has, which is not the same as how
     // many points it has.
     total: distinctCount,

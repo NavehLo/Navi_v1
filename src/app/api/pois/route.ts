@@ -12,6 +12,14 @@ export interface DiscoveredPOI {
   tags: Record<string, string>;  // the kept subset of KEPT_TAGS below
 }
 
+// An empty list is not one answer but three, and the caller has to tell them
+// apart: Overpass said this stretch has nothing ('ok'), Overpass could not be
+// reached ('unavailable'), or we did not ask ('rate-limited'). Returning a bare
+// [] for all three is what let a trail silently lose its points — the app
+// treated an outage as "no points here" and fell back to the three synthetic
+// ones with nothing on screen to say so.
+type DiscoveryStatus = 'ok' | 'unavailable' | 'rate-limited';
+
 // Overpass already returns every tag on the element; the old code threw all of
 // them away and kept only the name. These are the ones worth carrying to the
 // guide: `wikipedia` and `wikidata` are what lets the narration be written from
@@ -115,7 +123,7 @@ export async function POST(request: Request) {
   try {
     // POI discovery is heavier (external Overpass) — 10/min per IP
     if (!(await rateLimit(`pois:${clientIp(request)}`, 10, 60_000))) {
-      return NextResponse.json({ pois: [] }, { status: 429 });
+      return NextResponse.json({ pois: [], status: 'rate-limited' satisfies DiscoveryStatus }, { status: 429 });
     }
 
     const { coords } = (await request.json()) as { coords: [number, number][] };
@@ -129,10 +137,12 @@ export async function POST(request: Request) {
 
     const key = crypto.createHash('sha1').update(JSON.stringify(sampled)).digest('hex');
     const hit = cache.get(key);
-    if (hit) return NextResponse.json({ pois: hit, cached: true });
+    if (hit) return NextResponse.json({ pois: hit, cached: true, status: 'ok' satisfies DiscoveryStatus });
 
     const data = await fetchOverpass(buildQuery(sampled as [number, number][]));
-    if (!data) return NextResponse.json({ pois: [] });
+    if (!data) {
+      return NextResponse.json({ pois: [], status: 'unavailable' satisfies DiscoveryStatus });
+    }
     const pois: DiscoveredPOI[] = [];
     for (const el of data.elements ?? []) {
       const tags = el.tags ?? {};
@@ -155,10 +165,11 @@ export async function POST(request: Request) {
 
     if (cache.size > 50) cache.delete(cache.keys().next().value!);
     cache.set(key, pois);
-    return NextResponse.json({ pois });
+    return NextResponse.json({ pois, status: 'ok' satisfies DiscoveryStatus });
   } catch (error: any) {
     console.error('POI discovery error:', error);
-    // POIs are an enhancement — never fail the app over them
-    return NextResponse.json({ pois: [] });
+    // POIs are an enhancement — never fail the app over them. Saying the
+    // discovery broke is not the same as failing the request.
+    return NextResponse.json({ pois: [], status: 'unavailable' satisfies DiscoveryStatus });
   }
 }
