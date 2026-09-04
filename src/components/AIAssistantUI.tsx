@@ -6,9 +6,13 @@ interface AIAssistantUIProps {
   currentScript: string | null;
   onStop: () => void;
   onManualTrigger: () => void;
+  // Narrations waiting their turn. Points can be reached faster than they can
+  // be spoken, so saying how many are queued explains why the guide is talking
+  // about somewhere you have already walked past.
+  queueLength?: number;
 }
 
-export default function AIAssistantUI({ isLoading, isSpeaking, currentScript, onStop, onManualTrigger }: AIAssistantUIProps) {
+export default function AIAssistantUI({ isLoading, isSpeaking, currentScript, onStop, onManualTrigger, queueLength = 0 }: AIAssistantUIProps) {
   if (!isLoading && !currentScript) {
     return (
       <div className="absolute bottom-4 left-4 z-50">
@@ -39,7 +43,14 @@ export default function AIAssistantUI({ isLoading, isSpeaking, currentScript, on
           </div>
           
           <div className="flex-1 pt-1">
-            <h3 className="text-emerald-400 font-bold text-sm uppercase tracking-widest mb-1">מדריך AI</h3>
+            <h3 className="text-emerald-400 font-bold text-sm uppercase tracking-widest mb-1">
+              מדריך AI
+              {queueLength > 0 && (
+                <span className="text-emerald-600 font-normal normal-case tracking-normal mr-2">
+                  · עוד {queueLength} בתור
+                </span>
+              )}
+            </h3>
             <p className="text-white text-sm leading-relaxed" dir="rtl">
               {isLoading ? 'חושב ומנתח את הסביבה...' : currentScript}
             </p>
