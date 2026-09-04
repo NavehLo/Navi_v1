@@ -10,6 +10,7 @@ import {
   storedBytesFor,
 } from '../lib/offlineAudio';
 import { AI_PROVIDER_STORAGE_KEY } from './useAIGuide';
+import { readVoicePrefs } from '../lib/voicePrefs';
 
 // "Download this trail for use in the field": fetch every narration, store the
 // audio on the device, and report how far it got.
@@ -104,6 +105,7 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
     const body = {
       trailSlug,
       provider: localStorage.getItem(AI_PROVIDER_STORAGE_KEY) || undefined,
+      voice: readVoicePrefs(),
       pois: pois.map((p) => ({
         lat: p.coord[0],
         lon: p.coord[1],
@@ -171,21 +173,35 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
 
         const pending: string[] = data.pending ?? [];
         if (pending.length === 0) break;
-        // A round that stored nothing and still reports work left means the
-        // server cannot make progress — no provider key, or every attempt
-        // failing. Asking again would only repeat it.
-        if (stored.size === before) {
+
+        const soFar = `הורדו ${stored.size} מתוך ${pois.length} נקודות.`;
+
+        // The quota is checked before the stall guard below, and must be: a
+        // round blocked entirely by the quota also stores nothing, so testing
+        // the stall first reported "cannot be generated" for what is really
+        // "you are out of budget" — two different problems with two different
+        // answers.
+        if (data.quotaReached) {
           setStatus('error');
           setMessage(
-            `הורדו ${stored.size} מתוך ${pois.length} נקודות. השאר לא ניתנות לייצור כרגע.`
+            data.quotaScope === 'anon'
+              ? `${soFar} הגעת למכסה היומית לשימוש ללא התחברות. התחבר עם Google לקבלת מכסה גדולה יותר, או נסה שוב מחר.`
+              : `${soFar} הגעת למכסה היומית. נסה שוב מחר להשלמת השאר.`
           );
           await refresh();
           return;
         }
-        if (data.quotaReached) {
+
+        // Nothing new stored and no quota to blame: the server genuinely cannot
+        // make progress on the rest.
+        if (stored.size === before) {
           setStatus('error');
           setMessage(
-            `הורדו ${stored.size} מתוך ${pois.length} נקודות. הגעת למכסה היומית — נסה שוב מחר להשלמת השאר.`
+            data.hasProvider === false
+              ? `${soFar} לא הוגדר ספק AI בשרת.`
+              : data.failures > 0
+                ? `${soFar} ייצור השאר נכשל — בדוק את מפתח ה-API ואת יתרת הקרדיטים.`
+                : `${soFar} השאר לא ניתנות לייצור כרגע.`
           );
           await refresh();
           return;

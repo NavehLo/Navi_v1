@@ -1,6 +1,7 @@
 import {
   type TextProvider,
   type TtsVoice,
+  type VoiceOverride,
   resolveTtsVoice,
   audioKey,
   synthesize,
@@ -159,6 +160,10 @@ export interface NarrationInput {
   // story twice. Not part of the cache key: a narration has to stand on its own
   // whichever order the walker meets the points in.
   covered?: string[] | null;
+  // Lets the app try a different ElevenLabs voice, or different settings for
+  // the same one, without a redeploy. Part of the audio cache key, never of the
+  // narration key: the words don't change when the voice does.
+  voice?: VoiceOverride | null;
 }
 
 // In-memory fallbacks, used only when the durable cache isn't configured.
@@ -185,7 +190,7 @@ export interface NarrationLookup {
 export async function lookupNarration(input: NarrationInput): Promise<NarrationLookup> {
   const poiKey = poiKeyFor(input);
   const provider = pickTextProvider() ?? 'openai';
-  const voice = resolveTtsVoice(provider);
+  const voice = resolveTtsVoice(provider, input.voice);
 
   const durable = isNarrationCacheConfigured();
   const cached = durable ? await readNarration(poiKey) : null;
@@ -285,7 +290,7 @@ export async function generateNarration(
   }
 
   const key = audioKey(text, voice);
-  const speech = await synthesize(text, voice);
+  const speech = await synthesize(text, voice, input.voice);
   if (!speech) {
     return { poiKey, text, audioUrl: null, audio: null, audioFormat: voice.format, cached: false, charsSynthesized: 0 };
   }

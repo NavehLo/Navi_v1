@@ -1,10 +1,14 @@
 import crypto from 'crypto';
 import {
+  type VoiceOverride,
+  type VoiceSettings,
   isElevenLabsConfigured,
   elevenLabsVoiceSignature,
   containerFor,
   synthesizeElevenLabs,
 } from './elevenlabs';
+
+export type { VoiceOverride } from './elevenlabs';
 
 // Text-to-speech, one voice chosen per request.
 //
@@ -21,6 +25,7 @@ export interface TtsVoice {
   model: string;
   voice: string;
   format: string; // container: mp3 | wav
+  settings?: VoiceSettings; // ElevenLabs only
 }
 
 export interface SynthesizedSpeech {
@@ -50,10 +55,16 @@ function geminiVoice(): TtsVoice {
 // plus the caller's preference, so a cache can be keyed on it *before* the
 // call. (The old key mixed every configured provider's signature together, so
 // a Gemini-voiced clip could be served to a caller who asked for OpenAI.)
-export function resolveTtsVoice(preferred: TextProvider): TtsVoice | null {
-  if (isElevenLabsConfigured()) {
-    const v = elevenLabsVoiceSignature();
-    return { provider: 'elevenlabs', model: v.model, voice: v.voice, format: containerFor(v.format) };
+export function resolveTtsVoice(preferred: TextProvider, override?: VoiceOverride | null): TtsVoice | null {
+  if (isElevenLabsConfigured(override)) {
+    const v = elevenLabsVoiceSignature(override);
+    return {
+      provider: 'elevenlabs',
+      model: v.model,
+      voice: v.voice,
+      format: containerFor(v.format),
+      settings: v.settings,
+    };
   }
   if (preferred === 'gemini' && process.env.GEMINI_API_KEY) return geminiVoice();
   if (process.env.OPENAI_API_KEY) {
@@ -69,7 +80,12 @@ export function resolveTtsVoice(preferred: TextProvider): TtsVoice | null {
 }
 
 export function voiceSignature(voice: TtsVoice): string {
-  return `${voice.provider}:${voice.model}:${voice.voice}:${voice.format}`;
+  const s = voice.settings;
+  // The settings are part of the identity: the same voice at stability 0.3 is
+  // a different rendering from the same voice at 0.7, and must not be served
+  // from the other's cache entry.
+  const tuning = s ? `:${s.stability}:${s.similarityBoost}:${s.style}:${s.speed}` : '';
+  return `${voice.provider}:${voice.model}:${voice.voice}:${voice.format}${tuning}`;
 }
 
 // Identifies a specific rendering of a specific narration. Used as the primary
@@ -81,9 +97,13 @@ export function audioKey(text: string, voice: TtsVoice): string {
 
 // Raw synthesis — no caching. Returns null on any failure; the narration text
 // alone is still a valid response.
-export async function synthesize(text: string, voice: TtsVoice): Promise<SynthesizedSpeech | null> {
+export async function synthesize(
+  text: string,
+  voice: TtsVoice,
+  override?: VoiceOverride | null
+): Promise<SynthesizedSpeech | null> {
   if (voice.provider === 'elevenlabs') {
-    const r = await synthesizeElevenLabs(text);
+    const r = await synthesizeElevenLabs(text, override);
     return r ? { buffer: r.buffer, format: r.format, voice } : null;
   }
   const r = voice.provider === 'gemini'

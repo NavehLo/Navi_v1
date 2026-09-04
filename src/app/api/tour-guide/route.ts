@@ -44,6 +44,7 @@ export async function POST(request: Request) {
       trailSlug: body.trailSlug ?? null,
       tags: body.tags ?? null,
       covered: Array.isArray(body.covered) ? body.covered.slice(0, 10) : null,
+      voice: body.voice ?? null,
 
     };
 
