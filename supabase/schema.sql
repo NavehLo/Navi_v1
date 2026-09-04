@@ -1,6 +1,12 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- סכמת בסיס הנתונים של Navi_v1 — אזור אישי
--- הרץ קובץ זה פעם אחת ב-Supabase Dashboard → SQL Editor → New query → Run
+-- סכמת בסיס הנתונים של Navi_v1
+-- הרץ קובץ זה ב-Supabase Dashboard → SQL Editor → New query → Run
+--
+-- אפשר להריץ את הקובץ **כולו** שוב ושוב בבטחה. כל פקודה כאן היא idempotent:
+-- הטבלאות נוצרות עם if not exists, ה-policies נמחקות ונוצרות מחדש, והפונקציה
+-- היא create or replace. אין צורך לבחור חלקים מהקובץ ואין סכנה לנתונים קיימים.
+-- (ל-create policy אין תחביר "if not exists" ב-Postgres, ולכן כל אחת מהן
+-- מקבלת drop policy if exists לפניה — בלי זה הרצה שנייה נכשלת ב-42710.)
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- מסלולים שמורים
@@ -41,17 +47,20 @@ alter table public.saved_trails enable row level security;
 alter table public.tour_history enable row level security;
 alter table public.trail_notes enable row level security;
 
+drop policy if exists "own rows" on public.saved_trails;
 create policy "own rows" on public.saved_trails
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "own rows" on public.tour_history;
 create policy "own rows" on public.tour_history
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "own rows" on public.trail_notes;
 create policy "own rows" on public.trail_notes
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- הוספה: מכסה יומית אמיתית לשימוש במדריך הקולי, לפי משתמש מחובר.
--- אם כבר הרצת את הקובץ פעם קודמת — הרץ רק מהשורה הזו והלאה (create policy
--- לא תומך ב-"if not exists" ותיכשל אם תריץ את כל הקובץ שוב מההתחלה).
+-- מכסה יומית אמיתית לשימוש במדריך הקולי, לפי משתמש מחובר.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 create table if not exists public.guide_usage (
@@ -65,6 +74,7 @@ alter table public.guide_usage enable row level security;
 
 -- המשתמש יכול לראות את המכסה שלו, אבל רק הפונקציה (SECURITY DEFINER) למטה
 -- יכולה לעדכן — כך לא ניתן "לאפס" את המכסה בכתיבה ישירה לטבלה.
+drop policy if exists "read own usage" on public.guide_usage;
 create policy "read own usage" on public.guide_usage
   for select using (auth.uid() = user_id);
 
@@ -97,8 +107,7 @@ $$;
 grant execute on function public.increment_guide_usage(int) to authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- הוספה: cache קבוע לקריינות המדריכה.
--- אם כבר הרצת את הקובץ פעם קודמת — הרץ רק מהשורה הזו והלאה.
+-- cache קבוע לקריינות המדריכה.
 --
 -- הטבלאות האלה גלובליות ולא שייכות למשתמש: הקריינות על מעיין מסוים היא אותה
 -- קריינות לכל מי שעומד לידו. לכן אין כאן RLS למשתמשים — הכתיבה נעשית רק
