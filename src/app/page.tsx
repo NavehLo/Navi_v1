@@ -116,6 +116,31 @@ export default function TrailApp() {
     });
   }, [stopSpeaking, unlockAudio]);
 
+  // Clean view: hides every overlay except the toggle itself, so the trail is
+  // the only thing left on the map.
+  const [isUIHidden, setIsUIHidden] = useState(false);
+  const toggleUI = useCallback(() => setIsUIHidden((prev) => !prev), []);
+
+  // On a phone the tour progress bar spans the whole top edge, so anything else
+  // anchored to the top has to start below it. Its height is measured rather
+  // than guessed — the bar grows with the text inside it — and published as
+  // --ui-top-offset for the overlays to lean on.
+  const [progressBarHeight, setProgressBarHeight] = useState(0);
+  const measureProgressBar = useCallback((node: HTMLDivElement | null) => {
+    if (!node) {
+      setProgressBarHeight(0);
+      return;
+    }
+    const measure = () => setProgressBarHeight(node.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+      setProgressBarHeight(0);
+    };
+  }, []);
+
   // Real GPS "field mode": continuous tracking that feeds the POI geofence
   const [isFieldMode, setIsFieldMode] = useState(false);
   const [gpsPos, setGpsPos] = useState<{ lat: number; lon: number } | null>(null);
@@ -192,6 +217,10 @@ export default function TrailApp() {
 
   // During a virtual tour the camera is the "traveler"; in field mode it's the real GPS
   const guidePos = isTourActive ? virtualPos : (isFieldMode ? gpsPos : null);
+
+  // The progress bar is up whenever a tour is under way — running or paused
+  // part-way — and never in clean view.
+  const showTourProgress = !!trail && !isUIHidden && progress > 0 && progress < 1;
 
   // Real POIs discovered along the trail (waterfalls, viewpoints, ruins...),
   // enriching the synthetic start/midway/end. Best-effort; falls back gracefully.
@@ -524,7 +553,11 @@ export default function TrailApp() {
   }, [map, enrichedPois, styleRev, playPoiNow]);
 
   return (
-    <div className="w-full h-screen relative bg-zinc-900 overflow-hidden m-0 p-0 select-none touch-none" dir="rtl">
+    <div
+      className="w-full h-screen relative bg-zinc-900 overflow-hidden m-0 p-0 select-none touch-none"
+      dir="rtl"
+      style={{ "--ui-top-offset": showTourProgress ? `${progressBarHeight + 8}px` : "0px" } as React.CSSProperties}
+    >
       {/* Map Engine Layer */}
       <MemoizedMapComponent onMapLoad={handleMapLoad} />
 
@@ -541,7 +574,7 @@ export default function TrailApp() {
       )}
 
       {/* Stats UI Layer */}
-      {trail && (
+      {trail && !isUIHidden && (
         <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} />
       )}
 
@@ -584,6 +617,8 @@ export default function TrailApp() {
         isGuideEnabled={isGuideEnabled}
         onToggleGuide={handleToggleGuide}
         onOpenGuidePoints={() => setShowGuidePoints(true)}
+        isUIHidden={isUIHidden}
+        onToggleUI={toggleUI}
       />
 
       {/* Settings modal */}
@@ -622,7 +657,7 @@ export default function TrailApp() {
       )}
 
       {/* AI Assistant Overlay */}
-      {trail && (
+      {trail && !isUIHidden && (
         <AIAssistantUI
           isLoading={isLoading}
           isSpeaking={isSpeaking}
@@ -635,9 +670,11 @@ export default function TrailApp() {
         />
       )}
 
-      {/* Tour Progress Bar */}
-      {trail && progress > 0 && Math.floor(progress * trail.coords.length) < trail.coords.length && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 w-[90%] max-w-lg z-50 bg-black/80 px-4 py-3 rounded-2xl border border-white/10 backdrop-blur-md">
+      {/* Tour Progress Bar. Full width along the top edge on a phone, where a
+          centred card would sit on top of the control column and the home
+          button; a floating card from lg up, where there is room beside it. */}
+      {showTourProgress && trail && (
+        <div ref={measureProgressBar} className="absolute top-0 left-0 right-0 z-50 bg-black/80 px-4 py-3 rounded-b-2xl border-b border-white/10 backdrop-blur-md lg:top-4 lg:left-1/2 lg:right-auto lg:-translate-x-1/2 lg:w-[90%] lg:max-w-lg lg:rounded-2xl lg:border">
           <div className="flex justify-between text-xs font-bold mb-3" dir="rtl">
             <div className="text-emerald-400">הושלם: {(trail.totalDistance * progress).toFixed(1)} ק"מ <span className="text-emerald-300 font-bold">({Math.round(progress*100)}%)</span></div>
             <div className="text-sky-400">נותר: {(trail.totalDistance * (1 - progress)).toFixed(1)} ק"מ</div>
