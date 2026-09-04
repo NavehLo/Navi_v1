@@ -172,7 +172,7 @@ export default function TrailApp() {
   const { reset: resetGeofence } = usePOIGeofence(
     enrichedPois,
     guidePos,
-    (poi) => requestGuideForPoint(poi.coord, poi.type, `${trail!.name}:${poi.index}:${poi.type}`, poi.name),
+    (poi) => requestGuideForPoint(poi, trail!.name),
     { enabled: isTourActive || isFieldMode, resetKey: trail?.name }
   );
 
@@ -541,7 +541,7 @@ export default function TrailApp() {
           onStop={stopSpeaking}
           onManualTrigger={() => {
             unlockAudio();
-            requestGuideForPoint(trail.pois[0].coord, trail.pois[0].type, `${trail.name}:${trail.pois[0].index}`);
+            requestGuideForPoint(trail.pois[0], trail.name);
           }}
         />
       )}

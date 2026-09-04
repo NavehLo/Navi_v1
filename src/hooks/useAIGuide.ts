@@ -3,7 +3,7 @@ import { Coordinate3D } from "../utils/trailUtils";
 import { supabase } from "../lib/supabase";
 
 // Tiny silent WAV — played once on a user gesture to unlock the shared
-// audio element for later programmatic playback (iOS Safari autoplay policy).
+// audio element for later programmatic playback (browser autoplay policy).
 const SILENT_WAV =
   "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
 
@@ -11,7 +11,8 @@ let audioUnlocked = false;
 
 interface GuideEntry {
   text: string;
-  audioB64: string | null;
+  audioUrl: string | null;   // durable URL from the narration cache
+  audioB64: string | null;   // inline audio, when no durable URL exists
   audioFormat: string;
 }
 
@@ -21,6 +22,17 @@ const AUDIO_MIME: Record<string, string> = {
 };
 
 export const AI_PROVIDER_STORAGE_KEY = "ai_provider";
+
+// What the guide needs to know about a point. The OSM identifiers matter
+// because the server keys its permanent cache on them: the same spring found
+// on two different trails is narrated, and paid for, exactly once.
+export interface GuideTarget {
+  coord: Coordinate3D;
+  type: string;
+  name?: string | null;
+  osmType?: string | null;
+  osmId?: number | string | null;
+}
 
 export function useAIGuide() {
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -76,35 +88,49 @@ export function useAIGuide() {
     window.speechSynthesis.speak(utterance);
   };
 
-  const playAudio = (base64: string, format: string, fallbackText: string) => {
-    try {
-      const el = getAudioEl();
-      el.pause();
+  // Plays a clip from a URL. Remote narration URLs come straight from the
+  // cache bucket, so the browser and service worker can hold on to them
+  // instead of us re-decoding base64 on every playback.
+  const playFromUrl = (url: string, fallbackText: string) => {
+    const el = getAudioEl();
+    el.pause();
+
+    el.onplay = () => {
+      setIsSpeaking(true);
+      setIsSynthesizerActive(true);
+    };
+    el.onended = el.onerror = () => {
+      setIsSpeaking(false);
+      setIsSynthesizerActive(false);
       releaseObjectUrl();
+    };
 
-      const bytes = atob(base64);
-      const buf = new Uint8Array(bytes.length);
-      for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
-      const mime = AUDIO_MIME[format] || "audio/mpeg";
-      const url = URL.createObjectURL(new Blob([buf], { type: mime }));
-      objectUrlRef.current = url;
+    el.src = url;
+    el.play().catch(() => speakTextFallback(fallbackText));
+  };
 
-      el.onplay = () => {
-        setIsSpeaking(true);
-        setIsSynthesizerActive(true);
-      };
-      el.onended = el.onerror = () => {
-        setIsSpeaking(false);
-        setIsSynthesizerActive(false);
-        releaseObjectUrl();
-      };
-
-      el.src = url;
-      el.play().catch(() => speakTextFallback(fallbackText));
-    } catch (e) {
-      console.error("Audio playback failed, falling back to speech synthesis:", e);
-      speakTextFallback(fallbackText);
+  const playEntry = (entry: GuideEntry) => {
+    if (entry.audioUrl) {
+      releaseObjectUrl();
+      playFromUrl(entry.audioUrl, entry.text);
+      return;
     }
+    if (entry.audioB64) {
+      try {
+        releaseObjectUrl();
+        const bytes = atob(entry.audioB64);
+        const buf = new Uint8Array(bytes.length);
+        for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
+        const mime = AUDIO_MIME[entry.audioFormat] || "audio/mpeg";
+        const url = URL.createObjectURL(new Blob([buf], { type: mime }));
+        objectUrlRef.current = url;
+        playFromUrl(url, entry.text);
+        return;
+      } catch (e) {
+        console.error("Audio playback failed, falling back to speech synthesis:", e);
+      }
+    }
+    speakTextFallback(entry.text);
   };
 
   const stopSpeaking = useCallback(() => {
@@ -120,7 +146,7 @@ export function useAIGuide() {
     setCurrentScript(null);
   }, []);
 
-  const requestGuideForPoint = useCallback(async (coord: Coordinate3D, typeName: string, cacheKey?: string, poiName?: string | null) => {
+  const requestGuideForPoint = useCallback(async (target: GuideTarget, trailSlug: string) => {
     // Newest request wins: cancel in-flight fetch and current narration
     abortRef.current?.abort();
     audioRef.current?.pause();
@@ -129,13 +155,12 @@ export function useAIGuide() {
     const providerPref = typeof window !== "undefined"
       ? localStorage.getItem(AI_PROVIDER_STORAGE_KEY) || "auto"
       : "auto";
-    if (cacheKey) cacheKey = `${providerPref}:${cacheKey}`;
+    const cacheKey = `${providerPref}:${trailSlug}:${target.type}:${target.coord[0].toFixed(4)},${target.coord[1].toFixed(4)}`;
 
-    const cached = cacheKey ? cacheRef.current.get(cacheKey) : undefined;
+    const cached = cacheRef.current.get(cacheKey);
     if (cached) {
       setCurrentScript(cached.text);
-      if (cached.audioB64) playAudio(cached.audioB64, cached.audioFormat, cached.text);
-      else speakTextFallback(cached.text);
+      playEntry(cached);
       return;
     }
 
@@ -143,9 +168,6 @@ export function useAIGuide() {
     abortRef.current = controller;
     setIsLoading(true);
     setCurrentScript(null);
-
-    const monthNames = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"];
-    const currentMonth = monthNames[new Date().getMonth()];
 
     try {
       // Attach the signed-in user's token so the server can enforce a real
@@ -162,11 +184,13 @@ export function useAIGuide() {
         headers,
         signal: controller.signal,
         body: JSON.stringify({
-          lat: coord[0],
-          lon: coord[1],
-          month: currentMonth,
-          type: typeName,
-          name: poiName || undefined,
+          lat: target.coord[0],
+          lon: target.coord[1],
+          type: target.type,
+          name: target.name || undefined,
+          osmType: target.osmType || undefined,
+          osmId: target.osmId ?? undefined,
+          trailSlug,
           provider: localStorage.getItem(AI_PROVIDER_STORAGE_KEY) || undefined
         })
       });
@@ -180,11 +204,15 @@ export function useAIGuide() {
       }
 
       if (data.text) {
-        const format = data.audioFormat || "mp3";
-        if (cacheKey) cacheRef.current.set(cacheKey, { text: data.text, audioB64: data.audio ?? null, audioFormat: format });
-        setCurrentScript(data.text);
-        if (data.audio) playAudio(data.audio, format, data.text);
-        else speakTextFallback(data.text);
+        const entry: GuideEntry = {
+          text: data.text,
+          audioUrl: data.audioUrl ?? null,
+          audioB64: data.audio ?? null,
+          audioFormat: data.audioFormat || "mp3",
+        };
+        cacheRef.current.set(cacheKey, entry);
+        setCurrentScript(entry.text);
+        playEntry(entry);
       }
     } catch (e: any) {
       if (e?.name !== 'AbortError') console.error("AI Guide failed:", e);
