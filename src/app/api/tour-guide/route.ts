@@ -42,6 +42,8 @@ export async function POST(request: Request) {
       osmType: body.osmType ?? null,
       osmId: body.osmId ?? null,
       trailSlug: body.trailSlug ?? null,
+      tags: body.tags ?? null,
+      covered: Array.isArray(body.covered) ? body.covered.slice(0, 10) : null,
 
     };
 

@@ -11,6 +11,9 @@ interface DiscoveredPOI {
   lon: number;
   type: string;
   name: string | null;
+  osmType: string | null;
+  osmId: number | null;
+  tags: Record<string, string>;
 }
 
 // Enriches the trail's hardcoded start/midway/end POIs with real points of
@@ -48,7 +51,15 @@ export function useTrailPOIs(trail: TrailData | null): TrailPOI[] {
             if (d < bestDist) { bestDist = d; bestIdx = i; }
           }
           if (bestDist <= MAX_SNAP_KM && bestIdx >= 0) {
-            snapped.push({ index: bestIdx, coord: trail.coords[bestIdx], type: p.type, name: p.name });
+            snapped.push({
+              index: bestIdx,
+              coord: trail.coords[bestIdx],
+              type: p.type,
+              name: p.name,
+              osmType: p.osmType,
+              osmId: p.osmId,
+              tags: p.tags,
+            });
           }
         }
         if (snapped.length === 0) return;

@@ -20,7 +20,7 @@ export const NARRATION_BUCKET = 'narrations';
 // Bumping this invalidates every cached narration on purpose: it is the
 // mechanism for rolling out a better prompt without deleting rows by hand.
 // Audio keyed to superseded text simply stops being referenced.
-export const PROMPT_VERSION = 1;
+export const PROMPT_VERSION = 2;
 
 export interface PoiIdentity {
   lat: number;

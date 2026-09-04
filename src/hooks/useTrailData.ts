@@ -6,6 +6,12 @@ export interface TrailPOI {
   coord: Coordinate3D;
   type: string;
   name?: string | null;
+  // Present on points discovered in OpenStreetMap. osmType/osmId are what the
+  // server keys its permanent narration cache on; tags are the raw facts the
+  // guide is written from.
+  osmType?: string | null;
+  osmId?: number | null;
+  tags?: Record<string, string> | null;
 }
 
 export interface TrailData {

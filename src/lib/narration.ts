@@ -14,6 +14,12 @@ import {
   writeAudio,
   isNarrationCacheConfigured,
 } from './narrationCache';
+import {
+  type Grounding,
+  gatherGrounding,
+  groundingPromptBlock,
+  sourcesForStorage,
+} from './grounding';
 
 // One narration for one point of interest, produced in two halves so the
 // caller can put a quota check between them: `lookupNarration` is free and
@@ -26,10 +32,26 @@ const POI_TYPE_HE: Record<string, string> = {
   end: 'נקודת הסיום של המסלול',
 };
 
-// Seasonal framing is deliberately gone: a narration is cached forever, so
-// anything tied to the month it was written in would be wrong most of the year.
-const SYSTEM_PROMPT =
-  'אתה מדריך טיולים ישראלי מנוסה בארץ ישראל. השתמש בוויב חם ומזמין, תהיה קצר וקולע (מקסימום 2-3 משפטים). התייחס להיסטוריה ולסביבה הקשורות לקואורדינטות המדויקות המסופקות. התאם את הטון לסוג הנקודה: בנקודת פתיחה — ברכת פתיחה נלהבת; באמצע המסלול — עידוד והפניית תשומת לב לסביבה; בנקודת סיום — סיכום חם ופרידה. הטקסט יוקרא בקול, אז כתוב אותו כדיבור טבעי בלי כותרות או סימנים מיוחדים.';
+// Written against the failure mode of the old prompt, which had nothing but a
+// coordinate to work with and so produced "the view here is breathtaking" for
+// every point on every trail. The rules below are all one rule: say something
+// only if a source says it.
+//
+// Bump PROMPT_VERSION in narrationCache.ts whenever this changes — it is what
+// retires narrations written under the old wording.
+const SYSTEM_PROMPT = [
+  'אתה מדריך טיולים ישראלי מנוסה. אתה כותב קטע קריינות קצר שיוקרא בקול למטייל שעומד עכשיו בנקודה מסוימת במסלול.',
+  '',
+  'כללים מחייבים:',
+  '1. כתוב אך ורק על סמך המקורות שיסופקו לך. אל תמציא שום עובדה, שם, תאריך או מספר שאינם מופיעים בהם.',
+  '2. אם סופקו מקורות — הבא לפחות עובדה קונקרטית אחת מתוכם: שם, תאריך, אדם, אירוע, מספר או תקופה.',
+  '3. אם לא סופקו מקורות — תאר עובדתית את סוג הנקודה ואת מה שידוע עליה מהנתונים שקיבלת בלבד, ואל תמלא את החסר בניחושים.',
+  '4. אסור להשתמש בקלישאות נוף: "הנוף עוצר נשימה", "יפה במיוחד", "קסום", "מרהיב". אסור לספקולציה על מזג אוויר, פריחה או עונה — הקטע נשמר לתמיד ויושמע בכל חודש בשנה.',
+  '5. אל תחזור על נושאים שכבר סופרו במסלול הזה, אם צוינו כאלה. כל נקודה מוסיפה משהו חדש.',
+  '6. אורך: 4 עד 6 משפטים, בערך 600 תווים.',
+  '7. הטקסט יוקרא בקול: כתוב דיבור טבעי ורציף, בלי כותרות, בלי רשימות, בלי סוגריים, בלי סימנים מיוחדים ובלי ציון מקורות.',
+  '8. התאם את הפתיחה לסוג הנקודה: בנקודת הפתיחה — ברכה קצרה; בנקודת הסיום — סיום קצר. בשאר הנקודות גש ישר לעניין.',
+].join('\n');
 
 export function availableProviders(): Record<TextProvider, boolean> {
   return {
@@ -52,6 +74,10 @@ export function pickTextProvider(requested?: string): TextProvider | null {
   return null;
 }
 
+// Low, not zero: the narration should read as speech rather than as a
+// database row, but it is retelling sourced facts, not inventing them.
+const TEXT_TEMPERATURE = 0.3;
+
 // ── Text generation, one function per provider ────────────────────────────────
 async function generateTextOpenAI(system: string, user: string): Promise<string> {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -62,7 +88,7 @@ async function generateTextOpenAI(system: string, user: string): Promise<string>
     },
     body: JSON.stringify({
       model: process.env.OPENAI_TEXT_MODEL || 'gpt-4o-mini',
-      temperature: 0.7,
+      temperature: TEXT_TEMPERATURE,
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user },
@@ -75,7 +101,7 @@ async function generateTextOpenAI(system: string, user: string): Promise<string>
 }
 
 async function generateTextGemini(system: string, user: string): Promise<string> {
-  const model = process.env.GEMINI_TEXT_MODEL || 'gemini-2.0-flash';
+  const model = process.env.GEMINI_TEXT_MODEL || 'gemini-2.5-flash';
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
     {
@@ -84,7 +110,7 @@ async function generateTextGemini(system: string, user: string): Promise<string>
       body: JSON.stringify({
         system_instruction: { parts: [{ text: system }] },
         contents: [{ role: 'user', parts: [{ text: user }] }],
-        generationConfig: { temperature: 0.7 },
+        generationConfig: { temperature: TEXT_TEMPERATURE },
       }),
     }
   );
@@ -102,7 +128,7 @@ async function generateTextClaude(system: string, user: string): Promise<string>
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: process.env.ANTHROPIC_MODEL || 'claude-opus-4-8',
+      model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
       max_tokens: 1024,
       system,
       messages: [{ role: 'user', content: user }],
@@ -128,6 +154,11 @@ export interface NarrationInput {
   osmType?: string | null;
   osmId?: number | string | null;
   trailSlug?: string | null;
+  tags?: Record<string, string> | null;
+  // Points already narrated on this trail, so the guide doesn't tell the same
+  // story twice. Not part of the cache key: a narration has to stand on its own
+  // whichever order the walker meets the points in.
+  covered?: string[] | null;
 }
 
 // In-memory fallbacks, used only when the durable cache isn't configured.
@@ -208,10 +239,24 @@ export function resultFromLookup(lookup: NarrationLookup): NarrationResult | nul
   return null;
 }
 
-function buildUserPrompt(input: NarrationInput): string {
+function buildUserPrompt(input: NarrationInput, grounding: Grounding): string {
   const typeDesc = POI_TYPE_HE[input.type] ?? input.type ?? 'נקודת עניין';
   const place = input.name ? `${typeDesc} "${input.name}"` : typeDesc;
-  return `המטייל נמצא עכשיו ב${place}, בנ.צ: קו רוחב ${input.lat}, קו אורך ${input.lon}. הקרא מדריך קצר לנקודה זו — אם יש שם למקום, התייחס אליו ולמה שמייחד אותו.`;
+
+  const parts = [
+    `המטייל נמצא עכשיו ב${place}, בנ.צ: קו רוחב ${input.lat}, קו אורך ${input.lon}.`,
+  ];
+
+  const sources = groundingPromptBlock(grounding);
+  parts.push(sources ?? 'לא נמצאו מקורות על הנקודה הזו. אל תמציא עובדות — הסתמך רק על סוג הנקודה ועל שמה, אם יש לה שם.');
+
+  const covered = (input.covered ?? []).filter(Boolean);
+  if (covered.length > 0) {
+    parts.push(`נושאים שכבר סופרו במסלול הזה, אל תחזור עליהם: ${covered.join('; ')}.`);
+  }
+
+  parts.push('כתוב עכשיו את קטע הקריינות.');
+  return parts.join('\n\n');
 }
 
 // The paid half: fills in whatever the lookup didn't have, then writes both
@@ -225,9 +270,12 @@ export async function generateNarration(
 
   let text = lookup.text;
   if (!text) {
-    text = (await generateText(provider, SYSTEM_PROMPT, buildUserPrompt(input))).trim();
+    const grounding = await gatherGrounding({ lat: input.lat, lon: input.lon, tags: input.tags });
+    text = (await generateText(provider, SYSTEM_PROMPT, buildUserPrompt(input, grounding))).trim();
     rememberInMemory(memNarration, poiKey, text);
-    await writeNarration(poiKey, text, null);
+    // The sources are stored with the text so it stays possible to check, after
+    // the fact, what the guide was actually working from.
+    await writeNarration(poiKey, text, sourcesForStorage(grounding));
   }
 
   if (!voice) {

@@ -32,6 +32,7 @@ export interface GuideTarget {
   name?: string | null;
   osmType?: string | null;
   osmId?: number | string | null;
+  tags?: Record<string, string> | null;
 }
 
 export function useAIGuide() {
@@ -44,6 +45,11 @@ export function useAIGuide() {
   const objectUrlRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const cacheRef = useRef<Map<string, GuideEntry>>(new Map());
+
+  // What has already been narrated on the trail being walked, so each point
+  // adds something new instead of retelling the last one. Reset when the trail
+  // changes; deliberately not part of any cache key.
+  const coveredRef = useRef<{ slug: string; topics: string[] }>({ slug: '', topics: [] });
 
   const getAudioEl = () => {
     if (!audioRef.current) {
@@ -157,6 +163,11 @@ export function useAIGuide() {
       : "auto";
     const cacheKey = `${providerPref}:${trailSlug}:${target.type}:${target.coord[0].toFixed(4)},${target.coord[1].toFixed(4)}`;
 
+    if (coveredRef.current.slug !== trailSlug) {
+      coveredRef.current = { slug: trailSlug, topics: [] };
+    }
+    const topic = target.name ? `${target.type} ${target.name}` : target.type;
+
     const cached = cacheRef.current.get(cacheKey);
     if (cached) {
       setCurrentScript(cached.text);
@@ -190,7 +201,9 @@ export function useAIGuide() {
           name: target.name || undefined,
           osmType: target.osmType || undefined,
           osmId: target.osmId ?? undefined,
+          tags: target.tags ?? undefined,
           trailSlug,
+          covered: coveredRef.current.topics.slice(-6),
           provider: localStorage.getItem(AI_PROVIDER_STORAGE_KEY) || undefined
         })
       });
@@ -211,6 +224,7 @@ export function useAIGuide() {
           audioFormat: data.audioFormat || "mp3",
         };
         cacheRef.current.set(cacheKey, entry);
+        if (!coveredRef.current.topics.includes(topic)) coveredRef.current.topics.push(topic);
         setCurrentScript(entry.text);
         playEntry(entry);
       }
