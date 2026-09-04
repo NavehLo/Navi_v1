@@ -9,7 +9,15 @@ import {
 } from './elevenlabs';
 
 export type { VoiceOverride } from './elevenlabs';
-import { NIQQUD_VERSION, applyNiqqud } from './niqqud';
+import {
+  type NiqqudOutcome,
+  type NiqqudProvider,
+  NIQQUD_VERSION,
+  resolveNiqqudProvider,
+  vocalize,
+} from './niqqud';
+
+export type { NiqqudProvider, NiqqudOutcome } from './niqqud';
 
 // Text-to-speech, one voice chosen per request.
 //
@@ -27,15 +35,22 @@ export interface TtsVoice {
   voice: string;
   format: string; // container: mp3 | wav
   settings?: VoiceSettings; // ElevenLabs only
-  // Vowel points added to the geographic vocabulary before synthesis. Off is
-  // a distinct rendering from on, so it belongs to the voice's identity.
+  // Vowel points added before synthesis. Off is a distinct rendering from on,
+  // and Nakdan is a distinct rendering from the lexicon, so both belong to the
+  // voice's identity.
   niqqud?: boolean;
+  niqqudProvider?: NiqqudProvider;
 }
 
 export interface SynthesizedSpeech {
   buffer: Buffer;
   format: string;
   voice: TtsVoice;
+  // What was actually sent to the voice, and by which diacritizer. The stored
+  // narration is plain Hebrew, so without this there is no way to see what the
+  // model was asked to read.
+  spokenText?: string;
+  niqqud?: NiqqudOutcome | null;
   // Set when ElevenLabs would not accept the full request and a simplified one
   // was used instead — the app says so rather than implying the settings took.
   degraded?: 'basic' | 'bare';
@@ -80,6 +95,7 @@ export function resolveTtsVoice(preferred: TextProvider, override?: VoiceOverrid
       format: containerFor(v.format),
       settings: v.settings,
       niqqud: override?.niqqud !== false,
+      niqqudProvider: resolveNiqqudProvider(),
     };
   }
   if (preferred === 'gemini' && process.env.GEMINI_API_KEY) return geminiVoice();
@@ -102,7 +118,7 @@ export function voiceSignature(voice: TtsVoice): string {
   // from the other's cache entry. Same for the niqqud pass — and its version,
   // so improving the lexicon re-renders instead of serving the old reading.
   const tuning = s ? `:${s.stability}:${s.similarityBoost}:${s.style}:${s.speed}` : '';
-  const nq = voice.niqqud ? `:nq${NIQQUD_VERSION}` : '';
+  const nq = voice.niqqud ? `:nq${NIQQUD_VERSION}:${voice.niqqudProvider ?? 'lexicon'}` : '';
   return `${voice.provider}:${voice.model}:${voice.voice}:${voice.format}${tuning}${nq}`;
 }
 
@@ -111,6 +127,30 @@ export function voiceSignature(voice: TtsVoice): string {
 // voice is always free.
 export function audioKey(text: string, voice: TtsVoice): string {
   return crypto.createHash('sha1').update(voiceSignature(voice) + '::' + text).digest('hex');
+}
+
+// What the app is allowed to say about a clip: which voice produced it, in
+// terms a person can check against the settings panel. Public identifiers
+// only — a voice id is a Voice Library identifier, not a secret.
+export interface VoiceStamp {
+  provider: TtsProvider;
+  model: string;
+  voiceId: string;
+  signature: string;
+  niqqud: boolean;
+  niqqudProvider: NiqqudProvider | null;
+}
+
+export function voiceStamp(voice: TtsVoice | null): VoiceStamp | null {
+  if (!voice) return null;
+  return {
+    provider: voice.provider,
+    model: voice.model,
+    voiceId: voice.voice,
+    signature: voiceSignature(voice),
+    niqqud: !!voice.niqqud,
+    niqqudProvider: voice.niqqud ? (voice.niqqudProvider ?? 'lexicon') : null,
+  };
 }
 
 // Raw synthesis — no caching. Returns null on any failure; the narration text
@@ -124,7 +164,8 @@ export async function synthesize(
     // Only ElevenLabs gets the vowel points: the OpenAI and Gemini voices are
     // fallbacks whose Hebrew is the problem this project moved away from, and
     // feeding them niqqud has not been shown to help.
-    const spoken = voice.niqqud ? applyNiqqud(text) : text;
+    const niqqud = voice.niqqud ? await vocalize(text, voice.niqqudProvider ?? 'lexicon') : null;
+    const spoken = niqqud?.text ?? text;
     const outcome = await synthesizeElevenLabs(spoken, override);
     if (!outcome.ok) {
       const { status, detail } = outcome.error;
@@ -135,6 +176,8 @@ export async function synthesize(
         buffer: outcome.result.buffer,
         format: outcome.result.format,
         voice,
+        spokenText: spoken,
+        niqqud,
         degraded: outcome.result.variant === 'full' ? undefined : outcome.result.variant,
       },
       error: null,
@@ -144,7 +187,7 @@ export async function synthesize(
     ? await synthesizeGemini(text, voice)
     : await synthesizeOpenAI(text, voice);
   return r
-    ? { speech: { ...r, voice }, error: null }
+    ? { speech: { ...r, voice, spokenText: text, niqqud: null }, error: null }
     : { speech: null, error: `${voice.provider} TTS failed — see server logs.` };
 }
 

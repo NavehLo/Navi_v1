@@ -1,4 +1,12 @@
-import { Volume2, Loader2, StopCircle, X } from "lucide-react";
+import { Volume2, Loader2, StopCircle, X, Smartphone } from "lucide-react";
+import { type PlayingVoice } from "../hooks/useAIGuide";
+import { voiceNameFor } from "../lib/voicePrefs";
+
+const PROVIDER_LABEL: Record<string, string> = {
+  elevenlabs: "ElevenLabs",
+  openai: "OpenAI",
+  gemini: "Gemini",
+};
 
 interface AIAssistantUIProps {
   isLoading: boolean;
@@ -10,9 +18,27 @@ interface AIAssistantUIProps {
   // be spoken, so saying how many are queued explains why the guide is talking
   // about somewhere you have already walked past.
   queueLength?: number;
+  // Which voice rendered the narration being played, as reported with the clip
+  // itself. The settings panel can only say what the server would use next; the
+  // question worth answering here is what was used *this time*, since a voice
+  // change leaves earlier renderings in the caches untouched.
+  voice?: PlayingVoice | null;
+  // Played from the copy stored on the device rather than fetched. Worth saying
+  // out loud: it is the one path where the audio predates the current settings.
+  voiceFromDevice?: boolean;
 }
 
-export default function AIAssistantUI({ isLoading, isSpeaking, currentScript, onStop, onManualTrigger, queueLength = 0 }: AIAssistantUIProps) {
+export default function AIAssistantUI({
+  isLoading,
+  isSpeaking,
+  currentScript,
+  onStop,
+  onManualTrigger,
+  queueLength = 0,
+  voice = null,
+  voiceFromDevice = false,
+}: AIAssistantUIProps) {
+  const voiceName = voiceNameFor(voice?.voiceId);
   if (!isLoading && !currentScript) {
     return (
       <div className="absolute bottom-4 left-4 z-50">
@@ -54,6 +80,31 @@ export default function AIAssistantUI({ isLoading, isSpeaking, currentScript, on
             <p className="text-white text-sm leading-relaxed" dir="rtl">
               {isLoading ? 'חושב ומנתח את הסביבה...' : currentScript}
             </p>
+
+            {/* Who is actually speaking. Without it there is no way, from
+                inside the app, to tell the voice you just chose from the one
+                it replaced. */}
+            {!isLoading && (
+              <div className="mt-2 flex items-center gap-1.5 text-[10px] text-zinc-500" dir="rtl">
+                {voiceFromDevice && <Smartphone size={10} className="shrink-0" />}
+                {voice ? (
+                  <span>
+                    <span className="text-zinc-400">
+                      {voiceName ?? PROVIDER_LABEL[voice.provider] ?? voice.provider}
+                    </span>
+                    {voiceName && (
+                      <span> · {PROVIDER_LABEL[voice.provider] ?? voice.provider}</span>
+                    )}
+                    {voice.voiceId && (
+                      <span className="opacity-70" dir="ltr"> · {voice.voiceId}</span>
+                    )}
+                    {voiceFromDevice && <span> · מהמכשיר</span>}
+                  </span>
+                ) : (
+                  <span>קול הדפדפן — לא נוצר קול בשרת</span>
+                )}
+              </div>
+            )}
           </div>
 
           {!isLoading && isSpeaking && (

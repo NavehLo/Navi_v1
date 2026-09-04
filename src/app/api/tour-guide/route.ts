@@ -9,7 +9,7 @@ import {
   resultFromLookup,
   generateNarration,
 } from '../../../lib/narration';
-import { resolveTtsVoice } from '../../../lib/tts';
+import { resolveTtsVoice, voiceStamp } from '../../../lib/tts';
 
 // The daily quota is a character budget: characters are what TTS bills for, so
 // counting them is the only way the limit reflects real spend. Cache hits cost
@@ -30,17 +30,36 @@ const DAILY_MISSES_ANON = parseInt(process.env.GUIDE_DAILY_MISSES_ANON || '8', 1
 // looks identical from the app: the voice settings simply stop having any
 // effect, with nothing on screen to say why. This endpoint is what makes that
 // visible. Booleans and public identifiers only — no secrets leave the server.
-export async function GET() {
-  const voice = resolveTtsVoice(pickTextProvider() ?? 'openai');
+export async function GET(request: Request) {
+  // The caller's own voice preferences, if it has any: without them this would
+  // report the server's default while the app was actually using something
+  // else, which is exactly the confusion the endpoint exists to remove.
+  let override = null;
+  try {
+    const raw = new URL(request.url).searchParams.get('voice');
+    if (raw) override = JSON.parse(raw);
+  } catch {
+    // A malformed preference is the same as none.
+  }
+
+  const voice = resolveTtsVoice(pickTextProvider() ?? 'openai', override);
+  const stamp = voiceStamp(voice);
   return NextResponse.json({
     providers: availableProviders(),
-    tts: voice
+    tts: stamp
       ? {
-          provider: voice.provider,
-          model: voice.model,
+          provider: stamp.provider,
+          model: stamp.model,
           // A voice id is a public Voice Library identifier, not a secret.
-          voiceId: voice.provider === 'elevenlabs' ? voice.voice : null,
-          tunable: voice.provider === 'elevenlabs',
+          voiceId: stamp.provider === 'elevenlabs' ? stamp.voiceId : null,
+          tunable: stamp.provider === 'elevenlabs',
+          // The exact rendering identity. The app stores it next to every clip
+          // it keeps on the device, and refuses to replay one whose signature
+          // no longer matches — otherwise a trail downloaded under the old
+          // voice keeps playing that voice forever.
+          signature: stamp.signature,
+          niqqud: stamp.niqqud,
+          niqqudProvider: stamp.niqqudProvider,
         }
       : null, // nothing server-side — the browser's own speechSynthesis reads it
   });
@@ -87,6 +106,7 @@ export async function POST(request: Request) {
         audio: null,
         audioFormat: 'mp3',
         cached: false,
+        voice: null,
       });
     }
 
