@@ -112,53 +112,135 @@ export interface SpeechResult {
   buffer: Buffer;
   format: string; // 'mp3'
   voice: VoiceSignature;
+  // Which rung of the ladder below actually worked, so the app can say when a
+  // setting had to be dropped instead of pretending it was honoured.
+  variant: RequestVariant;
 }
 
-// Returns null (never throws) so the caller can fall through to OpenAI/Gemini
-// and ultimately to the browser's speechSynthesis — narration is best-effort.
+export interface SpeechFailure {
+  status: number | null;
+  // What ElevenLabs itself said. Passed through rather than replaced with a
+  // guess: the guess is what made the previous failure impossible to diagnose.
+  detail: string;
+  variantsTried: RequestVariant[];
+}
+
+export type SpeechOutcome =
+  | { ok: true; result: SpeechResult }
+  | { ok: false; error: SpeechFailure };
+
+// The API rejects a request outright when a field it does not accept is
+// present, and which fields those are depends on the model — v3 in particular
+// is stricter than the older ones. Rather than encode a guess about the
+// current contract, the request is tried at three levels of ambition and the
+// first that is accepted wins.
+export type RequestVariant = 'full' | 'basic' | 'bare';
+
+// v3 documents stability as three named settings rather than a continuum.
+// Snapping to the nearest is what the 'basic' rung does, so a slider position
+// in between still produces a request the model will accept.
+function snapStability(value: number): number {
+  const stops = [0, 0.5, 1];
+  return stops.reduce((best, stop) =>
+    Math.abs(stop - value) < Math.abs(best - value) ? stop : best
+  );
+}
+
+function bodyFor(variant: RequestVariant, text: string, voice: VoiceSignature): Record<string, unknown> {
+  const base = { text, model_id: voice.model };
+  if (variant === 'bare') return base;
+  if (variant === 'basic') {
+    return {
+      ...base,
+      voice_settings: {
+        stability: snapStability(voice.settings.stability),
+        similarity_boost: voice.settings.similarityBoost,
+      },
+    };
+  }
+  return {
+    ...base,
+    language_code: 'he',
+    voice_settings: {
+      stability: voice.settings.stability,
+      similarity_boost: voice.settings.similarityBoost,
+      style: voice.settings.style,
+      speed: voice.settings.speed,
+    },
+  };
+}
+
+// Keep the passed-through detail short and free of anything request-shaped.
+function trimDetail(body: string): string {
+  return body.replace(/\s+/g, ' ').trim().slice(0, 400);
+}
+
+const LADDER: RequestVariant[] = ['full', 'basic', 'bare'];
+
+// Never throws. On failure the caller gets what ElevenLabs actually said, so a
+// bad voice id, an unsupported setting, an expired key and an empty balance
+// stop looking identical from the outside.
 export async function synthesizeElevenLabs(
   text: string,
   override?: VoiceOverride | null
-): Promise<SpeechResult | null> {
-  if (!isElevenLabsConfigured(override)) return null;
+): Promise<SpeechOutcome> {
+  if (!isElevenLabsConfigured(override)) {
+    return {
+      ok: false,
+      error: {
+        status: null,
+        detail: 'ElevenLabs is not configured (missing ELEVENLABS_API_KEY or ELEVENLABS_VOICE_ID).',
+        variantsTried: [],
+      },
+    };
+  }
 
   const voice = elevenLabsVoiceSignature(override);
-  try {
-    const res = await fetch(
-      `${API_BASE}/${encodeURIComponent(voice.voice)}?output_format=${encodeURIComponent(voice.format)}`,
-      {
+  const url = `${API_BASE}/${encodeURIComponent(voice.voice)}?output_format=${encodeURIComponent(voice.format)}`;
+  const tried: RequestVariant[] = [];
+  let lastStatus: number | null = null;
+  let lastDetail = 'unknown error';
+
+  for (const variant of LADDER) {
+    tried.push(variant);
+    try {
+      const res = await fetch(url, {
         method: 'POST',
         headers: {
           'xi-api-key': process.env.ELEVENLABS_API_KEY as string,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          text,
-          model_id: voice.model,
-          language_code: 'he',
-          voice_settings: {
-            stability: voice.settings.stability,
-            similarity_boost: voice.settings.similarityBoost,
-            style: voice.settings.style,
-            speed: voice.settings.speed,
-          },
-        }),
+        body: JSON.stringify(bodyFor(variant, text, voice)),
         signal: AbortSignal.timeout(60_000),
+      });
+
+      if (res.ok) {
+        return {
+          ok: true,
+          result: {
+            buffer: Buffer.from(await res.arrayBuffer()),
+            format: containerFor(voice.format),
+            voice,
+            variant,
+          },
+        };
       }
-    );
 
-    if (!res.ok) {
-      console.error('ElevenLabs TTS error:', res.status, await res.text());
-      return null;
+      lastStatus = res.status;
+      lastDetail = trimDetail(await res.text());
+      console.error('ElevenLabs TTS error:', variant, res.status, lastDetail);
+
+      // Only a rejected *request* is worth simplifying and retrying. A bad key,
+      // an exhausted balance or an outage will answer the same way every time,
+      // so stop and report rather than burn two more round trips.
+      if (res.status !== 400 && res.status !== 422) break;
+    } catch (e) {
+      lastStatus = null;
+      lastDetail = e instanceof Error ? e.message : String(e);
+      console.error('ElevenLabs TTS failed:', variant, e);
+      break;
     }
-
-    return {
-      buffer: Buffer.from(await res.arrayBuffer()),
-      format: containerFor(voice.format),
-      voice,
-    };
-  } catch (e) {
-    console.error('ElevenLabs TTS failed:', e);
-    return null;
   }
+
+  return { ok: false, error: { status: lastStatus, detail: lastDetail, variantsTried: tried } };
 }
