@@ -9,6 +9,7 @@ import Controls from "@/components/Controls";
 import AIAssistantUI from "@/components/AIAssistantUI";
 import SettingsPanel from "@/components/SettingsPanel";
 import PersonalArea from "@/components/PersonalArea";
+import GuidePointsPanel from "@/components/GuidePointsPanel";
 import { useTrailData } from "@/hooks/useTrailData";
 import { useTour } from "@/hooks/useTour";
 import { useAIGuide } from "@/hooks/useAIGuide";
@@ -16,6 +17,15 @@ import { usePOIGeofence } from "@/hooks/usePOIGeofence";
 import { useTrailPOIs } from "@/hooks/useTrailPOIs";
 import { useAuth } from "@/hooks/useAuth";
 import { saveTrail, recordTour, SavedTrail, describeSupabaseError, clearPersonalCache } from "@/lib/personalArea";
+import type { TrailPOI } from "@/hooks/useTrailData";
+
+// The guide can be switched off entirely, and the choice sticks between visits.
+const GUIDE_ENABLED_KEY = "guide_enabled";
+
+// A narration runs about 40 seconds. Firing it 150 m out means it finishes
+// roughly as the point is reached, rather than starting there and trailing
+// behind the walker for the next stretch of trail.
+const GEOFENCE_RADIUS_KM = 0.15;
 
 const MemoizedMapComponent = memo(MapComponent);
 const MemoizedTrailDiscovery = memo(TrailDiscovery);
@@ -87,6 +97,23 @@ export default function TrailApp() {
   const { trail, setTrail, trailSource, loadTrailFile, loadTrailFromUrl, loadTrailFromText, trailError, trailLoading } = useTrailData();
   const { isActive: isTourActive, startTour, stopTour, speed: tourSpeed, setSpeed: setTourSpeed, progress, setProgressByJump } = useTour(map, trail);
   const { requestGuideForPoint, unlockAudio, isSpeaking, isLoading, currentScript, stopSpeaking } = useAIGuide();
+
+  // Guide on/off, remembered per device. Off is a real off: the geofence never
+  // fires, so not a single request goes out.
+  const [isGuideEnabled, setIsGuideEnabled] = useState(true);
+  const [showGuidePoints, setShowGuidePoints] = useState(false);
+  useEffect(() => {
+    setIsGuideEnabled(localStorage.getItem(GUIDE_ENABLED_KEY) !== "0");
+  }, []);
+  const handleToggleGuide = useCallback(() => {
+    setIsGuideEnabled((prev) => {
+      const next = !prev;
+      localStorage.setItem(GUIDE_ENABLED_KEY, next ? "1" : "0");
+      if (!next) stopSpeaking();
+      else unlockAudio(); // the toggle is a user gesture — use it to unlock audio
+      return next;
+    });
+  }, [stopSpeaking, unlockAudio]);
 
   // Real GPS "field mode": continuous tracking that feeds the POI geofence
   const [isFieldMode, setIsFieldMode] = useState(false);
@@ -173,8 +200,20 @@ export default function TrailApp() {
     enrichedPois,
     guidePos,
     (poi) => requestGuideForPoint(poi, trail!.name),
-    { enabled: isTourActive || isFieldMode, resetKey: trail?.name }
+    {
+      enabled: isGuideEnabled && (isTourActive || isFieldMode),
+      radiusKm: GEOFENCE_RADIUS_KM,
+      resetKey: trail?.name,
+    }
   );
+
+  // Replaying a point someone asked for jumps the queue — they pressed a
+  // button and expect to hear it now.
+  const playPoiNow = useCallback((poi: TrailPOI) => {
+    if (!trail) return;
+    unlockAudio();
+    requestGuideForPoint(poi, trail.name, { immediate: true });
+  }, [trail, unlockAudio, requestGuideForPoint]);
 
   const handleMapLoad = useCallback((initializedMap: mapboxgl.Map) => {
     setMap(initializedMap);
@@ -416,9 +455,9 @@ export default function TrailApp() {
       if (!map.getStyle()) return;
       const fc = {
         type: 'FeatureCollection',
-        features: namedPois.map(p => ({
+        features: namedPois.map((p, i) => ({
           type: 'Feature',
-          properties: { label: p.name ? `${p.type} · ${p.name}` : p.type },
+          properties: { label: p.name ? `${p.type} · ${p.name}` : p.type, poiIdx: i },
           geometry: { type: 'Point', coordinates: [p.coord[1], p.coord[0]] },
         })),
       };
@@ -454,10 +493,30 @@ export default function TrailApp() {
       }
     };
 
+    // Tapping a point replays its narration. Once it has been narrated it
+    // costs nothing to hear again — the audio is already cached, so this works
+    // offline too.
+    const handlePoiClick = (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) => {
+      const idx = e.features?.[0]?.properties?.poiIdx;
+      if (typeof idx !== 'number') return;
+      const poi = namedPois[idx];
+      if (poi) playPoiNow(poi);
+    };
+    const showPointer = () => { map.getCanvas().style.cursor = 'pointer'; };
+    const hidePointer = () => { map.getCanvas().style.cursor = ''; };
+
     try { syncPoiLayers(); } catch (e) {}
     map.on('style.load', syncPoiLayers);
-    return () => { map.off('style.load', syncPoiLayers); };
-  }, [map, enrichedPois, styleRev]);
+    map.on('click', 'trail-poi-dot', handlePoiClick);
+    map.on('mouseenter', 'trail-poi-dot', showPointer);
+    map.on('mouseleave', 'trail-poi-dot', hidePointer);
+    return () => {
+      map.off('style.load', syncPoiLayers);
+      map.off('click', 'trail-poi-dot', handlePoiClick);
+      map.off('mouseenter', 'trail-poi-dot', showPointer);
+      map.off('mouseleave', 'trail-poi-dot', hidePointer);
+    };
+  }, [map, enrichedPois, styleRev, playPoiNow]);
 
   return (
     <div className="w-full h-screen relative bg-zinc-900 overflow-hidden m-0 p-0 select-none touch-none" dir="rtl">
@@ -517,6 +576,9 @@ export default function TrailApp() {
         saveTrailState={saveTrailState}
         canShare={trailSource?.kind === 'url'}
         onShare={handleShare}
+        isGuideEnabled={isGuideEnabled}
+        onToggleGuide={handleToggleGuide}
+        onOpenGuidePoints={() => setShowGuidePoints(true)}
       />
 
       {/* Settings modal */}
@@ -532,6 +594,16 @@ export default function TrailApp() {
         />
       )}
 
+      {/* Narration points in this trail */}
+      {showGuidePoints && trail && (
+        <GuidePointsPanel
+          trail={trail}
+          pois={enrichedPois}
+          onClose={() => setShowGuidePoints(false)}
+          onPlay={playPoiNow}
+        />
+      )}
+
       {/* AI Assistant Overlay */}
       {trail && (
         <AIAssistantUI
@@ -539,10 +611,7 @@ export default function TrailApp() {
           isSpeaking={isSpeaking}
           currentScript={currentScript}
           onStop={stopSpeaking}
-          onManualTrigger={() => {
-            unlockAudio();
-            requestGuideForPoint(trail.pois[0], trail.name);
-          }}
+          onManualTrigger={() => playPoiNow(enrichedPois[0] ?? trail.pois[0])}
         />
       )}
 
