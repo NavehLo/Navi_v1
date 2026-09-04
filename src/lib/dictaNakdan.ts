@@ -55,7 +55,7 @@ function firstString(value: unknown): string | null {
   return null;
 }
 
-function readToken(token: unknown): string {
+function readToken(token: unknown, depth = 0): string {
   if (typeof token === 'string') return token;
   if (!token || typeof token !== 'object') return '';
   const t = token as Record<string, unknown>;
@@ -82,6 +82,19 @@ function readToken(token: unknown): string {
   for (const value of Object.values(t)) {
     if (typeof value === 'string' && hasNiqqud(value)) return value.replace(/\|/g, '');
   }
+
+  // The live service wraps each entry one level deeper than the shape this was
+  // first written against: `{"data":[{"nakdan":{"word":…,"options":[…]}}]}`.
+  // Rather than special-case the key, step into a nested object and read that.
+  if (depth < 2) {
+    for (const value of Object.values(t)) {
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        const inner = readToken(value, depth + 1);
+        if (inner) return inner;
+      }
+    }
+  }
+
   return original;
 }
 
@@ -166,7 +179,10 @@ export async function vocalizeWithDicta(text: string): Promise<DictaResult> {
     return { error: 'תשובת Nakdan לא הכילה טוקנים', raw: sample(data) };
   }
 
-  const vocalized = tokens.map(readToken).join('');
+  // Not `tokens.map(readToken)`: map passes the index as the second argument,
+  // which lands in `depth` and switches the unwrapping off from the third
+  // token onward.
+  const vocalized = tokens.map((token) => readToken(token)).join('');
   if (!vocalized.trim()) {
     return { error: 'מבנה תשובה לא מוכר מ-Nakdan', raw: sample(data) };
   }

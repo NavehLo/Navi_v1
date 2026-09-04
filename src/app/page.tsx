@@ -195,7 +195,8 @@ export default function TrailApp() {
 
   // Real POIs discovered along the trail (waterfalls, viewpoints, ruins...),
   // enriching the synthetic start/midway/end. Best-effort; falls back gracefully.
-  const enrichedPois = useTrailPOIs(trail);
+  const { pois: enrichedPois, source: poiSource, discoveryFailed: poiDiscoveryFailed } =
+    useTrailPOIs(trail);
 
   const { reset: resetGeofence } = usePOIGeofence(
     enrichedPois,
@@ -606,6 +607,8 @@ export default function TrailApp() {
           onClose={() => setShowGuidePoints(false)}
           onPlay={playPoiNow}
           offlineStateFor={(poi) => (offlineTrail.isSaved(poi) ? 'saved' : 'missing')}
+          poiSource={poiSource}
+          poiDiscoveryFailed={poiDiscoveryFailed}
           offline={{
             savedCount: offlineTrail.savedCount,
             total: offlineTrail.total,
