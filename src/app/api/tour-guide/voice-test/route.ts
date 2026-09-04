@@ -39,7 +39,9 @@ export async function POST(request: Request) {
         text: SAMPLE_TEXT,
         audio: cached.buffer.toString('base64'),
         audioFormat: cached.format,
+        provider: voice.provider,
         voiceId: voice.voice,
+        niqqud: !!voice.niqqud,
         cached: true,
       });
     }
@@ -59,7 +61,9 @@ export async function POST(request: Request) {
       text: SAMPLE_TEXT,
       audio: speech.buffer.toString('base64'),
       audioFormat: speech.format,
+      provider: voice.provider,
       voiceId: voice.voice,
+      niqqud: !!voice.niqqud,
       cached: false,
     });
   } catch (error: any) {

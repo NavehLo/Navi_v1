@@ -9,6 +9,7 @@ import {
 } from './elevenlabs';
 
 export type { VoiceOverride } from './elevenlabs';
+import { NIQQUD_VERSION, applyNiqqud } from './niqqud';
 
 // Text-to-speech, one voice chosen per request.
 //
@@ -26,6 +27,9 @@ export interface TtsVoice {
   voice: string;
   format: string; // container: mp3 | wav
   settings?: VoiceSettings; // ElevenLabs only
+  // Vowel points added to the geographic vocabulary before synthesis. Off is
+  // a distinct rendering from on, so it belongs to the voice's identity.
+  niqqud?: boolean;
 }
 
 export interface SynthesizedSpeech {
@@ -64,6 +68,7 @@ export function resolveTtsVoice(preferred: TextProvider, override?: VoiceOverrid
       voice: v.voice,
       format: containerFor(v.format),
       settings: v.settings,
+      niqqud: override?.niqqud !== false,
     };
   }
   if (preferred === 'gemini' && process.env.GEMINI_API_KEY) return geminiVoice();
@@ -83,9 +88,11 @@ export function voiceSignature(voice: TtsVoice): string {
   const s = voice.settings;
   // The settings are part of the identity: the same voice at stability 0.3 is
   // a different rendering from the same voice at 0.7, and must not be served
-  // from the other's cache entry.
+  // from the other's cache entry. Same for the niqqud pass — and its version,
+  // so improving the lexicon re-renders instead of serving the old reading.
   const tuning = s ? `:${s.stability}:${s.similarityBoost}:${s.style}:${s.speed}` : '';
-  return `${voice.provider}:${voice.model}:${voice.voice}:${voice.format}${tuning}`;
+  const nq = voice.niqqud ? `:nq${NIQQUD_VERSION}` : '';
+  return `${voice.provider}:${voice.model}:${voice.voice}:${voice.format}${tuning}${nq}`;
 }
 
 // Identifies a specific rendering of a specific narration. Used as the primary
@@ -103,7 +110,11 @@ export async function synthesize(
   override?: VoiceOverride | null
 ): Promise<SynthesizedSpeech | null> {
   if (voice.provider === 'elevenlabs') {
-    const r = await synthesizeElevenLabs(text, override);
+    // Only ElevenLabs gets the vowel points: the OpenAI and Gemini voices are
+    // fallbacks whose Hebrew is the problem this project moved away from, and
+    // feeding them niqqud has not been shown to help.
+    const spoken = voice.niqqud ? applyNiqqud(text) : text;
+    const r = await synthesizeElevenLabs(spoken, override);
     return r ? { buffer: r.buffer, format: r.format, voice } : null;
   }
   const r = voice.provider === 'gemini'

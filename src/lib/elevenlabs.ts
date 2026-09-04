@@ -38,6 +38,7 @@ export interface VoiceOverride {
   similarityBoost?: number | null;
   style?: number | null;
   speed?: number | null;
+  niqqud?: boolean | null;
 }
 
 function clamp(value: unknown, min: number, max: number, fallback: number): number {

@@ -9,6 +9,7 @@ import {
   resultFromLookup,
   generateNarration,
 } from '../../../lib/narration';
+import { resolveTtsVoice } from '../../../lib/tts';
 
 // The daily quota is a character budget: characters are what TTS bills for, so
 // counting them is the only way the limit reflects real spend. Cache hits cost
@@ -19,10 +20,30 @@ const DAILY_CHARS_PER_USER = parseInt(process.env.GUIDE_DAILY_CHARS_PER_USER || 
 // than characters — the sliding-window limiter counts events, not weights.
 const DAILY_MISSES_ANON = parseInt(process.env.GUIDE_DAILY_MISSES_ANON || '8', 10);
 
-// Lets the settings UI show only providers that actually have a key configured.
-// Booleans only — no secrets leave the server.
+// Lets the settings UI show only providers that actually have a key
+// configured, and — the part that is easy to get wrong from the outside —
+// which voice is *actually* speaking.
+//
+// The voice provider is independent of the text provider: ElevenLabs handles
+// speech whenever it is configured, whichever model wrote the words. When it
+// is not configured the code falls back to OpenAI or Gemini silently, which
+// looks identical from the app: the voice settings simply stop having any
+// effect, with nothing on screen to say why. This endpoint is what makes that
+// visible. Booleans and public identifiers only — no secrets leave the server.
 export async function GET() {
-  return NextResponse.json({ providers: availableProviders() });
+  const voice = resolveTtsVoice(pickTextProvider() ?? 'openai');
+  return NextResponse.json({
+    providers: availableProviders(),
+    tts: voice
+      ? {
+          provider: voice.provider,
+          model: voice.model,
+          // A voice id is a public Voice Library identifier, not a secret.
+          voiceId: voice.provider === 'elevenlabs' ? voice.voice : null,
+          tunable: voice.provider === 'elevenlabs',
+        }
+      : null, // nothing server-side — the browser's own speechSynthesis reads it
+  });
 }
 
 export async function POST(request: Request) {

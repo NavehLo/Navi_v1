@@ -17,6 +17,9 @@ export interface VoicePrefs {
   similarityBoost?: number;
   style?: number;
   speed?: number;
+  // Vowel points on the geographic vocabulary before synthesis. On unless
+  // explicitly turned off, so the A/B is one toggle away.
+  niqqud?: boolean;
 }
 
 // Sent as the request's `voice` field. Undefined means "whatever the server is
