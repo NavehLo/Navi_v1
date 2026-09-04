@@ -66,10 +66,10 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 
   const [voice, setVoice] = useState<VoicePrefs>({});
   const [voices, setVoices] = useState<VoiceChoice[] | null>(null);
-  const [voicesError, setVoicesError] = useState<string | null>(null);
+  const [voicesError, setVoicesError] = useState<{ hint: string | null; detail: string } | null>(null);
   const [testState, setTestState] = useState<"idle" | "loading" | "error">("idle");
   const [testMessage, setTestMessage] = useState<string | null>(null);
-  const [testReason, setTestReason] = useState<string | null>(null);
+  const [testHint, setTestHint] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -86,9 +86,16 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
       .then((r) => r.json())
       .then((d) => {
         setVoices(d.voices ?? []);
-        setVoicesError(d.error ? [d.error, d.detail].filter(Boolean).join(" ") : null);
+        setVoicesError(
+          d.error
+            ? { hint: d.hint ?? null, detail: [d.error, d.detail].filter(Boolean).join(" ") }
+            : null
+        );
       })
-      .catch(() => { setVoices([]); setVoicesError("לא ניתן לטעון את רשימת הקולות."); });
+      .catch(() => {
+        setVoices([]);
+        setVoicesError({ hint: null, detail: "לא ניתן לטעון את רשימת הקולות." });
+      });
   }, []);
 
   useEffect(() => () => { audioRef.current?.pause(); }, []);
@@ -108,7 +115,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
     writeVoicePrefs(null);
     setVoice({});
     setTestMessage(null);
-    setTestReason(null);
+    setTestHint(null);
     setTestState("idle");
   };
 
@@ -126,14 +133,14 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
       const data = await res.json();
       if (!res.ok || !data.audio) {
         setTestState("error");
-        setTestReason(data.reason ?? null);
+        setTestHint(data.hint ?? null);
         // data.detail is ElevenLabs' own wording. Showing it verbatim is the
         // whole point — the previous generic message hid the one fact needed
         // to tell a rejected setting from an expired key.
         setTestMessage([data.error, data.detail].filter(Boolean).join(" "));
         return;
       }
-      setTestReason(null);
+      setTestHint(null);
       const bytes = atob(data.audio);
       const buf = new Uint8Array(bytes.length);
       for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
@@ -296,9 +303,18 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
           </>
         )}
         {voicesError && (
-          <p className="text-amber-400 text-[11px] mb-3 break-words" dir="auto">
-            {voicesError}
-          </p>
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-3" dir="rtl">
+            <div className="text-amber-300 text-xs font-bold flex items-center gap-1.5">
+              <AlertTriangle size={13} />
+              לא ניתן לטעון את רשימת הקולות
+            </div>
+            {voicesError.hint && (
+              <p className="text-amber-200/80 text-[11px] mt-1">{voicesError.hint}</p>
+            )}
+            <p className="text-zinc-500 text-[10px] mt-2 break-words" dir="auto">
+              {voicesError.detail}
+            </p>
+          </div>
         )}
 
         <label className="block text-zinc-400 text-[11px] font-bold mb-1">
@@ -378,24 +394,19 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
           </button>
         </div>
 
-        {testReason === "library_voice_needs_paid_plan" && (
+        {testState === "error" && testHint && (
           <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs mt-3" dir="rtl">
             <div className="text-amber-300 font-bold flex items-center gap-1.5">
               <AlertTriangle size={13} />
-              זה לא עניין של קרדיטים
+              מה לעשות
             </div>
-            <p className="text-amber-200/80 mt-1">
-              הקול הזה מגיע מה-Voice Library, וקולות משם חסומים ל-API בתוכנית
-              החינמית — גם כשנשארו קרדיטים, וגם כשהוא מתנגן יפה באתר של
-              ElevenLabs. שתי הדרכים קדימה: לבחור קול מהרשימה למעלה, שהיא בדיוק
-              מה שהחשבון שלך רשאי להשמיע ב-API, או לשדרג מנוי.
-            </p>
+            <p className="text-amber-200/80 mt-1">{testHint}</p>
           </div>
         )}
 
         {testMessage && (
           <p
-            className={`text-[11px] mt-2 break-words ${testState === "error" ? "text-red-400" : "text-zinc-500"}`}
+            className={`text-[10px] mt-2 break-words ${testState === "error" ? "text-zinc-500" : "text-zinc-500"}`}
             dir="auto"
           >
             {testMessage}
