@@ -36,6 +36,17 @@ export interface SynthesizedSpeech {
   buffer: Buffer;
   format: string;
   voice: TtsVoice;
+  // Set when ElevenLabs would not accept the full request and a simplified one
+  // was used instead — the app says so rather than implying the settings took.
+  degraded?: 'basic' | 'bare';
+}
+
+// Synthesis either produced audio or has a reason it did not. The reason is the
+// provider's own words: replacing it with a guess is what made the last failure
+// impossible to diagnose from the app.
+export interface SynthesisOutcome {
+  speech: SynthesizedSpeech | null;
+  error: string | null;
 }
 
 const TTS_INSTRUCTIONS =
@@ -108,19 +119,33 @@ export async function synthesize(
   text: string,
   voice: TtsVoice,
   override?: VoiceOverride | null
-): Promise<SynthesizedSpeech | null> {
+): Promise<SynthesisOutcome> {
   if (voice.provider === 'elevenlabs') {
     // Only ElevenLabs gets the vowel points: the OpenAI and Gemini voices are
     // fallbacks whose Hebrew is the problem this project moved away from, and
     // feeding them niqqud has not been shown to help.
     const spoken = voice.niqqud ? applyNiqqud(text) : text;
-    const r = await synthesizeElevenLabs(spoken, override);
-    return r ? { buffer: r.buffer, format: r.format, voice } : null;
+    const outcome = await synthesizeElevenLabs(spoken, override);
+    if (!outcome.ok) {
+      const { status, detail } = outcome.error;
+      return { speech: null, error: status ? `ElevenLabs ${status}: ${detail}` : detail };
+    }
+    return {
+      speech: {
+        buffer: outcome.result.buffer,
+        format: outcome.result.format,
+        voice,
+        degraded: outcome.result.variant === 'full' ? undefined : outcome.result.variant,
+      },
+      error: null,
+    };
   }
   const r = voice.provider === 'gemini'
     ? await synthesizeGemini(text, voice)
     : await synthesizeOpenAI(text, voice);
-  return r ? { ...r, voice } : null;
+  return r
+    ? { speech: { ...r, voice }, error: null }
+    : { speech: null, error: `${voice.provider} TTS failed — see server logs.` };
 }
 
 async function synthesizeOpenAI(text: string, voice: TtsVoice): Promise<{ buffer: Buffer; format: string } | null> {

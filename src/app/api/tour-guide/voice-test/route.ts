@@ -46,10 +46,12 @@ export async function POST(request: Request) {
       });
     }
 
-    const speech = await synthesize(SAMPLE_TEXT, voice, body.voice ?? null);
+    const { speech, error } = await synthesize(SAMPLE_TEXT, voice, body.voice ?? null);
     if (!speech) {
+      // The provider's own words, not a guess. A rejected setting, a bad voice
+      // id, an expired key and an empty balance all used to read the same.
       return NextResponse.json(
-        { error: 'ייצור הקול נכשל. ודא שמזהה הקול תקין ושנשארו קרדיטים בחשבון.' },
+        { error: 'ייצור הקול נכשל.', detail: error, voiceId: voice.voice, provider: voice.provider },
         { status: 502 }
       );
     }
@@ -64,6 +66,7 @@ export async function POST(request: Request) {
       provider: voice.provider,
       voiceId: voice.voice,
       niqqud: !!voice.niqqud,
+      degraded: speech.degraded ?? null,
       cached: false,
     });
   } catch (error: any) {

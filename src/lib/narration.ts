@@ -290,7 +290,7 @@ export async function generateNarration(
   }
 
   const key = audioKey(text, voice);
-  const speech = await synthesize(text, voice, input.voice);
+  const { speech } = await synthesize(text, voice, input.voice);
   if (!speech) {
     return { poiKey, text, audioUrl: null, audio: null, audioFormat: voice.format, cached: false, charsSynthesized: 0 };
   }

@@ -94,7 +94,10 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
       const data = await res.json();
       if (!res.ok || !data.audio) {
         setTestState("error");
-        setTestMessage(data.error || "ייצור הקול נכשל.");
+        // data.detail is ElevenLabs' own wording. Showing it verbatim is the
+        // whole point — the previous generic message hid the one fact needed
+        // to tell a rejected setting from an expired key.
+        setTestMessage([data.error, data.detail].filter(Boolean).join(" "));
         return;
       }
       const bytes = atob(data.audio);
@@ -110,9 +113,16 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
       await audioRef.current.play();
       setTestState("idle");
       const from = TTS_LABEL[data.provider] || data.provider;
-      setTestMessage(
-        `הושמע מ-${from}${data.cached ? " (מה-cache — לא נצרכו קרדיטים)" : ""}.`
-      );
+      const cached = data.cached ? " (מה-cache — לא נצרכו קרדיטים)" : "";
+      // A degraded request means some of the settings below were dropped to get
+      // a response at all; saying so beats letting them look effective.
+      const degraded =
+        data.degraded === "basic"
+          ? " המודל לא קיבל את הסגנון והקצב, והיציבות עוגלה לערך הקרוב מבין 0 / 0.5 / 1."
+          : data.degraded === "bare"
+            ? " המודל לא קיבל אף אחת מההגדרות, והושמע עם ברירות המחדל של הקול."
+            : "";
+      setTestMessage(`הושמע מ-${from}${cached}.${degraded}`);
     } catch (e: any) {
       setTestState("error");
       setTestMessage(e?.message || "ייצור הקול נכשל.");
@@ -306,7 +316,10 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
         </div>
 
         {testMessage && (
-          <p className={`text-[11px] mt-2 ${testState === "error" ? "text-red-400" : "text-zinc-500"}`}>
+          <p
+            className={`text-[11px] mt-2 break-words ${testState === "error" ? "text-red-400" : "text-zinc-500"}`}
+            dir="auto"
+          >
             {testMessage}
           </p>
         )}
