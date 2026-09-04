@@ -1,7 +1,13 @@
 import { NextResponse } from 'next/server';
-import crypto from 'crypto';
 import { rateLimit, clientIp } from '../../../lib/rateLimit';
 import { bearerToken, checkAndIncrementGuideQuota } from '../../../lib/supabaseServer';
+import {
+  type TextProvider,
+  type SynthesizedSpeech,
+  resolveTtsVoice,
+  audioKey,
+  synthesize,
+} from '../../../lib/tts';
 
 // Per signed-in user (real quota, tied to identity via Supabase).
 const DAILY_LIMIT_PER_USER = parseInt(process.env.GUIDE_DAILY_LIMIT_PER_USER || '30', 10);
@@ -18,10 +24,7 @@ const POI_TYPE_HE: Record<string, string> = {
 const SYSTEM_PROMPT =
   "אתה מדריך טיולים ישראלי מנוסה בארץ ישראל. השתמש בוויב חם ומזמין, תהיה קצר וקולע (מקסימום 2-3 משפטים). התייחס לעונת השנה, לפריחה אפשרית, משקעים או היסטוריה הקשורה לקואורדינטות המדויקות המסופקות. התאם את הטון לסוג הנקודה: בנקודת פתיחה — ברכת פתיחה נלהבת; באמצע המסלול — עידוד והפניית תשומת לב לסביבה; בנקודת סיום — סיכום חם ופרידה. הטקסט יוקרא בקול, אז כתוב אותו כדיבור טבעי בלי כותרות או סימנים מיוחדים.";
 
-const TTS_INSTRUCTIONS =
-  "דבר בעברית טבעית ורהוטה, בטון חם ומזמין של מדריך טיולים ישראלי מנוסה.";
-
-type Provider = 'openai' | 'gemini' | 'claude';
+type Provider = TextProvider;
 
 function availableProviders(): Record<Provider, boolean> {
   return {
@@ -117,129 +120,24 @@ async function generateText(provider: Provider, system: string, user: string): P
   return generateTextOpenAI(system, user);
 }
 
-// ── Text-to-speech. Claude has no TTS, so audio always comes from OpenAI or
-//    Gemini when their key is present; otherwise null → browser speechSynthesis.
-//    When the user picked a provider that has TTS, prefer that provider's voice.
-async function generateSpeech(text: string, preferred: Provider): Promise<{ audio: string; format: string } | null> {
-  const cacheKey = ttsCacheKey(text);
-  const cached = audioCache.get(cacheKey);
+// Process-memory audio cache. It only survives as long as a serverless
+// instance does; the durable cache lives in lib/narrationCache.
+const audioCache = new Map<string, SynthesizedSpeech>();
+
+async function generateSpeech(text: string, preferred: Provider): Promise<SynthesizedSpeech | null> {
+  const voice = resolveTtsVoice(preferred);
+  if (!voice) return null;
+
+  const key = audioKey(text, voice);
+  const cached = audioCache.get(key);
   if (cached) return cached;
 
-  const result = await generateSpeechUncached(text, preferred);
+  const result = await synthesize(text, voice);
   if (result) {
     if (audioCache.size > 200) audioCache.delete(audioCache.keys().next().value!);
-    audioCache.set(cacheKey, result);
+    audioCache.set(key, result);
   }
   return result;
-}
-
-async function generateSpeechUncached(text: string, preferred: Provider): Promise<{ audio: string; format: string } | null> {
-  const geminiFirst = preferred === 'gemini' && !!process.env.GEMINI_API_KEY;
-  if (geminiFirst) {
-    const g = await generateSpeechGemini(text);
-    if (g) return g;
-  }
-  if (process.env.OPENAI_API_KEY) {
-    try {
-      const res = await fetch('https://api.openai.com/v1/audio/speech', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts',
-          voice: process.env.OPENAI_TTS_VOICE || 'nova',
-          input: text,
-          response_format: 'mp3',
-          instructions: TTS_INSTRUCTIONS,
-        }),
-      });
-      if (!res.ok) {
-        console.error('OpenAI TTS error:', res.status, await res.text());
-        return null;
-      }
-      return { audio: Buffer.from(await res.arrayBuffer()).toString('base64'), format: 'mp3' };
-    } catch (e) {
-      console.error('OpenAI TTS failed:', e);
-      return null;
-    }
-  }
-
-  if (!geminiFirst && process.env.GEMINI_API_KEY) {
-    return generateSpeechGemini(text);
-  }
-
-  return null;
-}
-
-// Server-side audio cache keyed by voice signature + text. Saves a second TTS
-// call when the same narration is requested again on a warm instance.
-const audioCache = new Map<string, { audio: string; format: string }>();
-
-function ttsCacheKey(text: string): string {
-  const sig = [
-    process.env.OPENAI_API_KEY ? `o:${process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts'}:${process.env.OPENAI_TTS_VOICE || 'nova'}` : '',
-    process.env.GEMINI_API_KEY ? `g:${process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts'}:${process.env.GEMINI_TTS_VOICE || 'Kore'}` : '',
-  ].join('|');
-  return crypto.createHash('sha1').update(sig + '::' + text).digest('hex');
-}
-
-async function generateSpeechGemini(text: string): Promise<{ audio: string; format: string } | null> {
-  try {
-    const model = process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts';
-    const voice = process.env.GEMINI_TTS_VOICE || 'Kore';
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text }] }],
-          generationConfig: {
-            responseModalities: ['AUDIO'],
-            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
-          },
-        }),
-      }
-    );
-    if (!res.ok) {
-      console.error('Gemini TTS error:', res.status, await res.text());
-      return null;
-    }
-    const data = await res.json();
-    const part = data.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
-    if (!part) return null;
-    // Gemini returns raw PCM (e.g. audio/L16;rate=24000) — wrap in a WAV header
-    const rate = parseInt(/rate=(\d+)/.exec(part.inlineData.mimeType || '')?.[1] || '24000', 10);
-    return { audio: pcmToWav(part.inlineData.data, rate), format: 'wav' };
-  } catch (e) {
-    console.error('Gemini TTS failed:', e);
-    return null;
-  }
-}
-
-// Wrap 16-bit mono PCM (base64) in a minimal WAV header so browsers can play it.
-function pcmToWav(pcmBase64: string, sampleRate: number): string {
-  const pcm = Buffer.from(pcmBase64, 'base64');
-  const channels = 1, bitsPerSample = 16;
-  const byteRate = (sampleRate * channels * bitsPerSample) / 8;
-  const blockAlign = (channels * bitsPerSample) / 8;
-  const header = Buffer.alloc(44);
-  header.write('RIFF', 0);
-  header.writeUInt32LE(36 + pcm.length, 4);
-  header.write('WAVE', 8);
-  header.write('fmt ', 12);
-  header.writeUInt32LE(16, 16);
-  header.writeUInt16LE(1, 20); // PCM
-  header.writeUInt16LE(channels, 22);
-  header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(byteRate, 28);
-  header.writeUInt16LE(blockAlign, 32);
-  header.writeUInt16LE(bitsPerSample, 34);
-  header.write('data', 36);
-  header.writeUInt32LE(pcm.length, 40);
-  return Buffer.concat([header, pcm]).toString('base64');
 }
 
 export async function POST(request: Request) {
@@ -304,7 +202,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       text,
-      audio: speech?.audio ?? null,
+      audio: speech ? speech.buffer.toString('base64') : null,
       audioFormat: speech?.format ?? 'mp3',
     });
   } catch (error: any) {
