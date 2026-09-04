@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { rateLimit, clientIp } from '../../../../lib/rateLimit';
+import { classifyElevenLabsError } from '../../../../lib/elevenlabsErrors';
 
 // Lists the voices this ElevenLabs account can actually use.
 //
@@ -51,8 +52,11 @@ export async function GET(request: Request) {
     if (!res.ok) {
       const detail = (await res.text()).replace(/\s+/g, ' ').trim().slice(0, 400);
       console.error('ElevenLabs voices error:', res.status, detail);
+      // A scoped key is the common case here: one allowed to synthesize speech
+      // but not to list voices, which empties the picker while narration works.
+      const { reason, hint } = classifyElevenLabsError(res.status, detail);
       return NextResponse.json(
-        { error: `ElevenLabs ${res.status}`, detail, voices: [] },
+        { error: `ElevenLabs ${res.status}`, detail, reason, hint, voices: [] },
         { status: 502 }
       );
     }

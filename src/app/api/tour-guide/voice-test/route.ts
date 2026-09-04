@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { rateLimit, clientIp } from '../../../../lib/rateLimit';
 import { resolveTtsVoice, audioKey, synthesize } from '../../../../lib/tts';
+import { classifyElevenLabsError } from '../../../../lib/elevenlabsErrors';
 
 // Speaks one fixed sentence so a voice can be judged in the app, in Hebrew,
 // without editing an environment variable and redeploying.
@@ -51,16 +52,21 @@ export async function POST(request: Request) {
       // The provider's own words, not a guess. A rejected setting, a bad voice
       // id, an expired key and an empty balance all used to read the same.
       //
-      // One case is worth naming, because the raw text buries the actionable
-      // part and the obvious reading of it is wrong: a Voice Library voice on
-      // the free plan is refused over the API even though it plays fine on the
-      // ElevenLabs website, and it has nothing to do with credits remaining.
-      const paywalled = !!error && /paid_plan_required|payment_required/.test(error);
+      // The raw text buries the actionable part, and its obvious reading is
+      // often wrong — a 402 about a voice looks like "buy more credits" when
+      // credits are not the issue. Classify it and say what to do; the raw
+      // text still travels alongside.
+      const statusMatch = /ElevenLabs (\d{3})/.exec(error ?? '');
+      const { reason, hint } = classifyElevenLabsError(
+        statusMatch ? parseInt(statusMatch[1], 10) : null,
+        error ?? ''
+      );
       return NextResponse.json(
         {
           error: 'ייצור הקול נכשל.',
           detail: error,
-          reason: paywalled ? 'library_voice_needs_paid_plan' : null,
+          reason,
+          hint,
           voiceId: voice.voice,
           provider: voice.provider,
         },
