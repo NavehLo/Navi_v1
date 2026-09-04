@@ -2,8 +2,9 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { Coordinate3D } from "../utils/trailUtils";
 import { supabase } from "../lib/supabase";
 import { poiKeyFor } from "../lib/poiKey";
-import { getStoredNarration } from "../lib/offlineAudio";
+import { NO_VOICE, getStoredNarration } from "../lib/offlineAudio";
 import { readVoicePrefs } from "../lib/voicePrefs";
+import { useVoiceStatus } from "./useVoiceStatus";
 
 // Tiny silent WAV — played once on a user gesture to unlock the shared
 // audio element for later programmatic playback (browser autoplay policy).
@@ -18,6 +19,20 @@ interface GuideEntry {
   audioB64: string | null;   // inline audio, when no durable URL exists
   audioBlob?: Blob | null;   // downloaded to the device, plays with no network
   audioFormat: string;
+  // Which voice actually rendered *this* clip, straight from the response that
+  // carried it. The settings panel can only report what the server would use
+  // now; this is what was used then, which is the question when a narration
+  // sounds like the voice you replaced.
+  voice: PlayingVoice | null;
+  fromDevice: boolean;
+}
+
+// Public identifiers only — a voice id is a Voice Library identifier.
+export interface PlayingVoice {
+  provider: string;
+  voiceId: string | null;
+  signature: string;
+  niqqudProvider?: string | null;
 }
 
 const AUDIO_MIME: Record<string, string> = {
@@ -50,6 +65,19 @@ export function useAIGuide() {
   const [currentScript, setCurrentScript] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [queueLength, setQueueLength] = useState(0);
+  // What is speaking right now, and whether it came off the device.
+  const [currentVoice, setCurrentVoice] = useState<PlayingVoice | null>(null);
+  const [currentFromDevice, setCurrentFromDevice] = useState(false);
+
+  // The voice the server would use for this device's preferences. Undefined
+  // means not known yet — offline, most likely — and is deliberately not the
+  // same as null.
+  const { status: voiceStatus } = useVoiceStatus();
+  const voiceSignatureRef = useRef<string | null>(null);
+  useEffect(() => {
+    voiceSignatureRef.current =
+      voiceStatus === undefined ? null : voiceStatus === null ? NO_VOICE : voiceStatus.signature;
+  }, [voiceStatus]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
@@ -206,6 +234,8 @@ export function useAIGuide() {
     setIsSpeaking(false);
     setIsSynthesizerActive(false);
     setCurrentScript(null);
+    setCurrentVoice(null);
+    setCurrentFromDevice(false);
   }, [interruptPlayback]);
 
   const entryCacheKey = (target: GuideTarget, trailSlug: string) => {
@@ -228,6 +258,15 @@ export function useAIGuide() {
     // A downloaded trail plays with no request at all — which matters in a
     // wadi with no reception, and is also why a saved point starts instantly
     // instead of after the three to eight seconds a round trip takes.
+    // Matched on the voice as well as the point. A clip saved under a voice
+    // that has since been replaced is skipped and fetched again — the durable
+    // server-side cache was always keyed on the voice, but the device copy was
+    // not, and the device copy is consulted first, so switching voices used to
+    // change nothing for any trail already downloaded.
+    //
+    // A null signature means the current voice is not known (no network to ask,
+    // which is exactly when a downloaded trail matters most): then any saved
+    // copy is better than silence.
     const stored = await getStoredNarration(
       poiKeyFor({
         lat: item.target.coord[0],
@@ -236,7 +275,8 @@ export function useAIGuide() {
         osmType: item.target.osmType,
         osmId: item.target.osmId,
         trailSlug: item.trailSlug,
-      })
+      }),
+      voiceSignatureRef.current
     );
     if (stored) {
       const entry: GuideEntry = {
@@ -245,6 +285,17 @@ export function useAIGuide() {
         audioB64: null,
         audioBlob: stored.blob,
         audioFormat: stored.format,
+        voice:
+          stored.voiceSignature && stored.voiceSignature !== NO_VOICE
+            ? {
+                // The record's own values, not the current ones: offline the
+                // signature may not match anything we can ask about.
+                provider: stored.voiceProvider ?? voiceStatus?.provider ?? "elevenlabs",
+                voiceId: stored.voiceId ?? voiceStatus?.voiceId ?? null,
+                signature: stored.voiceSignature,
+              }
+            : null,
+        fromDevice: true,
       };
       cacheRef.current.set(cacheKey, entry);
       return entry;
@@ -296,6 +347,15 @@ export function useAIGuide() {
         audioUrl: data.audioUrl ?? null,
         audioB64: data.audio ?? null,
         audioFormat: data.audioFormat || "mp3",
+        voice: data.voice
+          ? {
+              provider: data.voice.provider,
+              voiceId: data.voice.voiceId ?? null,
+              signature: data.voice.signature,
+              niqqudProvider: data.voice.niqqudProvider ?? null,
+            }
+          : null,
+        fromDevice: false,
       };
       cacheRef.current.set(cacheKey, entry);
       return entry;
@@ -305,7 +365,7 @@ export function useAIGuide() {
     } finally {
       if (abortRef.current === controller) setIsLoading(false);
     }
-  }, []);
+  }, [voiceStatus]);
 
   // Drains the queue one narration at a time.
   const pump = useCallback(async () => {
@@ -327,6 +387,8 @@ export function useAIGuide() {
         if (!coveredRef.current.topics.includes(topic)) coveredRef.current.topics.push(topic);
 
         setCurrentScript(entry.text);
+        setCurrentVoice(entry.voice);
+        setCurrentFromDevice(entry.fromDevice);
         await playEntry(entry);
       }
     } finally {
@@ -371,5 +433,7 @@ export function useAIGuide() {
     stopSpeaking,
     isSynthesizerActive,
     queueLength,
+    currentVoice,
+    currentFromDevice,
   };
 }

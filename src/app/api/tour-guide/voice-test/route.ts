@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { rateLimit, clientIp } from '../../../../lib/rateLimit';
-import { resolveTtsVoice, audioKey, synthesize } from '../../../../lib/tts';
+import { resolveTtsVoice, audioKey, synthesize, voiceStamp } from '../../../../lib/tts';
 import { classifyElevenLabsError } from '../../../../lib/elevenlabsErrors';
 
 // Speaks one fixed sentence so a voice can be judged in the app, in Hebrew,
@@ -33,16 +33,22 @@ export async function POST(request: Request) {
       );
     }
 
+    const stamp = voiceStamp(voice);
+
     const key = audioKey(SAMPLE_TEXT, voice);
     const cached = sampleCache.get(key);
     if (cached) {
       return NextResponse.json({
         text: SAMPLE_TEXT,
+        spokenText: cached.spokenText,
         audio: cached.buffer.toString('base64'),
         audioFormat: cached.format,
         provider: voice.provider,
         voiceId: voice.voice,
+        voice: stamp,
         niqqud: !!voice.niqqud,
+        niqqudProvider: cached.niqqudProvider,
+        niqqudError: cached.niqqudError,
         cached: true,
       });
     }
@@ -69,21 +75,35 @@ export async function POST(request: Request) {
           hint,
           voiceId: voice.voice,
           provider: voice.provider,
+          voice: stamp,
         },
         { status: 502 }
       );
     }
 
     if (sampleCache.size > 30) sampleCache.delete(sampleCache.keys().next().value!);
-    sampleCache.set(key, { buffer: speech.buffer, format: speech.format });
+    sampleCache.set(key, {
+      buffer: speech.buffer,
+      format: speech.format,
+      spokenText: speech.spokenText ?? SAMPLE_TEXT,
+      niqqudProvider: speech.niqqud?.provider ?? null,
+      niqqudError: speech.niqqud?.error ?? null,
+    });
 
     return NextResponse.json({
       text: SAMPLE_TEXT,
+      // The vocalized form actually sent to the voice. Reading it back is the
+      // only way to tell "the diacritizer ran" from "the diacritizer was asked
+      // and quietly fell back".
+      spokenText: speech.spokenText ?? SAMPLE_TEXT,
       audio: speech.buffer.toString('base64'),
       audioFormat: speech.format,
       provider: voice.provider,
       voiceId: voice.voice,
+      voice: stamp,
       niqqud: !!voice.niqqud,
+      niqqudProvider: speech.niqqud?.provider ?? null,
+      niqqudError: speech.niqqud?.error ?? null,
       degraded: speech.degraded ?? null,
       cached: false,
     });
@@ -95,4 +115,7 @@ export async function POST(request: Request) {
 
 // Samples are small and few; keeping them in process memory means re-hearing a
 // voice you already tried on this instance costs nothing at all.
-const sampleCache = new Map<string, { buffer: Buffer; format: string }>();
+const sampleCache = new Map<
+  string,
+  { buffer: Buffer; format: string; spokenText: string; niqqudProvider: string | null; niqqudError: string | null }
+>();

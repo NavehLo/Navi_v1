@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { X, Sparkles, Volume2, Loader2, RotateCcw, AlertTriangle } from "lucide-react";
+import { X, Sparkles, Volume2, Loader2, RotateCcw, AlertTriangle, Type } from "lucide-react";
 import { AI_PROVIDER_STORAGE_KEY } from "../hooks/useAIGuide";
-import { type VoicePrefs, readVoicePrefs, writeVoicePrefs } from "../lib/voicePrefs";
+import { type VoicePrefs, readVoicePrefs, rememberVoiceNames, writeVoicePrefs } from "../lib/voicePrefs";
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -41,7 +41,28 @@ interface TtsInfo {
   model: string;
   voiceId: string | null;
   tunable: boolean;
+  signature: string;
+  niqqud: boolean;
+  niqqudProvider: "lexicon" | "dicta" | null;
 }
+
+const NIQQUD_LABEL: Record<string, string> = {
+  dicta: "Nakdan של DICTA",
+  lexicon: "טבלת מילים פנימית",
+};
+
+interface NiqqudCheck {
+  text: string;
+  active: "lexicon" | "dicta";
+  lexicon: { text: string; changed: boolean };
+  dicta: { ok: boolean; text: string | null; changed: boolean; error: string | null };
+  endpoint: string;
+}
+
+// Every one of these was read wrong by the voice, and each fails differently:
+// מהר מירון is a prefix the table can now reach, שלווה and חקלאות are ordinary
+// vocabulary that only a diacritizer can.
+const NIQQUD_SAMPLE = "בדרך מהר מירון אל נחל עמוד, בין שטחי חקלאות, שוררת שלווה.";
 
 const TTS_LABEL: Record<string, string> = {
   elevenlabs: "ElevenLabs",
@@ -70,12 +91,21 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [testState, setTestState] = useState<"idle" | "loading" | "error">("idle");
   const [testMessage, setTestMessage] = useState<string | null>(null);
   const [testHint, setTestHint] = useState<string | null>(null);
+  const [spokenText, setSpokenText] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const [niqqudText, setNiqqudText] = useState(NIQQUD_SAMPLE);
+  const [niqqudCheck, setNiqqudCheck] = useState<NiqqudCheck | null>(null);
+  const [niqqudState, setNiqqudState] = useState<"idle" | "loading" | "error">("idle");
+  const [niqqudError, setNiqqudError] = useState<string | null>(null);
 
   useEffect(() => {
     setSelected(localStorage.getItem(AI_PROVIDER_STORAGE_KEY) || "auto");
-    setVoice(readVoicePrefs() ?? {});
-    fetch("/api/tour-guide")
+    const prefs = readVoicePrefs();
+    setVoice(prefs ?? {});
+    // With the device's own preferences, so this reports the voice that would
+    // actually be used here rather than the server's default.
+    fetch(`/api/tour-guide${prefs ? `?voice=${encodeURIComponent(JSON.stringify(prefs))}` : ""}`)
       .then((r) => r.json())
       .then((d) => { setAvailable(d.providers); setTts(d.tts ?? null); })
       .catch(() => { setAvailable(null); setTts(undefined); });
@@ -86,6 +116,9 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
       .then((r) => r.json())
       .then((d) => {
         setVoices(d.voices ?? []);
+        // So the guide overlay can name the voice it is playing instead of
+        // showing a bare id — this panel is the only place the names arrive.
+        rememberVoiceNames(d.voices ?? []);
         setVoicesError(
           d.error
             ? { hint: d.hint ?? null, detail: [d.error, d.detail].filter(Boolean).join(" ") }
@@ -124,6 +157,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
   const testVoice = async () => {
     setTestState("loading");
     setTestMessage(null);
+    setSpokenText(null);
     try {
       const res = await fetch("/api/tour-guide/voice-test", {
         method: "POST",
@@ -141,6 +175,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
         return;
       }
       setTestHint(null);
+      setSpokenText(data.spokenText ?? null);
       const bytes = atob(data.audio);
       const buf = new Uint8Array(bytes.length);
       for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
@@ -163,10 +198,43 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
           : data.degraded === "bare"
             ? " המודל לא קיבל אף אחת מההגדרות, והושמע עם ברירות המחדל של הקול."
             : "";
-      setTestMessage(`הושמע מ-${from}${cached}.${degraded}`);
+      // Which diacritizer actually ran, not which one was asked for: Nakdan
+      // falling back to the table is silent otherwise.
+      const nq = data.niqqud
+        ? ` ניקוד: ${NIQQUD_LABEL[data.niqqudProvider] ?? data.niqqudProvider ?? "—"}.`
+        : " ללא ניקוד.";
+      const nqError = data.niqqudError ? ` (${data.niqqudError})` : "";
+      setTestMessage(`הושמע מ-${from}${cached}.${degraded}${nq}${nqError}`);
     } catch (e: any) {
       setTestState("error");
       setTestMessage(e?.message || "ייצור הקול נכשל.");
+    }
+  };
+
+  // Costs nothing and touches no voice: it only shows what the vowel-point pass
+  // would do to a sentence, and whether Nakdan can be reached from the server
+  // at all. That last part cannot be answered from a development machine.
+  const checkNiqqud = async () => {
+    setNiqqudState("loading");
+    setNiqqudError(null);
+    setNiqqudCheck(null);
+    try {
+      const res = await fetch("/api/tour-guide/niqqud", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: niqqudText }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setNiqqudState("error");
+        setNiqqudError(data.error || "בדיקת הניקוד נכשלה.");
+        return;
+      }
+      setNiqqudCheck(data);
+      setNiqqudState("idle");
+    } catch (e: any) {
+      setNiqqudState("error");
+      setNiqqudError(e?.message || "בדיקת הניקוד נכשלה.");
     }
   };
 
@@ -258,6 +326,9 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
             <div className="text-emerald-300 font-bold">הקול מגיע מ-ElevenLabs</div>
             <div className="text-zinc-400 mt-0.5" dir="ltr">
               {tts.model} · {tts.voiceId}
+            </div>
+            <div className="text-zinc-500 mt-0.5 text-[10px]">
+              ניקוד: {tts.niqqud ? (NIQQUD_LABEL[tts.niqqudProvider ?? ""] ?? tts.niqqudProvider) : "כבוי"}
             </div>
           </div>
         ) : (
@@ -368,10 +439,11 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
             className="mt-0.5 accent-emerald-500"
           />
           <span>
-            <span className="text-zinc-300 text-xs font-bold">ניקוד שמות גיאוגרפיים</span>
+            <span className="text-zinc-300 text-xs font-bold">ניקוד לפני ההקראה</span>
             <span className="block text-zinc-600 text-[10px]">
-              מנקד נחל, עין, חורבת וכדומה לפני ההקראה, כדי למנוע &quot;עַיִן&quot; במקום
-              &quot;עֵין&quot;. שמות פרטיים נשארים ללא ניקוד בכוונה.
+              מנקד את הטקסט לפני שהוא נשלח לקול, כדי למנוע קריאות כמו &quot;מַהֵר&quot;
+              במקום &quot;מֵהַר מירון&quot;. אם Nakdan של DICTA זמין הוא מנקד את כל
+              המשפט; אחרת נעשה שימוש בטבלה פנימית של מילות נוף בלבד.
             </span>
           </span>
         </label>
@@ -411,6 +483,97 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
           >
             {testMessage}
           </p>
+        )}
+
+        {/* Exactly what the voice was handed. The stored narration is plain
+            Hebrew, so this is the only place the vocalized form is visible. */}
+        {spokenText && (
+          <div className="bg-white/5 border border-white/10 rounded-xl p-3 mt-2">
+            <div className="text-zinc-500 text-[10px] font-bold mb-1">הטקסט שנשלח לקול</div>
+            <p className="text-zinc-300 text-[11px] leading-6" dir="rtl">{spokenText}</p>
+          </div>
+        )}
+
+        {/* Niqqud check — costs nothing and synthesizes nothing.
+            Two things cannot be settled anywhere else: whether the server can
+            reach Nakdan at all, and what each of the two passes does to a given
+            sentence. */}
+        <h3 className="text-zinc-300 font-bold text-sm mt-6 mb-1 flex items-center gap-2">
+          <Type size={15} className="text-sky-400" />
+          בדיקת ניקוד
+        </h3>
+        <p className="text-zinc-500 text-xs mb-3">
+          מראה מה הניקוד עושה למשפט, בלי לייצר קול ובלי לצרוך קרדיטים. שימושי
+          במיוחד כדי לבדוק אם השרת מצליח להגיע ל-Nakdan של DICTA.
+        </p>
+
+        <textarea
+          value={niqqudText}
+          onChange={(e) => setNiqqudText(e.target.value)}
+          rows={2}
+          dir="rtl"
+          className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-sky-500 mb-2 resize-none"
+        />
+        <button
+          onClick={checkNiqqud}
+          disabled={niqqudState === "loading" || !niqqudText.trim()}
+          className="w-full flex items-center justify-center gap-2 rounded-xl border border-sky-500/40 bg-sky-500/10 text-sky-300 font-bold text-xs py-2.5 hover:bg-sky-500/20 transition-colors disabled:opacity-60"
+        >
+          {niqqudState === "loading" ? <Loader2 size={14} className="animate-spin" /> : <Type size={14} />}
+          נקד את הטקסט
+        </button>
+
+        {niqqudError && (
+          <p className="text-amber-400 text-[11px] mt-2" dir="auto">{niqqudError}</p>
+        )}
+
+        {niqqudCheck && (
+          <div className="flex flex-col gap-2 mt-3">
+            <div
+              className={`rounded-xl p-3 border ${
+                niqqudCheck.dicta.ok
+                  ? "bg-emerald-500/10 border-emerald-500/30"
+                  : "bg-amber-500/10 border-amber-500/30"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className={`text-[11px] font-bold ${niqqudCheck.dicta.ok ? "text-emerald-300" : "text-amber-300"}`}>
+                  Nakdan (DICTA)
+                </span>
+                {niqqudCheck.active === "dicta" && (
+                  <span className="text-[9px] font-bold text-zinc-400 bg-white/10 px-2 py-0.5 rounded-full">
+                    הספק הפעיל
+                  </span>
+                )}
+              </div>
+              {niqqudCheck.dicta.ok ? (
+                <p className="text-zinc-200 text-[11px] leading-6 mt-1" dir="rtl">{niqqudCheck.dicta.text}</p>
+              ) : (
+                <>
+                  <p className="text-amber-200/80 text-[11px] mt-1" dir="auto">{niqqudCheck.dicta.error}</p>
+                  <p className="text-zinc-500 text-[10px] mt-1">
+                    הקריינות עדיין תעבוד — היא נופלת חזרה לטבלה הפנימית.
+                  </p>
+                </>
+              )}
+              <p className="text-zinc-600 text-[9px] mt-1.5 break-all" dir="ltr">{niqqudCheck.endpoint}</p>
+            </div>
+
+            <div className="rounded-xl p-3 border bg-white/5 border-white/10">
+              <div className="flex items-center justify-between">
+                <span className="text-zinc-400 text-[11px] font-bold">טבלה פנימית</span>
+                {niqqudCheck.active === "lexicon" && (
+                  <span className="text-[9px] font-bold text-zinc-400 bg-white/10 px-2 py-0.5 rounded-full">
+                    הספק הפעיל
+                  </span>
+                )}
+              </div>
+              <p className="text-zinc-300 text-[11px] leading-6 mt-1" dir="rtl">{niqqudCheck.lexicon.text}</p>
+              {!niqqudCheck.lexicon.changed && (
+                <p className="text-zinc-600 text-[10px] mt-1">אין במשפט הזה מילה שהטבלה מכירה.</p>
+              )}
+            </div>
+          </div>
         )}
       </div>
     </div>

@@ -3,6 +3,8 @@ import { TrailPOI } from './useTrailData';
 import { supabase } from '../lib/supabase';
 import { poiKeyFor } from '../lib/poiKey';
 import {
+  NO_VOICE,
+  deleteOtherVoices,
   deleteTrailNarrations,
   isOfflineAudioSupported,
   listStoredKeys,
@@ -11,6 +13,7 @@ import {
 } from '../lib/offlineAudio';
 import { AI_PROVIDER_STORAGE_KEY } from './useAIGuide';
 import { readVoicePrefs } from '../lib/voicePrefs';
+import { useVoiceStatus } from './useVoiceStatus';
 
 // "Download this trail for use in the field": fetch every narration, store the
 // audio on the device, and report how far it got.
@@ -29,6 +32,7 @@ interface PrefetchResult {
   audioUrl: string | null;
   audio: string | null;
   audioFormat: string;
+  voice: { provider: string; voiceId: string | null; signature: string } | null;
 }
 
 function base64ToBlob(base64: string, format: string): Blob {
@@ -39,6 +43,14 @@ function base64ToBlob(base64: string, format: string): Blob {
 }
 
 export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
+  // A point counts as saved only if it was saved in the voice that is
+  // configured now. After a voice change the badges go back to "to download"
+  // and re-downloading replaces the old audio, instead of the old audio
+  // quietly continuing to play.
+  const { status: voiceStatus } = useVoiceStatus();
+  const currentSignature =
+    voiceStatus === undefined ? null : voiceStatus === null ? NO_VOICE : voiceStatus.signature;
+
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
   const [status, setStatus] = useState<OfflineStatus>('idle');
   const [message, setMessage] = useState<string | null>(null);
@@ -51,11 +63,11 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
       setProgress({ done: 0, total: 0, bytes: 0 });
       return;
     }
-    const keys = await listStoredKeys(trailSlug);
+    const keys = await listStoredKeys(trailSlug, currentSignature);
     const bytes = await storedBytesFor(trailSlug);
     setSavedKeys(keys);
     setProgress((p) => ({ ...p, bytes }));
-  }, [trailSlug]);
+  }, [trailSlug, currentSignature]);
 
   // Switching trails starts from a clean slate. Done asynchronously and with a
   // cancel flag so a slow read for the previous trail can't land on top of the
@@ -63,7 +75,7 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const keys = trailSlug ? await listStoredKeys(trailSlug) : new Set<string>();
+      const keys = trailSlug ? await listStoredKeys(trailSlug, currentSignature) : new Set<string>();
       const bytes = trailSlug ? await storedBytesFor(trailSlug) : 0;
       if (cancelled) return;
       setSavedKeys(keys);
@@ -72,7 +84,7 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
       setProgress({ done: keys.size, total: 0, bytes });
     })();
     return () => { cancelled = true; };
-  }, [trailSlug]);
+  }, [trailSlug, currentSignature]);
 
   useEffect(() => () => { cancelRef.current = true; }, []);
 
@@ -124,7 +136,12 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
       if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
     }
 
-    const stored = new Set(await listStoredKeys(trailSlug));
+    // Copies from a voice that is no longer in use are dropped first: they
+    // will never be played again, and leaving them there means a second full
+    // copy of the trail on the device for every voice ever tried.
+    if (currentSignature) await deleteOtherVoices(trailSlug, currentSignature);
+
+    const stored = new Set(await listStoredKeys(trailSlug, currentSignature));
     let bytes = await storedBytesFor(trailSlug);
 
     try {
@@ -156,6 +173,11 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
           // speech synthesis rather than not at all.
           const written = await putStoredNarration({
             poiKey: result.poiKey,
+            // The server's own answer for this clip, not the status endpoint's:
+            // it is the only value guaranteed to describe the audio in hand.
+            voiceSignature: result.voice?.signature ?? currentSignature ?? NO_VOICE,
+            voiceProvider: result.voice?.provider ?? null,
+            voiceId: result.voice?.voiceId ?? null,
             blob: blob ?? new Blob([], { type: 'audio/mpeg' }),
             text: result.text,
             format: result.audioFormat || 'mp3',
@@ -217,7 +239,7 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
       setMessage(e?.message || 'שגיאה בהורדת המסלול.');
       await refresh();
     }
-  }, [trailSlug, pois, refresh]);
+  }, [trailSlug, pois, refresh, currentSignature]);
 
   const remove = useCallback(async () => {
     if (!trailSlug) return;

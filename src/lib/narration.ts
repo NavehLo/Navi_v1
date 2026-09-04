@@ -2,9 +2,11 @@ import {
   type TextProvider,
   type TtsVoice,
   type VoiceOverride,
+  type VoiceStamp,
   resolveTtsVoice,
   audioKey,
   synthesize,
+  voiceStamp,
 } from './tts';
 import {
   type CachedAudio,
@@ -215,6 +217,11 @@ export interface NarrationResult {
   audioFormat: string;
   cached: boolean; // true when nothing was paid for
   charsSynthesized: number;
+  // Which voice this clip was rendered with. Travels with every response, hit
+  // or miss, so the app can say what is speaking instead of reporting the
+  // server's default and hoping it is the same one. Null when there is no
+  // server-side voice and the browser reads the text itself.
+  voice: VoiceStamp | null;
 }
 
 export function resultFromLookup(lookup: NarrationLookup): NarrationResult | null {
@@ -228,6 +235,7 @@ export function resultFromLookup(lookup: NarrationLookup): NarrationResult | nul
       audioFormat: lookup.audio.format,
       cached: true,
       charsSynthesized: 0,
+      voice: voiceStamp(lookup.voice),
     };
   }
   if (lookup.inlineAudio) {
@@ -239,6 +247,7 @@ export function resultFromLookup(lookup: NarrationLookup): NarrationResult | nul
       audioFormat: lookup.inlineAudio.format,
       cached: true,
       charsSynthesized: 0,
+      voice: voiceStamp(lookup.voice),
     };
   }
   return null;
@@ -286,13 +295,15 @@ export async function generateNarration(
   if (!voice) {
     // No server-side voice at all — the client reads the text with the
     // browser's own speechSynthesis.
-    return { poiKey, text, audioUrl: null, audio: null, audioFormat: 'mp3', cached: false, charsSynthesized: 0 };
+    return { poiKey, text, audioUrl: null, audio: null, audioFormat: 'mp3', cached: false, charsSynthesized: 0, voice: null };
   }
 
   const key = audioKey(text, voice);
   const { speech } = await synthesize(text, voice, input.voice);
   if (!speech) {
-    return { poiKey, text, audioUrl: null, audio: null, audioFormat: voice.format, cached: false, charsSynthesized: 0 };
+    // Synthesis failed: the text is still worth returning, but nothing spoke
+    // it, so no voice is claimed.
+    return { poiKey, text, audioUrl: null, audio: null, audioFormat: voice.format, cached: false, charsSynthesized: 0, voice: null };
   }
 
   rememberInMemory(memAudio, key, { buffer: speech.buffer, format: speech.format });
@@ -312,5 +323,6 @@ export async function generateNarration(
     audioFormat: speech.format,
     cached: false,
     charsSynthesized: text.length,
+    voice: voiceStamp(voice),
   };
 }

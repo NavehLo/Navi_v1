@@ -97,7 +97,7 @@ export default function TrailApp() {
   
   const { trail, setTrail, trailSource, loadTrailFile, loadTrailFromUrl, loadTrailFromText, trailError, trailLoading } = useTrailData();
   const { isActive: isTourActive, startTour, stopTour, speed: tourSpeed, setSpeed: setTourSpeed, progress, setProgressByJump } = useTour(map, trail);
-  const { requestGuideForPoint, unlockAudio, isSpeaking, isLoading, currentScript, stopSpeaking, queueLength } = useAIGuide();
+  const { requestGuideForPoint, unlockAudio, isSpeaking, isLoading, currentScript, stopSpeaking, queueLength, currentVoice, currentFromDevice } = useAIGuide();
 
   // Guide on/off, remembered per device. Off is a real off: the geofence never
   // fires, so not a single request goes out.
@@ -626,6 +626,8 @@ export default function TrailApp() {
           onStop={stopSpeaking}
           onManualTrigger={() => playPoiNow(enrichedPois[0] ?? trail.pois[0])}
           queueLength={queueLength}
+          voice={currentVoice}
+          voiceFromDevice={currentFromDevice}
         />
       )}
 
