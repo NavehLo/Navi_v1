@@ -1,24 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Navi
 
-## Getting Started
+תלת-ממד למסלולי טיול בישראל, עם מדריכה קולית בעברית.
 
-First, run the development server:
+## הגדרה — איפה שמים את המפתחות
+
+**המפתחות לא נשמרים ב-GitHub, לעולם.** `.gitignore` חוסם כל קובץ `.env*`
+(מלבד `.env.local.example`, שהוא תבנית עם ערכים ריקים). מפתח שנדחף ל-repo
+ציבורי נסרק ונגנב תוך דקות, ולכן יש בדיוק שני מקומות נכונים:
+
+### 1. פיתוח מקומי — קובץ `.env.local`
+
+בשורש הפרויקט, ליד `package.json`:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.local.example .env.local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+פתח את `.env.local` בעורך ומלא את הערכים. הקובץ נשאר רק על המחשב שלך.
+אחרי כל שינוי בו צריך להפעיל מחדש את `npm run dev` — Next.js קורא את משתני
+הסביבה פעם אחת בעלייה.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 2. הפרודקשן ב-Vercel — לא קובץ, אלא ממשק
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Vercel לא רואה את `.env.local` שלך. שם המשתנים מוגדרים בדשבורד:
+
+**Vercel Dashboard → הפרויקט → Settings → Environment Variables**
+
+לכל משתנה: Key, Value, ולסמן את שלוש הסביבות (Production / Preview /
+Development). משתנה חדש נכנס לתוקף רק ב-deploy הבא — אחרי ההוספה צריך
+**Deployments → הפריסה האחרונה → ⋯ → Redeploy**.
+
+### מה למלא
+
+| משתנה | חובה? | מאיפה משיגים |
+|---|---|---|
+| `ELEVENLABS_API_KEY` | לקול טוב בעברית | elevenlabs.io → Profile → API Keys |
+| `ELEVENLABS_VOICE_ID` | יחד עם המפתח | elevenlabs.io → Voices → הקול → Copy Voice ID |
+| `GEMINI_API_KEY` | לפחות ספק אחד | aistudio.google.com → Get API key |
+| `OPENAI_API_KEY` | חלופה ל-Gemini | platform.openai.com → API keys |
+| `NEXT_PUBLIC_SUPABASE_URL` | להתחברות ול-cache | Supabase → Settings → API |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | " | Supabase → Settings → API |
+| `SUPABASE_SERVICE_ROLE_KEY` | ל-cache הקבוע | Supabase → Settings → API → service_role |
+
+`SUPABASE_SERVICE_ROLE_KEY` הוא **סוד אמיתי**: הוא עוקף RLS ומאפשר גישה מלאה
+לבסיס הנתונים. לעולם אל תיתן לו קידומת `NEXT_PUBLIC_` — כל משתנה עם הקידומת
+הזו נארז לתוך ה-JavaScript שרץ בדפדפן של כל מבקר.
+
+הטוקן של Mapbox הוא היוצא מן הכלל: הוא מוזן דרך מסך הפתיחה של האפליקציה
+ונשמר ב-localStorage של הדפדפן, לא כמשתנה סביבה.
+
+### בסיס הנתונים
+
+הרץ את `supabase/schema.sql` ב-**Supabase → SQL Editor → New query**.
+אפשר להריץ את הקובץ כולו שוב ושוב בבטחה — כל פקודה בו idempotent.
+
+## הרצה
+
+```bash
+npm install
+npm run dev
+```
+
+ואז [http://localhost:3000](http://localhost:3000).
 
 ## Keeping Supabase awake
 

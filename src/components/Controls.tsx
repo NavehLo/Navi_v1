@@ -1,4 +1,4 @@
-import { Home, Settings, UserCircle2, BookmarkPlus, Check, Share2 } from "lucide-react";
+import { Home, Settings, UserCircle2, BookmarkPlus, Check, Share2, Headphones, HeadphoneOff, ListMusic } from "lucide-react";
 
 export default function Controls({
     onStyleChange,
@@ -27,6 +27,9 @@ export default function Controls({
     saveTrailState,
     canShare,
     onShare,
+    isGuideEnabled,
+    onToggleGuide,
+    onOpenGuidePoints,
   }: {
     onStyleChange: (style: string) => void;
     onToggle3D: () => void;
@@ -54,6 +57,9 @@ export default function Controls({
     saveTrailState?: 'idle' | 'saving' | 'saved';
     canShare?: boolean;
     onShare?: () => void;
+    isGuideEnabled?: boolean;
+    onToggleGuide?: () => void;
+    onOpenGuidePoints?: () => void;
   }) {
     return (
       <>
@@ -155,6 +161,32 @@ export default function Controls({
                 >
                   {isFieldMode ? 'מצב שטח פעיל' : 'מצב שטח'}
                 </button>
+              )}
+
+              {/* Guide on/off. Off means no narration and no network requests
+                  at all — not just silence. */}
+              {hasTrail && onToggleGuide && (
+                <div className="flex gap-1 border-t border-white/5 pt-1">
+                  <button
+                    onClick={onToggleGuide}
+                    className={`flex-1 flex items-center justify-center gap-1.5 text-xs p-2 rounded font-bold transition-colors ${
+                      isGuideEnabled ? 'bg-emerald-500/90 text-white' : 'text-zinc-400 hover:bg-white/10'
+                    }`}
+                    title={isGuideEnabled ? 'המדריכה פעילה — לחץ לכיבוי' : 'המדריכה כבויה — לחץ להפעלה'}
+                  >
+                    {isGuideEnabled ? <Headphones size={14} /> : <HeadphoneOff size={14} />}
+                    {isGuideEnabled ? 'מדריכה' : 'מושתק'}
+                  </button>
+                  {onOpenGuidePoints && (
+                    <button
+                      onClick={onOpenGuidePoints}
+                      className="shrink-0 text-zinc-400 hover:bg-white/10 hover:text-white p-2 rounded transition-colors"
+                      title="נקודות המדריכה במסלול"
+                    >
+                      <ListMusic size={14} />
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 

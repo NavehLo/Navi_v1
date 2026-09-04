@@ -12,13 +12,15 @@ const poiKey = (p: TrailPOI) => `${p.index}:${p.type}`;
 
 // Fires onEnter once per POI when `position` (virtual camera or real GPS —
 // the source is injected by the caller) comes within radiusKm of it.
-// At tour speed x1 the camera moves ~22 m/s (SEC_PER_KM = 45), so a 50m
-// radius cannot be stepped over between frames at normal speeds.
+// At tour speed x1 the camera moves ~22 m/s (SEC_PER_KM = 45), so even a small
+// radius cannot be stepped over between frames. The caller sets the radius
+// large enough that a ~40-second narration finishes around the point rather
+// than starting there — see GEOFENCE_RADIUS_KM in page.tsx.
 export function usePOIGeofence(
   pois: TrailPOI[],
   position: { lat: number; lon: number } | null,
   onEnter: (poi: TrailPOI) => void,
-  { radiusKm = 0.05, enabled, resetKey }: GeofenceOptions
+  { radiusKm = 0.15, enabled, resetKey }: GeofenceOptions
 ): { reset: () => void } {
   const visitedRef = useRef<Set<string>>(new Set());
 

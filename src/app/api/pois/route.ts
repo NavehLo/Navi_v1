@@ -7,6 +7,37 @@ export interface DiscoveredPOI {
   lon: number;
   type: string;  // Hebrew type name, fed straight into the guide prompt
   name: string | null;
+  osmType: string | null;  // node | way | relation — half of the cache key
+  osmId: number | null;
+  tags: Record<string, string>;  // the kept subset of KEPT_TAGS below
+}
+
+// Overpass already returns every tag on the element; the old code threw all of
+// them away and kept only the name. These are the ones worth carrying to the
+// guide: `wikipedia` and `wikidata` are what lets the narration be written from
+// a real article rather than from the model's imagination, and the rest are
+// facts in their own right (when it was built, how high it stands, what the
+// inscription says). None of this costs an extra request.
+const KEPT_TAGS = [
+  'wikipedia',
+  'wikidata',
+  'description',
+  'description:he',
+  'start_date',
+  'ele',
+  'heritage',
+  'inscription',
+  'historic:civilization',
+  'operator',
+  'website',
+] as const;
+
+function keptTags(tags: Record<string, string>): Record<string, string> {
+  const kept: Record<string, string> = {};
+  for (const key of KEPT_TAGS) {
+    if (tags[key]) kept[key] = tags[key];
+  }
+  return kept;
 }
 
 const SEARCH_RADIUS_M = 250;   // how far off-trail a POI may be
@@ -115,6 +146,9 @@ export async function POST(request: Request) {
         lon,
         type,
         name: tags['name:he'] || tags.name || null,
+        osmType: el.type ?? null,
+        osmId: el.id ?? null,
+        tags: keptTags(tags),
       });
       if (pois.length >= MAX_RESULTS) break;
     }
