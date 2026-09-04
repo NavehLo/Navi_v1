@@ -1,10 +1,15 @@
 import crypto from 'crypto';
 import {
+  type VoiceOverride,
+  type VoiceSettings,
   isElevenLabsConfigured,
   elevenLabsVoiceSignature,
   containerFor,
   synthesizeElevenLabs,
 } from './elevenlabs';
+
+export type { VoiceOverride } from './elevenlabs';
+import { NIQQUD_VERSION, applyNiqqud } from './niqqud';
 
 // Text-to-speech, one voice chosen per request.
 //
@@ -21,6 +26,10 @@ export interface TtsVoice {
   model: string;
   voice: string;
   format: string; // container: mp3 | wav
+  settings?: VoiceSettings; // ElevenLabs only
+  // Vowel points added to the geographic vocabulary before synthesis. Off is
+  // a distinct rendering from on, so it belongs to the voice's identity.
+  niqqud?: boolean;
 }
 
 export interface SynthesizedSpeech {
@@ -50,10 +59,17 @@ function geminiVoice(): TtsVoice {
 // plus the caller's preference, so a cache can be keyed on it *before* the
 // call. (The old key mixed every configured provider's signature together, so
 // a Gemini-voiced clip could be served to a caller who asked for OpenAI.)
-export function resolveTtsVoice(preferred: TextProvider): TtsVoice | null {
-  if (isElevenLabsConfigured()) {
-    const v = elevenLabsVoiceSignature();
-    return { provider: 'elevenlabs', model: v.model, voice: v.voice, format: containerFor(v.format) };
+export function resolveTtsVoice(preferred: TextProvider, override?: VoiceOverride | null): TtsVoice | null {
+  if (isElevenLabsConfigured(override)) {
+    const v = elevenLabsVoiceSignature(override);
+    return {
+      provider: 'elevenlabs',
+      model: v.model,
+      voice: v.voice,
+      format: containerFor(v.format),
+      settings: v.settings,
+      niqqud: override?.niqqud !== false,
+    };
   }
   if (preferred === 'gemini' && process.env.GEMINI_API_KEY) return geminiVoice();
   if (process.env.OPENAI_API_KEY) {
@@ -69,7 +85,14 @@ export function resolveTtsVoice(preferred: TextProvider): TtsVoice | null {
 }
 
 export function voiceSignature(voice: TtsVoice): string {
-  return `${voice.provider}:${voice.model}:${voice.voice}:${voice.format}`;
+  const s = voice.settings;
+  // The settings are part of the identity: the same voice at stability 0.3 is
+  // a different rendering from the same voice at 0.7, and must not be served
+  // from the other's cache entry. Same for the niqqud pass — and its version,
+  // so improving the lexicon re-renders instead of serving the old reading.
+  const tuning = s ? `:${s.stability}:${s.similarityBoost}:${s.style}:${s.speed}` : '';
+  const nq = voice.niqqud ? `:nq${NIQQUD_VERSION}` : '';
+  return `${voice.provider}:${voice.model}:${voice.voice}:${voice.format}${tuning}${nq}`;
 }
 
 // Identifies a specific rendering of a specific narration. Used as the primary
@@ -81,9 +104,17 @@ export function audioKey(text: string, voice: TtsVoice): string {
 
 // Raw synthesis — no caching. Returns null on any failure; the narration text
 // alone is still a valid response.
-export async function synthesize(text: string, voice: TtsVoice): Promise<SynthesizedSpeech | null> {
+export async function synthesize(
+  text: string,
+  voice: TtsVoice,
+  override?: VoiceOverride | null
+): Promise<SynthesizedSpeech | null> {
   if (voice.provider === 'elevenlabs') {
-    const r = await synthesizeElevenLabs(text);
+    // Only ElevenLabs gets the vowel points: the OpenAI and Gemini voices are
+    // fallbacks whose Hebrew is the problem this project moved away from, and
+    // feeding them niqqud has not been shown to help.
+    const spoken = voice.niqqud ? applyNiqqud(text) : text;
+    const r = await synthesizeElevenLabs(spoken, override);
     return r ? { buffer: r.buffer, format: r.format, voice } : null;
   }
   const r = voice.provider === 'gemini'

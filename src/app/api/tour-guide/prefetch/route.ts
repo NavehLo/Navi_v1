@@ -58,6 +58,12 @@ export async function POST(request: Request) {
     let generated = 0;
     let quotaReached = false;
     let charsThisRequest = 0;
+    // Which limit stopped us, so the client can say something true instead of
+    // guessing. 'user' means a real per-account character budget; 'anon' means
+    // the per-IP cap, which also catches a signed-in caller whose Supabase
+    // quota RPC is unreachable — worth telling apart when diagnosing.
+    let quotaScope: 'user' | 'anon' | null = null;
+    let failures = 0;
 
     for (const poi of pois) {
       const input: NarrationInput = {
@@ -69,6 +75,7 @@ export async function POST(request: Request) {
         osmId: poi.osmId ?? null,
         tags: poi.tags ?? null,
         trailSlug,
+        voice: body.voice ?? null,
       };
 
       // The free half first, always: a downloaded trail re-downloaded, or a
@@ -91,6 +98,7 @@ export async function POST(request: Request) {
         const quota = await checkGuideQuota(token, DAILY_CHARS_PER_USER);
         if (quota.configured && !quota.allowed) {
           quotaReached = true;
+          quotaScope = 'user';
           pending.push(lookup.poiKey);
           continue;
         }
@@ -104,18 +112,27 @@ export async function POST(request: Request) {
         );
         if (!allowed) {
           quotaReached = true;
+          quotaScope = 'anon';
           pending.push(lookup.poiKey);
           continue;
         }
       }
 
-      const result = await generateNarration(input, lookup, provider);
-      generated++;
-      charsThisRequest += result.charsSynthesized;
-      if (token && quotaEnforced && result.charsSynthesized > 0) {
-        await recordGuideUsage(token, DAILY_CHARS_PER_USER, result.charsSynthesized);
+      // One point failing must not lose the points that already succeeded:
+      // the batch keeps going and reports the failure alongside the results.
+      try {
+        const result = await generateNarration(input, lookup, provider);
+        generated++;
+        charsThisRequest += result.charsSynthesized;
+        if (token && quotaEnforced && result.charsSynthesized > 0) {
+          await recordGuideUsage(token, DAILY_CHARS_PER_USER, result.charsSynthesized);
+        }
+        results.push(result);
+      } catch (e) {
+        console.error('Narration generation failed for', lookup.poiKey, e);
+        failures++;
+        pending.push(lookup.poiKey);
       }
-      results.push(result);
     }
 
     return NextResponse.json({
@@ -123,9 +140,15 @@ export async function POST(request: Request) {
       pending,          // call again to fill these
       generated,
       charsThisRequest,
+      failures,
       // Distinguishes "come back for the rest" from "you have hit your limit":
       // the client stops asking in the second case.
       quotaReached,
+      quotaScope,
+      hasProvider: !!provider,
+      // The per-request generation cap, so the client can tell a batch that is
+      // simply not finished yet from one that cannot finish at all.
+      batchLimit: MAX_GENERATE_PER_REQUEST,
     });
   } catch (error: any) {
     console.error('Prefetch error:', error);

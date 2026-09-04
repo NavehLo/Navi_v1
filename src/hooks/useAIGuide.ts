@@ -3,6 +3,7 @@ import { Coordinate3D } from "../utils/trailUtils";
 import { supabase } from "../lib/supabase";
 import { poiKeyFor } from "../lib/poiKey";
 import { getStoredNarration } from "../lib/offlineAudio";
+import { readVoicePrefs } from "../lib/voicePrefs";
 
 // Tiny silent WAV — played once on a user gesture to unlock the shared
 // audio element for later programmatic playback (browser autoplay policy).
@@ -211,7 +212,10 @@ export function useAIGuide() {
     const providerPref = typeof window !== "undefined"
       ? localStorage.getItem(AI_PROVIDER_STORAGE_KEY) || "auto"
       : "auto";
-    return `${providerPref}:${trailSlug}:${target.type}:${target.coord[0].toFixed(4)},${target.coord[1].toFixed(4)}`;
+    // The voice is part of the key: switching voices must not replay the
+    // previous one out of this session's map.
+    const voiceKey = JSON.stringify(readVoicePrefs() ?? {});
+    return `${providerPref}:${voiceKey}:${trailSlug}:${target.type}:${target.coord[0].toFixed(4)},${target.coord[1].toFixed(4)}`;
   };
 
   // Fetches one narration. Three layers, cheapest first: this session's map,
@@ -274,6 +278,7 @@ export function useAIGuide() {
           tags: item.target.tags ?? undefined,
           trailSlug: item.trailSlug,
           covered: coveredRef.current.topics.slice(-6),
+          voice: readVoicePrefs(),
         }),
       });
 
