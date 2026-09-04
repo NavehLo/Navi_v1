@@ -16,6 +16,7 @@ import { useAIGuide } from "@/hooks/useAIGuide";
 import { usePOIGeofence } from "@/hooks/usePOIGeofence";
 import { useTrailPOIs } from "@/hooks/useTrailPOIs";
 import { useAuth } from "@/hooks/useAuth";
+import { useOfflineTrail } from "@/hooks/useOfflineTrail";
 import { saveTrail, recordTour, SavedTrail, describeSupabaseError, clearPersonalCache } from "@/lib/personalArea";
 import type { TrailPOI } from "@/hooks/useTrailData";
 
@@ -206,6 +207,9 @@ export default function TrailApp() {
       resetKey: trail?.name,
     }
   );
+
+  // Narration audio kept on the device, so the guide works with no reception.
+  const offlineTrail = useOfflineTrail(trail?.name ?? null, enrichedPois);
 
   // Replaying a point someone asked for jumps the queue — they pressed a
   // button and expect to hear it now.
@@ -601,6 +605,15 @@ export default function TrailApp() {
           pois={enrichedPois}
           onClose={() => setShowGuidePoints(false)}
           onPlay={playPoiNow}
+          offlineStateFor={(poi) => (offlineTrail.isSaved(poi) ? 'saved' : 'missing')}
+          offline={{
+            savedCount: offlineTrail.savedCount,
+            status: offlineTrail.status,
+            message: offlineTrail.message,
+            progress: offlineTrail.progress,
+            onDownload: offlineTrail.download,
+            onDelete: offlineTrail.remove,
+          }}
         />
       )}
 

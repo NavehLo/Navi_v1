@@ -1,6 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Coordinate3D } from "../utils/trailUtils";
 import { supabase } from "../lib/supabase";
+import { poiKeyFor } from "../lib/poiKey";
+import { getStoredNarration } from "../lib/offlineAudio";
 
 // Tiny silent WAV — played once on a user gesture to unlock the shared
 // audio element for later programmatic playback (browser autoplay policy).
@@ -13,6 +15,7 @@ interface GuideEntry {
   text: string;
   audioUrl: string | null;   // durable URL from the narration cache
   audioB64: string | null;   // inline audio, when no durable URL exists
+  audioBlob?: Blob | null;   // downloaded to the device, plays with no network
   audioFormat: string;
 }
 
@@ -59,6 +62,17 @@ export function useAIGuide() {
   // that at speed nothing was ever heard to the end.
   const queueRef = useRef<QueueItem[]>([]);
   const pumpingRef = useRef(false);
+  // Resolves the promise the pump is waiting on. Pausing the audio element
+  // fires no event, so without this an interruption would leave the pump
+  // awaiting a narration that had already stopped, and nothing would ever play
+  // again.
+  const endCurrentRef = useRef<(() => void) | null>(null);
+
+  const interruptPlayback = useCallback(() => {
+    audioRef.current?.pause();
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    endCurrentRef.current?.();
+  }, []);
 
   // What has already been narrated on the trail being walked, so each point
   // adds something new instead of retelling the last one. Reset when the trail
@@ -103,11 +117,17 @@ export function useAIGuide() {
         setIsSpeaking(true);
         setIsSynthesizerActive(true);
       };
-      utterance.onend = utterance.onerror = () => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        endCurrentRef.current = null;
         setIsSpeaking(false);
         setIsSynthesizerActive(false);
         resolve();
       };
+      utterance.onend = utterance.onerror = finish;
+      endCurrentRef.current = finish;
 
       window.speechSynthesis.speak(utterance);
     });
@@ -124,11 +144,13 @@ export function useAIGuide() {
       const finish = () => {
         if (settled) return;
         settled = true;
+        endCurrentRef.current = null;
         setIsSpeaking(false);
         setIsSynthesizerActive(false);
         releaseObjectUrl();
         resolve();
       };
+      endCurrentRef.current = finish;
 
       el.onplay = () => {
         setIsSpeaking(true);
@@ -139,12 +161,20 @@ export function useAIGuide() {
 
       el.src = url;
       el.play().catch(() => {
+        if (settled) return;
         settled = true;
+        endCurrentRef.current = null;
         speakTextFallback(fallbackText).then(resolve);
       });
     });
 
   const playEntry = (entry: GuideEntry): Promise<void> => {
+    if (entry.audioBlob && entry.audioBlob.size > 0) {
+      releaseObjectUrl();
+      const url = URL.createObjectURL(entry.audioBlob);
+      objectUrlRef.current = url;
+      return playFromUrl(url, entry.text);
+    }
     if (entry.audioUrl) {
       releaseObjectUrl();
       return playFromUrl(entry.audioUrl, entry.text);
@@ -170,17 +200,12 @@ export function useAIGuide() {
     queueRef.current = [];
     setQueueLength(0);
     abortRef.current?.abort();
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-    if ("speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
+    if (audioRef.current) audioRef.current.currentTime = 0;
+    interruptPlayback();
     setIsSpeaking(false);
     setIsSynthesizerActive(false);
     setCurrentScript(null);
-  }, []);
+  }, [interruptPlayback]);
 
   const entryCacheKey = (target: GuideTarget, trailSlug: string) => {
     const providerPref = typeof window !== "undefined"
@@ -189,11 +214,37 @@ export function useAIGuide() {
     return `${providerPref}:${trailSlug}:${target.type}:${target.coord[0].toFixed(4)},${target.coord[1].toFixed(4)}`;
   };
 
-  // Fetches one narration, from the in-session cache when possible.
+  // Fetches one narration. Three layers, cheapest first: this session's map,
+  // then whatever was downloaded to the device, then the network.
   const fetchEntry = useCallback(async (item: QueueItem): Promise<GuideEntry | null> => {
     const cacheKey = entryCacheKey(item.target, item.trailSlug);
     const cached = cacheRef.current.get(cacheKey);
     if (cached) return cached;
+
+    // A downloaded trail plays with no request at all — which matters in a
+    // wadi with no reception, and is also why a saved point starts instantly
+    // instead of after the three to eight seconds a round trip takes.
+    const stored = await getStoredNarration(
+      poiKeyFor({
+        lat: item.target.coord[0],
+        lon: item.target.coord[1],
+        type: item.target.type,
+        osmType: item.target.osmType,
+        osmId: item.target.osmId,
+        trailSlug: item.trailSlug,
+      })
+    );
+    if (stored) {
+      const entry: GuideEntry = {
+        text: stored.text,
+        audioUrl: null,
+        audioB64: null,
+        audioBlob: stored.blob,
+        audioFormat: stored.format,
+      };
+      cacheRef.current.set(cacheKey, entry);
+      return entry;
+    }
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -286,14 +337,13 @@ export function useAIGuide() {
       if (opts?.immediate) {
         queueRef.current = [];
         abortRef.current?.abort();
-        audioRef.current?.pause();
-        if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+        interruptPlayback();
       }
       queueRef.current.push({ target, trailSlug });
       setQueueLength(queueRef.current.length);
       void pump();
     },
-    [pump]
+    [pump, interruptPlayback]
   );
 
   useEffect(() => {
@@ -301,6 +351,7 @@ export function useAIGuide() {
       queueRef.current = [];
       abortRef.current?.abort();
       audioRef.current?.pause();
+      endCurrentRef.current?.();
       if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
       if ("speechSynthesis" in window) window.speechSynthesis.cancel();
     };

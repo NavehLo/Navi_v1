@@ -1,4 +1,4 @@
-import { X, Play, Headphones } from "lucide-react";
+import { X, Play, Headphones, Download, Trash2, Loader2 } from "lucide-react";
 import { TrailData, TrailPOI } from "../hooks/useTrailData";
 
 // Answers, directly, the question "how many narrations are there and where?".
@@ -12,6 +12,15 @@ const TYPE_LABEL: Record<string, string> = {
 
 export type PointOfflineState = "missing" | "saved";
 
+export interface OfflineControls {
+  savedCount: number;
+  status: "idle" | "downloading" | "done" | "error";
+  message: string | null;
+  progress: { done: number; total: number; bytes: number };
+  onDownload: () => void;
+  onDelete: () => void;
+}
+
 interface GuidePointsPanelProps {
   trail: TrailData;
   pois: TrailPOI[];
@@ -20,6 +29,13 @@ interface GuidePointsPanelProps {
   // Filled in by the offline downloader; without it every point simply shows
   // as "plays in the field".
   offlineStateFor?: (poi: TrailPOI) => PointOfflineState;
+  offline?: OfflineControls;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
 export default function GuidePointsPanel({
@@ -28,6 +44,7 @@ export default function GuidePointsPanel({
   onClose,
   onPlay,
   offlineStateFor,
+  offline,
 }: GuidePointsPanelProps) {
   const acc = trail.accumulatedDistances;
 
@@ -55,6 +72,49 @@ export default function GuidePointsPanel({
           {pois.length} נקודות קריינות במסלול הזה. הקריינות תופעל אוטומטית בהגעה לכל נקודה,
           ואפשר להשמיע כל אחת גם מכאן.
         </p>
+
+        {/* Download the whole trail for walking it with no reception */}
+        {offline && pois.length > 0 && (
+          <div className="px-6 pb-4 shrink-0">
+            <div className="flex gap-2">
+              <button
+                onClick={offline.onDownload}
+                disabled={offline.status === "downloading"}
+                className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-sky-500/40 bg-sky-500/10 text-sky-300 font-bold text-xs py-2.5 px-3 hover:bg-sky-500/20 transition-colors disabled:opacity-60"
+              >
+                {offline.status === "downloading" ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    {offline.progress.done}/{offline.progress.total} · {formatBytes(offline.progress.bytes)}
+                  </>
+                ) : (
+                  <>
+                    <Download size={14} />
+                    {offline.savedCount >= pois.length ? "רענן הורדה" : "הורד מסלול לשימוש בשטח"}
+                  </>
+                )}
+              </button>
+              {offline.savedCount > 0 && offline.status !== "downloading" && (
+                <button
+                  onClick={offline.onDelete}
+                  title="מחק את ההורדה ופנה מקום"
+                  className="shrink-0 rounded-xl border border-white/10 text-zinc-400 hover:text-red-400 hover:bg-white/5 py-2.5 px-3 transition-colors"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
+            {offline.savedCount > 0 && offline.status !== "downloading" && (
+              <div className="text-zinc-500 text-[11px] mt-2">
+                {offline.savedCount} מתוך {pois.length} נקודות שמורות במכשיר
+                {offline.progress.bytes > 0 ? ` · ${formatBytes(offline.progress.bytes)}` : ""}
+              </div>
+            )}
+            {offline.message && (
+              <div className="text-amber-400 text-[11px] mt-2">{offline.message}</div>
+            )}
+          </div>
+        )}
 
         <div className="overflow-y-auto px-6 pb-6 flex flex-col gap-2">
           {pois.length === 0 && (
