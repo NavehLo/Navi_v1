@@ -1,4 +1,4 @@
-import { Home, Settings, UserCircle2, BookmarkPlus, Check, Share2, Headphones, HeadphoneOff, ListMusic } from "lucide-react";
+import { Home, Settings, UserCircle2, BookmarkPlus, Check, Share2, Headphones, HeadphoneOff, ListMusic, Eye, EyeOff } from "lucide-react";
 
 export default function Controls({
     onStyleChange,
@@ -30,6 +30,8 @@ export default function Controls({
     isGuideEnabled,
     onToggleGuide,
     onOpenGuidePoints,
+    isUIHidden,
+    onToggleUI,
   }: {
     onStyleChange: (style: string) => void;
     onToggle3D: () => void;
@@ -60,23 +62,43 @@ export default function Controls({
     isGuideEnabled?: boolean;
     onToggleGuide?: () => void;
     onOpenGuidePoints?: () => void;
+    // Clean view: everything but this toggle steps aside so only the trail
+    // itself is left on the map.
+    isUIHidden?: boolean;
+    onToggleUI?: () => void;
   }) {
     return (
       <>
-        {/* Persistent Home Button */}
-        {hasTrail && onHome && (
-          <div className="absolute top-4 right-4 z-30 bg-zinc-900/90 rounded-full p-2 border border-white/10 backdrop-blur-md shadow-2xl">
-            <button
-              onClick={onHome}
-              className="flex items-center justify-center text-white hover:text-orange-400 transition-colors rounded-full"
-              title="מסך הבית"
-            >
-              <Home className="w-5 h-5" />
-            </button>
+        {/* Persistent top-right pill: clean view toggle + home.
+            --ui-top-offset keeps it clear of the tour progress bar, which on a
+            phone spans the whole top edge. */}
+        {hasTrail && (onHome || onToggleUI) && (
+          <div
+            className="absolute right-4 top-[calc(1rem+var(--ui-top-offset,0px))] lg:top-4 z-30 bg-zinc-900/90 rounded-full p-2 border border-white/10 backdrop-blur-md shadow-2xl flex items-center gap-1 transition-[top] duration-200"
+          >
+            {onToggleUI && (
+              <button
+                onClick={onToggleUI}
+                className={`flex items-center justify-center transition-colors rounded-full ${isUIHidden ? 'text-orange-400' : 'text-white hover:text-orange-400'}`}
+                title={isUIHidden ? 'הצג את כל הכפתורים' : 'תצוגה נקייה — רק המסלול על המפה'}
+                aria-pressed={!!isUIHidden}
+              >
+                {isUIHidden ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+              </button>
+            )}
+            {!isUIHidden && onHome && (
+              <button
+                onClick={onHome}
+                className="flex items-center justify-center text-white hover:text-orange-400 transition-colors rounded-full"
+                title="מסך הבית"
+              >
+                <Home className="w-5 h-5" />
+              </button>
+            )}
           </div>
         )}
 
-        {isTourActive ? (
+        {!isUIHidden && (isTourActive ? (
           <div className="absolute bottom-12 left-4 right-4 md:left-1/2 md:top-auto md:right-auto md:-translate-x-1/2 flex flex-col md:flex-row gap-2 z-20" dir="rtl">
             {/* Virtual Tour Primary Button */}
             <div className="flex bg-zinc-900/90 rounded-xl p-1.5 border border-white/10 backdrop-blur-md gap-1 shadow-2xl flex-1 md:w-48">
@@ -88,8 +110,15 @@ export default function Controls({
               </button>
               {onTourSpeedChange && (
                 <div className="flex gap-1">
-                  <button onClick={() => onTourSpeedChange(1)} className={`px-2 md:px-3 text-xs rounded-lg font-bold ${tourSpeed === 1 ? 'bg-orange-500 text-white' : 'text-zinc-400 hover:bg-white/10'}`}>x1</button>
-                  <button onClick={() => onTourSpeedChange(2)} className={`px-2 md:px-3 text-xs rounded-lg font-bold ${tourSpeed === 2 ? 'bg-orange-500 text-white' : 'text-zinc-400 hover:bg-white/10'}`}>x2</button>
+                  {[1, 2, 4].map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => onTourSpeedChange(s)}
+                      className={`px-2 md:px-3 text-xs rounded-lg font-bold ${tourSpeed === s ? 'bg-orange-500 text-white' : 'text-zinc-400 hover:bg-white/10'}`}
+                    >
+                      x{s}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
@@ -114,7 +143,7 @@ export default function Controls({
             </div>
           </div>
         ) : (
-          <div className="absolute left-4 top-4 flex flex-col gap-3 z-10 w-48" dir="rtl">
+          <div className="absolute left-4 top-[calc(1rem+var(--ui-top-offset,0px))] lg:top-4 flex flex-col gap-3 z-10 w-48 transition-[top] duration-200" dir="rtl">
             {/* Settings + personal area */}
             <div className="flex gap-2">
               {onOpenSettings && (
@@ -268,7 +297,7 @@ export default function Controls({
               </button>
             </div>
           </div>
-        )}
+        ))}
       </>
     );
   }

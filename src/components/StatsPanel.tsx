@@ -40,7 +40,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive }: {
     }
 
     return (
-      <div className="absolute bottom-16 left-4 right-4 md:top-4 md:right-4 md:left-auto md:bottom-auto bg-zinc-900/90 p-4 rounded-2xl shadow-xl border border-white/10 z-10 md:w-96 backdrop-blur-md flex justify-between items-center transition-all" dir="rtl">
+      <div className="absolute bottom-16 left-4 right-4 md:top-[calc(1rem+var(--ui-top-offset,0px))] md:right-4 md:left-auto md:bottom-auto bg-zinc-900/90 p-4 rounded-2xl shadow-xl border border-white/10 z-10 md:w-96 backdrop-blur-md flex justify-between items-center transition-all" dir="rtl">
         <div className="flex items-center gap-3 overflow-hidden">
           {onClose && (
             <button onClick={onClose} className="p-2 bg-white/5 hover:bg-white/10 rounded-full transition-colors flex-shrink-0">
@@ -61,7 +61,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive }: {
   }
 
   return (
-    <div className={`absolute ${isTourActive ? 'top-[140px] md:top-[120px]' : 'bottom-16'} left-4 right-4 md:top-4 md:right-4 md:left-auto md:bottom-auto bg-zinc-900/90 p-5 md:p-6 rounded-3xl shadow-xl border border-white/10 z-10 md:w-96 backdrop-blur-md transition-all`} dir="rtl">
+    <div className={`absolute ${isTourActive ? 'top-[calc(1rem+var(--ui-top-offset,0px))]' : 'bottom-16 md:top-[calc(1rem+var(--ui-top-offset,0px))] md:bottom-auto'} left-4 right-4 md:right-4 md:left-auto bg-zinc-900/90 p-5 md:p-6 rounded-3xl shadow-xl border border-white/10 z-10 md:w-96 backdrop-blur-md transition-all`} dir="rtl">
       <div className="flex justify-between items-center gap-4">
         {onClose && (
           <button 
