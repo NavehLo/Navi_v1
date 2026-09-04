@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { X, Sparkles, Volume2, Loader2, RotateCcw } from "lucide-react";
+import { X, Sparkles, Volume2, Loader2, RotateCcw, AlertTriangle } from "lucide-react";
 import { AI_PROVIDER_STORAGE_KEY } from "../hooks/useAIGuide";
 import { type VoicePrefs, readVoicePrefs, writeVoicePrefs } from "../lib/voicePrefs";
 
@@ -16,6 +16,24 @@ const PROVIDER_LABELS: Record<string, { name: string; desc: string }> = {
   openai: { name: "OpenAI (ChatGPT)", desc: "כותב את הטקסט" },
   gemini: { name: "Google Gemini", desc: "כותב את הטקסט" },
   claude: { name: "Claude (Anthropic)", desc: "כותב את הטקסט" },
+};
+
+interface VoiceChoice {
+  id: string;
+  name: string;
+  category: string | null;
+  labels: Record<string, string>;
+}
+
+// ElevenLabs' own grouping. Which of these an account may drive over the API
+// depends on the plan — a library voice is refused on the free plan even
+// though the website plays it — so the list is fetched from the account rather
+// than guessed here.
+const CATEGORY_LABEL: Record<string, string> = {
+  premade: "קול מובנה",
+  cloned: "שכפול קול",
+  professional: "שכפול מקצועי",
+  generated: "קול מיוצר",
 };
 
 interface TtsInfo {
@@ -47,8 +65,11 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [tts, setTts] = useState<TtsInfo | null | undefined>(undefined);
 
   const [voice, setVoice] = useState<VoicePrefs>({});
+  const [voices, setVoices] = useState<VoiceChoice[] | null>(null);
+  const [voicesError, setVoicesError] = useState<string | null>(null);
   const [testState, setTestState] = useState<"idle" | "loading" | "error">("idle");
   const [testMessage, setTestMessage] = useState<string | null>(null);
+  const [testReason, setTestReason] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -58,6 +79,16 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
       .then((r) => r.json())
       .then((d) => { setAvailable(d.providers); setTts(d.tts ?? null); })
       .catch(() => { setAvailable(null); setTts(undefined); });
+
+    // What this account may actually drive over the API — the answer differs
+    // from what the ElevenLabs website will play.
+    fetch("/api/tour-guide/voices")
+      .then((r) => r.json())
+      .then((d) => {
+        setVoices(d.voices ?? []);
+        setVoicesError(d.error ? [d.error, d.detail].filter(Boolean).join(" ") : null);
+      })
+      .catch(() => { setVoices([]); setVoicesError("לא ניתן לטעון את רשימת הקולות."); });
   }, []);
 
   useEffect(() => () => { audioRef.current?.pause(); }, []);
@@ -77,6 +108,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
     writeVoicePrefs(null);
     setVoice({});
     setTestMessage(null);
+    setTestReason(null);
     setTestState("idle");
   };
 
@@ -94,12 +126,14 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
       const data = await res.json();
       if (!res.ok || !data.audio) {
         setTestState("error");
+        setTestReason(data.reason ?? null);
         // data.detail is ElevenLabs' own wording. Showing it verbatim is the
         // whole point — the previous generic message hid the one fact needed
         // to tell a rejected setting from an expired key.
         setTestMessage([data.error, data.detail].filter(Boolean).join(" "));
         return;
       }
+      setTestReason(null);
       const bytes = atob(data.audio);
       const buf = new Uint8Array(bytes.length);
       for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
@@ -238,8 +272,37 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
           להשתמש בקול שמוגדר ב-Vercel.
         </p>
 
+        {/* Pick from what the account can actually drive over the API. A voice
+            copied out of the Voice Library on the website is not necessarily
+            one of them. */}
+        {voices && voices.length > 0 && (
+          <>
+            <label className="block text-zinc-400 text-[11px] font-bold mb-1">
+              קולות שהחשבון שלך יכול להשתמש בהם ב-API
+            </label>
+            <select
+              value={voice.id ?? ""}
+              onChange={(e) => updateVoice({ id: e.target.value || undefined })}
+              className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-emerald-500 mb-3"
+            >
+              <option value="">ברירת המחדל של השרת</option>
+              {voices.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}
+                  {v.category ? ` — ${CATEGORY_LABEL[v.category] ?? v.category}` : ""}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
+        {voicesError && (
+          <p className="text-amber-400 text-[11px] mb-3 break-words" dir="auto">
+            {voicesError}
+          </p>
+        )}
+
         <label className="block text-zinc-400 text-[11px] font-bold mb-1">
-          מזהה קול (Voice ID)
+          מזהה קול (Voice ID) — ידני
         </label>
         <input
           type="text"
@@ -314,6 +377,21 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
             <RotateCcw size={14} />
           </button>
         </div>
+
+        {testReason === "library_voice_needs_paid_plan" && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs mt-3" dir="rtl">
+            <div className="text-amber-300 font-bold flex items-center gap-1.5">
+              <AlertTriangle size={13} />
+              זה לא עניין של קרדיטים
+            </div>
+            <p className="text-amber-200/80 mt-1">
+              הקול הזה מגיע מה-Voice Library, וקולות משם חסומים ל-API בתוכנית
+              החינמית — גם כשנשארו קרדיטים, וגם כשהוא מתנגן יפה באתר של
+              ElevenLabs. שתי הדרכים קדימה: לבחור קול מהרשימה למעלה, שהיא בדיוק
+              מה שהחשבון שלך רשאי להשמיע ב-API, או לשדרג מנוי.
+            </p>
+          </div>
+        )}
 
         {testMessage && (
           <p

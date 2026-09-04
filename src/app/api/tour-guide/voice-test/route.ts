@@ -50,8 +50,20 @@ export async function POST(request: Request) {
     if (!speech) {
       // The provider's own words, not a guess. A rejected setting, a bad voice
       // id, an expired key and an empty balance all used to read the same.
+      //
+      // One case is worth naming, because the raw text buries the actionable
+      // part and the obvious reading of it is wrong: a Voice Library voice on
+      // the free plan is refused over the API even though it plays fine on the
+      // ElevenLabs website, and it has nothing to do with credits remaining.
+      const paywalled = !!error && /paid_plan_required|payment_required/.test(error);
       return NextResponse.json(
-        { error: 'ייצור הקול נכשל.', detail: error, voiceId: voice.voice, provider: voice.provider },
+        {
+          error: 'ייצור הקול נכשל.',
+          detail: error,
+          reason: paywalled ? 'library_voice_needs_paid_plan' : null,
+          voiceId: voice.voice,
+          provider: voice.provider,
+        },
         { status: 502 }
       );
     }
