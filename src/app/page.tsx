@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect, useCallback, useMemo, memo, useRef } from "react";
 import mapboxgl from "mapbox-gl";
+import { EyeOff } from "lucide-react";
 import MapComponent from "@/components/Map";
 import StatsPanel from "@/components/StatsPanel";
 import TrailDiscovery from "@/components/TrailDiscovery";
-import Controls from "@/components/Controls";
+import Controls, { BottomBar } from "@/components/Controls";
 import AIAssistantUI from "@/components/AIAssistantUI";
 import SettingsPanel from "@/components/SettingsPanel";
 import PersonalArea from "@/components/PersonalArea";
@@ -14,6 +15,7 @@ import { useTrailData } from "@/hooks/useTrailData";
 import { useTour } from "@/hooks/useTour";
 import { useAIGuide } from "@/hooks/useAIGuide";
 import { usePOIGeofence } from "@/hooks/usePOIGeofence";
+import { pointAtDistance, projectOntoTrail } from "@/utils/trailUtils";
 import { useTrailPOIs } from "@/hooks/useTrailPOIs";
 import { useAuth } from "@/hooks/useAuth";
 import { useOfflineTrail } from "@/hooks/useOfflineTrail";
@@ -32,6 +34,7 @@ const MemoizedMapComponent = memo(MapComponent);
 const MemoizedTrailDiscovery = memo(TrailDiscovery);
 const MemoizedStatsPanel = memo(StatsPanel);
 const MemoizedControls = memo(Controls);
+const MemoizedBottomBar = memo(BottomBar);
 
 // ── Token Gate ────────────────────────────────────────────────────────────────
 function TokenGate({ children }: { children: React.ReactNode }) {
@@ -102,6 +105,10 @@ export default function TrailApp() {
   // Guide on/off, remembered per device. Off is a real off: the geofence never
   // fires, so not a single request goes out.
   const [isGuideEnabled, setIsGuideEnabled] = useState(true);
+
+  // "Map only" mode: everything except the trail, the traveller and the one
+  // button that brings the chrome back is taken off the screen.
+  const [uiHidden, setUiHidden] = useState(false);
   const [showGuidePoints, setShowGuidePoints] = useState(false);
   useEffect(() => {
     setIsGuideEnabled(localStorage.getItem(GUIDE_ENABLED_KEY) !== "0");
@@ -178,25 +185,47 @@ export default function TrailApp() {
     }
   }, [progress, user, trail]);
 
-  // Virtual position of the tour camera, interpolated from progress
-  // (index-based, mirroring the progress-bar jump logic below)
+  // Virtual position of the tour camera. The camera advances by *distance*
+  // along the route, so this has to as well — interpolating by point index
+  // drifts badly on GPX tracks whose points are unevenly spaced.
+  const virtualKm = trail && isTourActive ? progress * trail.totalDistance : null;
   const virtualPos = useMemo(() => {
-    if (!trail || !isTourActive) return null;
-    const n = trail.coords.length - 1;
-    if (n < 1) return null;
-    const fi = Math.min(progress * n, n);
-    const lo = Math.floor(fi), hi = Math.min(lo + 1, n), frac = fi - lo;
-    const c1 = trail.coords[lo], c2 = trail.coords[hi];
-    return { lat: c1[0] + (c2[0] - c1[0]) * frac, lon: c1[1] + (c2[1] - c1[1]) * frac };
-  }, [trail, isTourActive, progress]);
+    if (!trail || virtualKm == null || trail.coords.length < 2) return null;
+    const pt = pointAtDistance(trail.coords, trail.accumulatedDistances, virtualKm);
+    return { lat: pt[0], lon: pt[1] };
+  }, [trail, virtualKm]);
 
   // During a virtual tour the camera is the "traveler"; in field mode it's the real GPS
   const guidePos = isTourActive ? virtualPos : (isFieldMode ? gpsPos : null);
+
+  // How far along the trail the traveler is — exact for the virtual tour,
+  // projected onto the route from the GPS fix in field mode. This is what lets
+  // the guide narrate points in the order they are actually walked.
+  const lastProjectedKmRef = useRef<number | null>(null);
+  const fieldKm = useMemo(() => {
+    if (!trail || isTourActive || !isFieldMode || !gpsPos) return null;
+    const projection = projectOntoTrail(
+      trail.coords, trail.accumulatedDistances, gpsPos.lat, gpsPos.lon, lastProjectedKmRef.current
+    );
+    // Wandered well off the route — its along-trail position means nothing.
+    if (!projection || projection.offTrailKm > 0.3) return null;
+    lastProjectedKmRef.current = projection.km;
+    return projection.km;
+  }, [trail, isTourActive, isFieldMode, gpsPos]);
+
+  const travelerKm = isTourActive ? virtualKm : fieldKm;
 
   // Real POIs discovered along the trail (waterfalls, viewpoints, ruins...),
   // enriching the synthetic start/midway/end. Best-effort; falls back gracefully.
   const { pois: enrichedPois, source: poiSource, discoveryFailed: poiDiscoveryFailed } =
     useTrailPOIs(trail);
+
+  // Where each narration point sits along the route, in kilometres — the
+  // ordering key the geofence needs so point N+1 cannot speak before point N.
+  const poiDistancesKm = useMemo(
+    () => (trail ? enrichedPois.map((poi) => trail.accumulatedDistances[poi.index] ?? 0) : null),
+    [trail, enrichedPois]
+  );
 
   const { reset: resetGeofence } = usePOIGeofence(
     enrichedPois,
@@ -206,6 +235,8 @@ export default function TrailApp() {
       enabled: isGuideEnabled && (isTourActive || isFieldMode),
       radiusKm: GEOFENCE_RADIUS_KM,
       resetKey: trail?.name,
+      poiDistancesKm,
+      travelerKm,
     }
   );
 
@@ -540,13 +571,24 @@ export default function TrailApp() {
         />
       )}
 
+      {/* Restore button — the only chrome that survives "map only" mode */}
+      {uiHidden && (
+        <button
+          onClick={() => setUiHidden(false)}
+          className="absolute top-3 right-3 z-40 w-10 h-10 flex items-center justify-center bg-zinc-900/90 text-amber-400 rounded-2xl border border-white/10 backdrop-blur-md shadow-xl"
+          title="הצג שוב את הנתונים על המפה"
+        >
+          <EyeOff className="w-[18px] h-[18px]" />
+        </button>
+      )}
+
       {/* Stats UI Layer */}
-      {trail && (
+      {trail && !uiHidden && (
         <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} />
       )}
 
       {/* Map Controls */}
-      <MemoizedControls 
+      {!uiHidden && <MemoizedControls 
         onStyleChange={handleStyleChange}
         onToggle3D={handleToggle3D}
         is3D={is3D}
@@ -554,7 +596,7 @@ export default function TrailApp() {
           if (isTourActive) {
             stopTour();
           } else {
-            unlockAudio(); // first user gesture unlocks audio for auto-narration
+            unlockAudio();
             if (progress === 0 || progress >= 1) resetGeofence();
             startTour();
           }
@@ -584,7 +626,9 @@ export default function TrailApp() {
         isGuideEnabled={isGuideEnabled}
         onToggleGuide={handleToggleGuide}
         onOpenGuidePoints={() => setShowGuidePoints(true)}
-      />
+        guidePointCount={enrichedPois.length}
+        onHideUI={() => setUiHidden(true)}
+      />}
 
       {/* Settings modal */}
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
@@ -621,32 +665,51 @@ export default function TrailApp() {
         />
       )}
 
-      {/* AI Assistant Overlay */}
-      {trail && (
-        <AIAssistantUI
-          isLoading={isLoading}
-          isSpeaking={isSpeaking}
-          currentScript={currentScript}
-          onStop={stopSpeaking}
-          onManualTrigger={() => playPoiNow(enrichedPois[0] ?? trail.pois[0])}
-          queueLength={queueLength}
-          voice={currentVoice}
-          voiceFromDevice={currentFromDevice}
-        />
+      {/* Bottom stack — the narration card sits *above* the tour transport, so
+          the transcript can never cover the speed buttons the way it used to. */}
+      {trail && !uiHidden && (
+        <div className="absolute bottom-0 inset-x-0 z-50 flex flex-col items-center gap-2 px-3 pb-3 pointer-events-none">
+          <AIAssistantUI
+            isLoading={isLoading}
+            isSpeaking={isSpeaking}
+            currentScript={currentScript}
+            onStop={stopSpeaking}
+            onManualTrigger={() => playPoiNow(enrichedPois[0] ?? trail.pois[0])}
+            queueLength={queueLength}
+            voice={currentVoice}
+            voiceFromDevice={currentFromDevice}
+          />
+          <MemoizedBottomBar
+            hasTrail={!!trail}
+            isTourActive={isTourActive}
+            tourSpeed={tourSpeed}
+            onTourSpeedChange={setTourSpeed}
+            tourProgress={progress}
+            onToggleTour={() => {
+              if (isTourActive) {
+                stopTour();
+              } else {
+                unlockAudio(); // first user gesture unlocks audio for auto-narration
+                if (progress === 0 || progress >= 1) resetGeofence();
+                startTour();
+              }
+            }}
+          />
+        </div>
       )}
 
       {/* Tour Progress Bar */}
-      {trail && progress > 0 && Math.floor(progress * trail.coords.length) < trail.coords.length && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 w-[90%] max-w-lg z-50 bg-black/80 px-4 py-3 rounded-2xl border border-white/10 backdrop-blur-md">
-          <div className="flex justify-between text-xs font-bold mb-3" dir="rtl">
+      {trail && !uiHidden && progress > 0 && Math.floor(progress * trail.coords.length) < trail.coords.length && (
+        <div className="absolute bottom-[76px] left-3 right-3 md:bottom-auto md:top-3 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-[70%] md:max-w-lg z-40 bg-black/80 px-3 py-2 rounded-2xl border border-white/10 backdrop-blur-md">
+          <div className="flex justify-between text-[11px] font-bold mb-1.5" dir="rtl">
             <div className="text-emerald-400">הושלם: {(trail.totalDistance * progress).toFixed(1)} ק"מ <span className="text-emerald-300 font-bold">({Math.round(progress*100)}%)</span></div>
             <div className="text-sky-400">נותר: {(trail.totalDistance * (1 - progress)).toFixed(1)} ק"מ</div>
           </div>
-          <div className="text-center text-orange-400 text-[10px] font-bold mb-2 uppercase tracking-widest">
+          <div className="text-center text-orange-400 text-[10px] font-bold mb-1.5 uppercase tracking-widest">
             גובה נוכחי: {Math.round(trail.elevations[Math.floor(progress * (trail.elevations.length - 1))])} מ'
           </div>
           {/* dir=ltr forces correct offsetX math; we flip the visual with scale */}
-          <div dir="ltr" className="w-full h-4 bg-zinc-800 rounded-full cursor-pointer relative overflow-hidden" onClick={(e) => {
+          <div dir="ltr" className="w-full h-3 bg-zinc-800 rounded-full cursor-pointer relative overflow-hidden" onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             // Since we visually flip with scaleX(-1), a click on the right = start = low pct
             const rawPct = ((e.clientX - rect.left) / rect.width) * 100;

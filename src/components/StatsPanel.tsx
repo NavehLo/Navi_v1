@@ -2,12 +2,16 @@ import { TrailData } from "../hooks/useTrailData";
 import { ArrowRight, ChevronDown, ChevronUp } from "lucide-react";
 import { useState, useEffect } from "react";
 
+// Sits above the bottom stack (narration card + tour bar) and starts collapsed
+// on phones — expanded, this card alone used to cover a third of the screen.
 export default function StatsPanel({ trail, progress, onClose, isTourActive }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean }) {
-  const [collapsed, setCollapsed] = useState(isTourActive || false);
+  const [collapsed, setCollapsed] = useState(true);
 
   useEffect(() => {
-    setCollapsed(!!isTourActive);
+    const isPhone = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
+    setCollapsed(!!isTourActive || isPhone);
   }, [isTourActive]);
+
   const generateElevationPath = () => {
     if (!trail.elevations || trail.elevations.length === 0) return "";
     const w = 300;
@@ -27,82 +31,75 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive }: {
   };
 
   if (collapsed) {
-    if (isTourActive) {
-      return (
-        <button 
-          onClick={() => alert("אנא עצור את הסיור כדי להרחיב את נתוני המסלול.")} 
-          className="absolute md:hidden bottom-[140px] right-4 bg-zinc-900/90 text-white px-4 py-2.5 rounded-full shadow-xl border border-white/10 z-10 backdrop-blur-md flex items-center gap-2 font-bold text-xs"
-        >
-          <ChevronUp className="w-4 h-4" />
-          הרחב
-        </button>
-      );
-    }
-
     return (
-      <div className="absolute bottom-16 left-4 right-4 md:top-4 md:right-4 md:left-auto md:bottom-auto bg-zinc-900/90 p-4 rounded-2xl shadow-xl border border-white/10 z-10 md:w-96 backdrop-blur-md flex justify-between items-center transition-all" dir="rtl">
-        <div className="flex items-center gap-3 overflow-hidden">
+      <div className="absolute bottom-[76px] left-3 right-3 md:top-3 md:right-16 md:left-auto md:bottom-auto bg-zinc-900/90 py-2 px-3 rounded-2xl shadow-xl border border-white/10 z-10 md:w-80 backdrop-blur-md flex justify-between items-center gap-2" dir="rtl">
+        <div className="flex items-center gap-2 overflow-hidden min-w-0">
           {onClose && (
-            <button onClick={onClose} className="p-2 bg-white/5 hover:bg-white/10 rounded-full transition-colors flex-shrink-0">
+            <button onClick={onClose} className="p-1.5 bg-white/5 hover:bg-white/10 rounded-full transition-colors shrink-0" title="חזור למפה">
               <ArrowRight className="w-4 h-4 text-zinc-300" />
             </button>
           )}
-          <div className="text-white font-bold text-sm truncate" title={trail.name}>{trail.name}</div>
+          <div className="min-w-0">
+            <div className="text-white font-bold text-xs truncate" title={trail.name}>{trail.name}</div>
+            <div className="text-zinc-400 text-[10px]">
+              {trail.totalDistance.toFixed(1)} ק״מ · {Math.round(trail.minEle)}–{Math.round(trail.maxEle)} מ׳
+            </div>
+          </div>
         </div>
-        <button onClick={() => {
-          if (!isTourActive) setCollapsed(false);
-          else alert("אנא עצור את הסיור כדי להרחיב את נתוני המסלול.");
-        }} className="text-xs bg-white/10 text-white px-3 py-1.5 rounded-full hover:bg-white/20 flex-shrink-0 mr-2 flex items-center gap-1">
+        <button
+          onClick={() => setCollapsed(false)}
+          className="text-[11px] bg-white/10 text-white px-2.5 py-1.5 rounded-full hover:bg-white/20 shrink-0 flex items-center gap-1 font-bold"
+        >
           <ChevronUp className="w-3 h-3" />
-          הרחב
+          נתונים
         </button>
       </div>
     );
   }
 
   return (
-    <div className={`absolute ${isTourActive ? 'top-[140px] md:top-[120px]' : 'bottom-16'} left-4 right-4 md:top-4 md:right-4 md:left-auto md:bottom-auto bg-zinc-900/90 p-5 md:p-6 rounded-3xl shadow-xl border border-white/10 z-10 md:w-96 backdrop-blur-md transition-all`} dir="rtl">
-      <div className="flex justify-between items-center gap-4">
+    <div className="absolute bottom-[76px] left-3 right-3 md:top-3 md:right-16 md:left-auto md:bottom-auto bg-zinc-900/90 p-4 md:p-5 rounded-3xl shadow-xl border border-white/10 z-10 md:w-80 backdrop-blur-md" dir="rtl">
+      <div className="flex justify-between items-center gap-3">
         {onClose && (
           <button 
             onClick={onClose} 
             className="p-2 bg-white/5 hover:bg-white/10 rounded-full transition-colors flex-shrink-0"
             title="חזור למפה"
           >
-            <ArrowRight className="w-5 h-5 text-zinc-300" />
+            <ArrowRight className="w-4 h-4 text-zinc-300" />
           </button>
         )}
-        <div className="text-lg md:text-xl font-bold text-white tracking-tight truncate flex-1" title={trail.name}>{trail.name}</div>
-        <button onClick={() => setCollapsed(true)} className="p-2 bg-white/5 hover:bg-white/10 rounded-full transition-colors flex-shrink-0">
-          <ChevronDown className="w-5 h-5 text-zinc-300" />
+        <div className="text-base font-bold text-white tracking-tight truncate flex-1" title={trail.name}>{trail.name}</div>
+        <button onClick={() => setCollapsed(true)} className="p-2 bg-white/5 hover:bg-white/10 rounded-full transition-colors flex-shrink-0" title="כווץ">
+          <ChevronDown className="w-4 h-4 text-zinc-300" />
         </button>
       </div>
-      <div className="flex justify-between border-t border-white/10 pt-4 mt-4">
-        <div className="text-center flex-1 z-border-l border-white/5 last:border-0 px-2">
-          <div className="text-xs text-zinc-400 uppercase tracking-widest mb-1.5 font-bold">אורך מסלול</div>
-          <div className="text-2xl font-bold text-sky-400">
+      <div className="flex justify-between border-t border-white/10 pt-3 mt-3">
+        <div className="text-center flex-1 px-1">
+          <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-1 font-bold">אורך מסלול</div>
+          <div className="text-xl font-bold text-sky-400">
             {trail.totalDistance.toFixed(1)}
-            <span className="text-sm font-normal text-zinc-500 mr-1">ק"מ</span>
+            <span className="text-xs font-normal text-zinc-500 mr-1">ק"מ</span>
           </div>
         </div>
-        <div className="text-center flex-1 border-r border-white/5 px-2">
-          <div className="text-xs text-zinc-400 uppercase tracking-widest mb-1.5 font-bold">גובה מינימלי</div>
-          <div className="text-2xl font-bold text-red-400">
+        <div className="text-center flex-1 border-r border-white/5 px-1">
+          <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-1 font-bold">גובה מינימלי</div>
+          <div className="text-xl font-bold text-red-400">
             {Math.round(trail.minEle)}
-            <span className="text-sm font-normal text-zinc-500 mr-1">מ'</span>
+            <span className="text-xs font-normal text-zinc-500 mr-1">מ'</span>
           </div>
         </div>
-        <div className="text-center flex-1 border-r border-white/5 px-2">
-          <div className="text-xs text-zinc-400 uppercase tracking-widest mb-1.5 font-bold">גובה מקסימלי</div>
-          <div className="text-2xl font-bold text-emerald-400">
+        <div className="text-center flex-1 border-r border-white/5 px-1">
+          <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-1 font-bold">גובה מקסימלי</div>
+          <div className="text-xl font-bold text-emerald-400">
             {Math.round(trail.maxEle)}
-            <span className="text-sm font-normal text-zinc-500 mr-1">מ'</span>
+            <span className="text-xs font-normal text-zinc-500 mr-1">מ'</span>
           </div>
         </div>
       </div>
-      <div className="mt-5 border-t border-white/10 pt-4 relative" dir="ltr">
-        <div className="text-xs text-zinc-400 uppercase tracking-widest mb-3 text-right font-bold">פרופיל גובה</div>
-        <div className="relative w-full h-20 bg-zinc-800 rounded-lg overflow-hidden">
+      <div className="mt-3 border-t border-white/10 pt-3 relative" dir="ltr">
+        <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-2 text-right font-bold">פרופיל גובה</div>
+        <div className="relative w-full h-14 bg-zinc-800 rounded-lg overflow-hidden">
           {/* scaleX(-1) flips graph so right = trail start (RTL) */}
           <svg viewBox="0 0 300 64" preserveAspectRatio="none" className="absolute inset-0 w-full h-full opacity-60" style={{ transform: 'scaleX(-1)' }}>
             <path d={generateElevationPath()} fill="rgba(249,115,22,0.3)" stroke="#f97316" strokeWidth="2" vectorEffect="non-scaling-stroke" />
