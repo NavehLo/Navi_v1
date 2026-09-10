@@ -1,0 +1,13 @@
+{
+  "west": 34.2,
+  "north": 33.4,
+  "cellSize": 0.0009,
+  "cols": 1944,
+  "rows": 4444,
+  "encoding": "byte 0-255, linear: canopyFraction = value / 255",
+  "source": "ESA WorldCover 10m v200 (2021), class 10 = Tree cover",
+  "year": 2021,
+  "license": "CC BY 4.0",
+  "attribution": "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021)",
+  "built": "scripts/buildCanopyRaster.sh"
+}
