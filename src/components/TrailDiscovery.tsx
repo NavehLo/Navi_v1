@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { MapPin, Loader2, ChevronUp, ChevronDown } from 'lucide-react';
+import { MapPin, Loader2, ChevronUp, ChevronDown, Search, X } from 'lucide-react';
 import GPXLoader from './GPXLoader';
 
 export interface TrailInfo {
@@ -27,6 +27,8 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
   const [filterType, setFilterType] = useState<string | null>(null);
   const [showUploader, setShowUploader] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   const onSelectTrailRef = useRef(onSelectTrail);
   useEffect(() => {
@@ -41,12 +43,22 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
   }, []);
 
   const filteredTrails = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
     return trails.filter(t => {
       if (filterRegion && t.region !== filterRegion) return false;
       if (filterType && t.type !== filterType) return false;
+      if (query && !t.name.toLowerCase().includes(query)) return false;
       return true;
     });
-  }, [trails, filterRegion, filterType]);
+  }, [trails, filterRegion, filterType, searchQuery]);
+
+  const searchSuggestions = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return [];
+    return trails
+      .filter(t => t.name.toLowerCase().includes(query))
+      .slice(0, 6);
+  }, [trails, searchQuery]);
 
   const hasFittedBoundsRef = useRef(false);
   const listenersAddedRef = useRef(false);
@@ -253,6 +265,47 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
       </div>
       
       <div className={`flex-col gap-4 md:flex overflow-hidden ${isExpanded ? 'flex flex-1 mt-2 md:mt-0' : 'hidden'}`}>
+        <div className="relative shrink-0">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setShowSuggestions(true); }}
+            onFocus={() => setShowSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+            onKeyDown={(e) => { if (e.key === 'Escape') setShowSuggestions(false); }}
+            placeholder="חפש לפי שם מסלול..."
+            className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pr-9 pl-9 text-sm text-white placeholder:text-zinc-500 font-medium focus:outline-none focus:border-orange-500/50 focus:bg-white/10 transition-colors"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => { setSearchQuery(''); setShowSuggestions(false); }}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
+              aria-label="נקה חיפוש"
+            >
+              <X size={16} />
+            </button>
+          )}
+
+          {showSuggestions && searchSuggestions.length > 0 && (
+            <div className="absolute top-full mt-1 right-0 left-0 bg-zinc-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden">
+              {searchSuggestions.map(t => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => { setSearchQuery(t.name); setShowSuggestions(false); }}
+                  className="w-full text-right px-4 py-2.5 text-sm text-zinc-200 hover:bg-white/10 hover:text-orange-400 transition-colors flex flex-col gap-0.5"
+                >
+                  <span className="font-bold">{t.name}</span>
+                  <span className="text-[10px] text-zinc-500 font-bold uppercase">{t.type} • {t.region}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="flex flex-wrap gap-2 shrink-0">
           {types.map(type => (
             <button
