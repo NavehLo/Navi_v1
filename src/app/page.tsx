@@ -578,7 +578,7 @@ export default function TrailApp() {
           type: 'Feature',
           properties: {
             label: p.name ? `${p.label} · ${p.name}` : p.label,
-            confident: p.confident ? 1 : 0,
+            confident: p.counted ? 1 : 0,
           },
           geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
         })),

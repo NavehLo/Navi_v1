@@ -93,6 +93,22 @@ export function computeShade(
 // from a distance, water is only worth knowing about if you can reach it.
 export const WATER_BUFFER_KM = 0.15;
 
+// How far out a source is still worth *showing*, as opposed to counting.
+//
+// Calibrated against real trails rather than guessed. Widening the counting
+// buffer from 150 m to 250 m takes נחל כזיב from 38% near water to 62%, and to
+// 77% at 400 m — the number becomes flattering rather than true, which is the
+// wrong direction for a figure someone plans an August walk around. So the
+// count stays at 150 m.
+//
+// But the same measurement showed 150 m hiding two real pools on כזיב that sit
+// between 150 m and 250 m off the path. Dropping them entirely is its own kind
+// of wrong answer, so they are listed with their distance and left out of the
+// arithmetic — the same treatment springs already get. The walker can see that
+// a pool is 210 m away and decide; what they cannot do is see one that was
+// never drawn.
+export const WATER_SHOW_KM = 0.25;
+
 export interface WaterSourceInput {
   lat: number;
   lon: number;
@@ -112,6 +128,10 @@ export interface WaterPoint extends WaterSourceInput {
   offTrailM: number;
   // Index of the nearest trail point, for putting a marker on the line.
   index: number;
+  // Whether it fed the numbers. False for anything we cannot stand behind
+  // (springs, unverified pools) and for anything further off than the counting
+  // buffer, however solid it is.
+  counted: boolean;
 }
 
 export interface WaterResult {
@@ -159,7 +179,8 @@ export function computeWater(
   coords: Coordinate3D[],
   accumulatedDistances: number[],
   sources: WaterSourceInput[],
-  bufferKm: number = WATER_BUFFER_KM
+  bufferKm: number = WATER_BUFFER_KM,
+  showKm: number = WATER_SHOW_KM
 ): WaterResult | null {
   if (coords.length < 2) return null;
   const totalKm = accumulatedDistances[accumulatedDistances.length - 1] ?? 0;
@@ -171,7 +192,8 @@ export function computeWater(
   // spot it gives the right answer for a stream running alongside the path.
   const covered = new Array<boolean>(coords.length).fill(false);
   const points: WaterPoint[] = [];
-  const degrees = bufferKm / KM_PER_DEGREE;
+  const reach = Math.max(bufferKm, showKm);
+  const degrees = reach / KM_PER_DEGREE;
 
   for (const source of sources) {
     const positions = source.geometry?.length ? source.geometry : [[source.lat, source.lon] as [number, number]];
@@ -183,19 +205,21 @@ export function computeWater(
         if (Math.abs(coords[i][0] - plat) > degrees) continue;
         if (Math.abs(coords[i][1] - plon) > degrees) continue;
         const d = getDistance(plat, plon, coords[i][0], coords[i][1]);
-        if (d > bufferKm) continue;
-        if (source.confident) covered[i] = true;
+        if (d > reach) continue;
+        // Only what is both trustworthy and close enough moves the numbers.
+        if (source.confident && d <= bufferKm) covered[i] = true;
         if (d < bestKm) { bestKm = d; bestIdx = i; }
       }
     }
 
-    // Nothing on this trail came within reach of it.
+    // Nothing on this trail came anywhere near it.
     if (bestIdx < 0) continue;
     points.push({
       ...source,
       index: bestIdx,
       km: accumulatedDistances[bestIdx],
       offTrailM: Math.round(bestKm * 1000),
+      counted: source.confident && bestKm <= bufferKm,
     });
   }
   points.sort((a, b) => a.km - b.km);
@@ -234,7 +258,7 @@ export function computeWater(
     longestDryKm,
     nearWaterPct: (coveredKm / totalKm) * 100,
     points,
-    confidentCount: points.filter((p) => p.confident).length,
+    confidentCount: points.filter((p) => p.counted).length,
     bar,
   };
 }

@@ -42,7 +42,7 @@ const DELAY_MS = 2500;          // courtesy gap between Overpass queries
 // to take, rather than cutting off a query that was about to answer.
 const SERVER_TIMEOUT_S = 90;
 const CLIENT_TIMEOUT_MS = 120_000;
-const SEARCH_RADIUS_M = 150;    // must match src/app/api/water/route.ts
+const SEARCH_RADIUS_M = 250;    // must match src/app/api/water/route.ts
 const GEOMETRY_SPACING_KM = 0.05;
 
 function argValue(flag) {
@@ -196,7 +196,7 @@ for (const [i, trail] of targets.entries()) {
   if (!shadeOnly) {
     // The cache key includes the point count so an edited GPX is re-fetched
     // rather than answered from a stale entry.
-    const cacheKey = `${trail.id}|${coords.length}`;
+    const cacheKey = `${trail.id}|${coords.length}|r${SEARCH_RADIUS_M}`;
     try {
       let sources;
       if (!refetch && cache[cacheKey]) {
@@ -231,7 +231,7 @@ for (const [i, trail] of targets.entries()) {
       waterPoints: water.points.map((p) => ({
         lat: round(p.lat, 5), lon: round(p.lon, 5),
         km: round(p.km, 2), offTrailM: p.offTrailM,
-        category: p.category, label: p.label, confident: p.confident, name: p.name,
+        category: p.category, label: p.label, confident: p.confident, counted: p.counted, name: p.name,
       })),
     } : {}),
   };

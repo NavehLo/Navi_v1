@@ -115,7 +115,7 @@ export function useSummerConditions(trail: TrailData | null): SummerConditions {
           longestDryKm: precomputed.longestDryKm ?? 0,
           nearWaterPct: precomputed.nearWaterPct,
           points: (precomputed.waterPoints ?? []).map((p) => ({ ...p, index: 0 })),
-          confidentCount: (precomputed.waterPoints ?? []).filter((p) => p.confident).length,
+          confidentCount: (precomputed.waterPoints ?? []).filter((p) => p.counted).length,
           bar: unpackBar(precomputed.waterBar),
         });
         setWaterStatus('precomputed');

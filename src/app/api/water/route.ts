@@ -37,10 +37,10 @@ export interface WaterSource {
 // wrong answer this app has already had to fix once.
 type DiscoveryStatus = 'ok' | 'unavailable' | 'rate-limited';
 
-// Tighter than the 250 m used for POI discovery, on purpose: a viewpoint is
-// worth knowing about from a distance, but water is only worth knowing about if
-// you can actually walk to it and back. 150 m is a two-to-three minute detour.
-const SEARCH_RADIUS_M = 150;
+// Matches WATER_SHOW_KM: ask for everything worth *showing*, and let
+// computeWater decide what is close enough to count. Querying at the 150 m
+// counting buffer was measurably hiding pools 150-250 m off the path.
+const SEARCH_RADIUS_M = 250;
 const MAX_QUERY_POINTS = 120;
 const MAX_RESULTS = 60;
 

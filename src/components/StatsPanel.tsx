@@ -88,7 +88,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
   const waterMarkers = () =>
     (water?.points ?? []).map((p) => ({
       pos: trail.totalDistance > 0 ? Math.min(1, Math.max(0, p.km / trail.totalDistance)) : 0,
-      confident: p.confident,
+      confident: p.counted,
       label: p.name ? `${p.label} · ${p.name}` : p.label,
       km: p.km,
     }));
@@ -242,19 +242,20 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
             {water.points.map((p, i) => (
               <div key={i} className="flex items-baseline gap-2 text-[11px] py-0.5">
                 <span className="text-zinc-400 tabular-nums w-12 shrink-0">{p.km.toFixed(1)} ק״מ</span>
-                <span className={p.confident ? "text-sky-300" : "text-zinc-300"}>{p.label}</span>
+                <span className={p.counted ? "text-sky-300" : "text-zinc-300"}>{p.label}</span>
                 {p.name && <span className="text-zinc-100 truncate">{p.name}</span>}
-                <span className="text-zinc-400 text-[10px] shrink-0">{p.offTrailM} מ׳</span>
+                <span className={`text-[10px] shrink-0 ${p.counted ? "text-zinc-400" : "text-amber-400/80"}`}>{p.offTrailM} מ׳</span>
               </div>
             ))}
 
             {/* Springs and unnamed polygons are shown because they are the best
                 information there is, but they do not shorten the dry stretch —
                 so the panel has to say which of the two a line is. */}
-            {water.points.some((p) => !p.confident) && (
+            {water.points.some((p) => !p.counted) && (
               <div className="text-[10px] text-zinc-300 mt-1.5 leading-relaxed">
                 <span className="inline-block w-2 h-2 rounded-full bg-zinc-800 border border-sky-300 align-middle ml-1" />
-                מעיינות ובריכות לא מאומתות — אין במפה מידע אם יש בהם מים בקיץ, ולכן הם לא נספרים במספרים שלמעלה.
+                לא נספרים במספרים שלמעלה: מעיינות ובריכות לא מאומתות — אין במפה מידע אם יש בהם מים בקיץ —
+                וכן מקורות שרחוקים יותר מ־150 מ׳ מהשביל, שמוצגים עם המרחק שלהם כדי שתוכלו להחליט בעצמכם.
               </div>
             )}
 
