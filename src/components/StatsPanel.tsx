@@ -10,6 +10,16 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
   const [collapsed, setCollapsed] = useState(true);
   const cardRef = useRef<HTMLDivElement>(null);
 
+  // The tour progress bar claims the same strip of phone screen this card sits
+  // on — both were pinned to bottom-[76px], so starting a tour dropped the bar
+  // straight on top of the trail figures. The condition has to match the one
+  // page.tsx renders the bar under, or the card lifts when there is nothing
+  // there to avoid.
+  const progressBarShowing =
+    progress > 0 && Math.floor(progress * trail.coords.length) < trail.coords.length;
+  // 76px clears the tour transport; the progress bar adds roughly 100 more.
+  const bottomOffset = progressBarShowing ? "bottom-[184px]" : "bottom-[76px]";
+
   useEffect(() => {
     const isPhone = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
     setCollapsed(!!isTourActive || isPhone);
@@ -105,7 +115,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
 
   if (collapsed) {
     return (
-      <div ref={cardRef} className="absolute bottom-[76px] left-3 right-3 md:top-3 md:right-16 md:left-auto md:bottom-auto bg-zinc-900/90 py-2 px-3 rounded-2xl shadow-xl border border-white/10 z-10 md:w-80 backdrop-blur-md flex justify-between items-center gap-2" dir="rtl">
+      <div ref={cardRef} className={`absolute ${bottomOffset} left-3 right-3 md:top-[104px] md:right-3 md:left-auto md:bottom-auto bg-zinc-900/90 py-2 px-3 rounded-2xl shadow-xl border border-white/10 z-[41] md:w-80 backdrop-blur-md flex justify-between items-center gap-2`} dir="rtl">
         <div className="flex items-center gap-2 overflow-hidden min-w-0">
           {onClose && (
             <button onClick={onClose} className="p-1.5 bg-white/5 hover:bg-white/10 rounded-full transition-colors shrink-0" title="חזור למפה">
@@ -132,7 +142,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
   }
 
   return (
-    <div ref={cardRef} className="absolute bottom-[76px] left-3 right-3 md:top-3 md:right-16 md:left-auto md:bottom-auto bg-zinc-900/90 p-4 md:p-5 rounded-3xl shadow-xl border border-white/10 z-[45] max-h-[75vh] overflow-y-auto overscroll-contain md:w-80 backdrop-blur-md" dir="rtl">
+    <div ref={cardRef} className={`absolute ${bottomOffset} left-3 right-3 md:top-[104px] md:right-3 md:left-auto md:bottom-auto bg-zinc-900/90 p-4 md:p-5 rounded-3xl shadow-xl border border-white/10 z-[45] max-h-[75vh] overflow-y-auto overscroll-contain md:w-80 backdrop-blur-md`} dir="rtl">
       <div className="flex justify-between items-center gap-3">
         {onClose && (
           <button 
