@@ -1,5 +1,5 @@
 import { TrailData } from "../hooks/useTrailData";
-import { SUN_MAX, SHADE_MIN, type ShadeResult, type WaterResult } from "../lib/summerConditions";
+import { SUN_MAX, SHADE_MIN, BAR_COLUMNS, type ShadeResult, type WaterResult } from "../lib/summerConditions";
 import type { WaterStatus } from "../hooks/useSummerConditions";
 import { ArrowRight, ChevronDown, ChevronUp } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
@@ -63,7 +63,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
   // but as columns of colour rather than a line. The profile is downsampled to
   // a fixed number of columns so a 4,000-point GPX does not put 4,000 rects in
   // the DOM.
-  const SHADE_COLUMNS = 120;
+  const SHADE_COLUMNS = BAR_COLUMNS;
   const shadeColumns = () => {
     const profile = shade?.profile;
     if (!profile || profile.length === 0) return [];
@@ -82,26 +82,6 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
   // Amber where the sun is on you, green where the canopy is closed.
   const shadeColor = (f: number) =>
     f < SUN_MAX ? "#f59e0b" : f < SHADE_MIN ? "#84cc16" : "#16a34a";
-
-  // The water strip is the same idea as the shade strip and shares its column
-  // count, so the two line up: a column here sits above the same stretch of
-  // trail as the column above it. What it shows is different, though — shade is
-  // a fraction per column, water is "was there any within reach", so a column
-  // counts as wet if any of the trail points inside it was in reach.
-  const waterColumns = () => {
-    const covered = water?.covered;
-    if (!covered || covered.length === 0) return [];
-    const cols: boolean[] = [];
-    const per = covered.length / SHADE_COLUMNS;
-    for (let c = 0; c < SHADE_COLUMNS; c++) {
-      const from = Math.floor(c * per);
-      const to = Math.max(from + 1, Math.floor((c + 1) * per));
-      let wet = false;
-      for (let i = from; i < to && i < covered.length; i++) if (covered[i]) { wet = true; break; }
-      cols.push(wet);
-    }
-    return cols;
-  };
 
   // Where each source sits along the strip, 0..1 from the start of the trail,
   // so a marker can be dropped on the bar at the point it was found.
@@ -235,7 +215,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
                 uses, so the two read the same way. */}
             <div dir="ltr" className="relative w-full h-4 bg-zinc-800 rounded-md overflow-hidden">
               <svg viewBox="0 0 120 10" preserveAspectRatio="none" className="absolute inset-0 w-full h-full" style={{ transform: 'scaleX(-1)' }}>
-                {waterColumns().map((wet, i) => (
+                {(water?.bar ?? []).map((wet, i) => (
                   <rect key={i} x={i} y={0} width={1.02} height={10} fill={wet ? "#0ea5e9" : "#3f3f46"} />
                 ))}
               </svg>

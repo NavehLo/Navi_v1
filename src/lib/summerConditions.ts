@@ -124,10 +124,28 @@ export interface WaterResult {
   points: WaterPoint[];
   // Split out so the panel can say "one of these is a maybe" honestly.
   confidentCount: number;
-  // Whether water was in reach at each trail point, parallel to trail.coords
-  // the way the shade profile is. A single percentage cannot say *where* the
-  // water is; this is what lets the panel draw it along the trail.
-  covered: boolean[];
+  // Where along the trail water was in reach, as a fixed number of columns.
+  //
+  // A single percentage cannot say *where* the water is, which is what the
+  // strip in the panel shows. It is a fixed width rather than one entry per
+  // trail point for two reasons: it lines up column-for-column with the shade
+  // strip drawn above it, and it is small enough to store — 120 characters per
+  // trail in trails.json, which is what lets a bundled trail draw its water
+  // without asking Overpass anything.
+  bar: boolean[];
+}
+
+// Shared by the water strip and the shade strip so the two describe the same
+// stretch of trail at the same x.
+export const BAR_COLUMNS = 120;
+
+// Packs the strip for storage, and back. '1' is "water in reach here".
+export function packBar(bar: boolean[]): string {
+  return bar.map((b) => (b ? '1' : '0')).join('');
+}
+
+export function unpackBar(packed: string): boolean[] {
+  return Array.from(packed, (c) => c === '1');
 }
 
 // One degree of latitude is about 111 km everywhere; longitude shrinks with
@@ -200,11 +218,23 @@ export function computeWater(
     }
   }
 
+  // Downsample to the strip's fixed width: a column is wet if water was in
+  // reach anywhere inside it.
+  const bar: boolean[] = [];
+  const per = covered.length / BAR_COLUMNS;
+  for (let c = 0; c < BAR_COLUMNS; c++) {
+    const from = Math.floor(c * per);
+    const to = Math.max(from + 1, Math.floor((c + 1) * per));
+    let wet = false;
+    for (let i = from; i < to && i < covered.length; i++) if (covered[i]) { wet = true; break; }
+    bar.push(wet);
+  }
+
   return {
     longestDryKm,
     nearWaterPct: (coveredKm / totalKm) * 100,
     points,
     confidentCount: points.filter((p) => p.confident).length,
-    covered,
+    bar,
   };
 }

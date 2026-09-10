@@ -28,7 +28,7 @@ import { register } from 'node:module';
 import { readGreyscalePng } from './readCanopyPng.mjs';
 
 register('./tsResolve.mjs', import.meta.url);
-const { computeShade, computeWater } = await import('../src/lib/summerConditions.ts');
+const { computeShade, computeWater, packBar } = await import('../src/lib/summerConditions.ts');
 const { classifyWater } = await import('../src/lib/waterSources.ts');
 const { getDistance } = await import('../src/utils/trailUtils.ts');
 
@@ -225,6 +225,9 @@ for (const [i, trail] of targets.entries()) {
     ...(water ? {
       longestDryKm: round(water.longestDryKm, 2),
       nearWaterPct: round(water.nearWaterPct, 1),
+      // 120 characters saying where along the trail the water is, so the app
+      // can draw the strip without going near Overpass.
+      waterBar: packBar(water.bar),
       waterPoints: water.points.map((p) => ({
         lat: round(p.lat, 5), lon: round(p.lon, 5),
         km: round(p.km, 2), offTrailM: p.offTrailM,

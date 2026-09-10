@@ -3,13 +3,39 @@ import type { TrailData } from './useTrailData';
 import { loadCanopyGrid } from '../lib/canopy';
 import { computeShade, computeWater, type ShadeResult, type WaterResult } from '../lib/summerConditions';
 import { readCachedWater, writeCachedWater, trailCacheKey } from '../lib/waterCache';
+import { unpackBar } from '../lib/summerConditions';
 import type { WaterSource } from '../app/api/water/route';
+import type { TrailSummer } from '../lib/summerFilters';
 
 // Whether the answer about water can be believed. 'unavailable' and
 // 'rate-limited' are not "no water here" — they are "we could not ask" — and
 // the panel has to be able to say so. Getting this wrong in the POI feature is
 // what once made trails silently lose their points.
-export type WaterStatus = 'loading' | 'ok' | 'cached' | 'unavailable' | 'rate-limited';
+export type WaterStatus = 'loading' | 'ok' | 'cached' | 'precomputed' | 'unavailable' | 'rate-limited';
+
+// The bundled trails carry their water figures in trails.json, worked out at
+// build time by scripts/buildSummerIndex.mjs. Reading them costs nothing and
+// works offline, so a trail that has them never touches Overpass — which is
+// most of the app's use. Only a GPX the user brought in has to ask.
+//
+// Matched by name, because that is the one thing the loaded trail and the index
+// entry both carry. Two bundled trails sharing a name would be a problem for
+// the trail list long before it was a problem here.
+let indexPromise: Promise<Map<string, TrailSummer>> | null = null;
+
+function loadSummerIndex(): Promise<Map<string, TrailSummer>> {
+  if (!indexPromise) {
+    indexPromise = fetch('/trails.json')
+      .then((r) => r.json())
+      .then((rows: Array<{ name: string; summer?: TrailSummer }>) => {
+        const byName = new Map<string, TrailSummer>();
+        for (const row of rows) if (row.summer) byName.set(row.name, row.summer);
+        return byName;
+      })
+      .catch(() => new Map<string, TrailSummer>());
+  }
+  return indexPromise;
+}
 
 export interface SummerConditions {
   shade: ShadeResult | null;
@@ -82,6 +108,20 @@ export function useSummerConditions(trail: TrailData | null): SummerConditions {
     if (cached) apply(cached, 'cached');
 
     (async () => {
+      const precomputed = (await loadSummerIndex()).get(trail.name);
+      if (precomputed?.nearWaterPct != null && precomputed.waterBar) {
+        if (cancelled) return;
+        setWater({
+          longestDryKm: precomputed.longestDryKm ?? 0,
+          nearWaterPct: precomputed.nearWaterPct,
+          points: (precomputed.waterPoints ?? []).map((p) => ({ ...p, index: 0 })),
+          confidentCount: (precomputed.waterPoints ?? []).filter((p) => p.confident).length,
+          bar: unpackBar(precomputed.waterBar),
+        });
+        setWaterStatus('precomputed');
+        return;
+      }
+
       try {
         const res = await fetch('/api/water', {
           method: 'POST',

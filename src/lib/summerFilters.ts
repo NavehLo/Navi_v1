@@ -16,6 +16,7 @@ export interface TrailSummer {
   bands?: { sun: number; partial: number; shade: number } | null;
   longestDryKm?: number;
   nearWaterPct?: number;
+  waterBar?: string;
   waterPoints?: Array<{
     lat: number; lon: number; km: number; offTrailM: number;
     category: string; label: string; confident: boolean; name: string | null;
