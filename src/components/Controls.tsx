@@ -41,6 +41,20 @@ interface ControlsProps {
 // A 44px icon rail instead of the old 192px labelled column: the map is the
 // point of the app, and on a phone the chrome was eating most of it. Anything
 // that is not a one-tap map action lives behind the "עוד" sheet.
+// One stacking order for the whole map UI, written down because it was drifting
+// apart: every overlay had picked its own number and two of them had picked the
+// same spot on the screen as well.
+//
+//   40  tour progress bar
+//   41  collapsed stats card
+//   42  these control rails — a control must never end up under a readout
+//   43  the layers popover, which hangs off its rail
+//   45  expanded stats card: it covers the rails on purpose, and a tap outside
+//       puts it away again
+//   46  the "עוד" sheet
+//   50  bottom stack (narration card + tour transport), toasts
+//   60  map attribution, and the button that brings a hidden UI back
+//   70  full-screen modals
 const PILL =
   "flex flex-col bg-zinc-900/90 rounded-2xl border border-white/10 backdrop-blur-md overflow-hidden shadow-xl";
 
@@ -126,7 +140,7 @@ export default function Controls(props: ControlsProps) {
   return (
     <>
       {/* Top-right: home + hide-everything */}
-      <div className="absolute top-3 right-3 z-30 flex flex-col items-end gap-2" dir="rtl">
+      <div className="absolute top-3 right-3 z-[42] flex flex-col items-end gap-2" dir="rtl">
         <div className={PILL}>
           {hasTrail && onHome && (
             <RailBtn label="בית" labelsOn={labelsOn} onClick={onHome} title="מסך הבית — יציאה מהמסלול">
@@ -148,7 +162,7 @@ export default function Controls(props: ControlsProps) {
       </div>
 
       {/* Left rail — map actions, one tap each */}
-      <div className="absolute top-3 left-3 z-20 flex flex-col items-start gap-2" dir="rtl">
+      <div className="absolute top-3 left-3 z-[42] flex flex-col items-start gap-2" dir="rtl">
         <div className={PILL}>
           <RailBtn
             label="תצוגת מפה"
@@ -244,7 +258,7 @@ export default function Controls(props: ControlsProps) {
 
       {/* Layers popover, anchored beside the rail */}
       {showLayers && (
-        <div className="absolute top-3 left-16 z-30 w-44 bg-zinc-900/95 rounded-2xl border border-white/10 backdrop-blur-md shadow-2xl p-2 flex flex-col gap-1" dir="rtl">
+        <div className="absolute top-3 left-16 z-[43] w-44 bg-zinc-900/95 rounded-2xl border border-white/10 backdrop-blur-md shadow-2xl p-2 flex flex-col gap-1" dir="rtl">
           <button onClick={() => { onStyleChange('satellite'); setShowLayers(false); }} className="text-xs text-white p-2 hover:bg-white/10 rounded-lg text-right">לוויין</button>
           <button onClick={() => { onStyleChange('terrain'); setShowLayers(false); }} className="text-xs text-white p-2 hover:bg-white/10 rounded-lg text-right">טופוגרפיה</button>
           <button onClick={() => { onStyleChange('light'); setShowLayers(false); }} className="text-xs text-white p-2 hover:bg-white/10 rounded-lg text-right">מפה בהירה</button>
@@ -259,7 +273,7 @@ export default function Controls(props: ControlsProps) {
 
       {/* "More" sheet — everything that is not a map action */}
       {showMore && (
-        <div className="absolute inset-0 z-40 bg-black/50 backdrop-blur-sm flex items-end md:items-center justify-center p-4" onClick={() => setShowMore(false)}>
+        <div className="absolute inset-0 z-[46] bg-black/50 backdrop-blur-sm flex items-end md:items-center justify-center p-4" onClick={() => setShowMore(false)}>
           <div className="bg-zinc-900/95 border border-white/10 rounded-3xl w-full max-w-sm shadow-2xl p-4 flex flex-col gap-2" dir="rtl" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-1">
               <h3 className="text-white font-bold text-sm">עוד</h3>

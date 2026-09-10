@@ -641,7 +641,7 @@ export default function TrailApp() {
       {uiHidden && (
         <button
           onClick={() => setUiHidden(false)}
-          className="absolute top-3 right-3 z-40 w-10 h-10 flex items-center justify-center bg-zinc-900/90 text-amber-400 rounded-2xl border border-white/10 backdrop-blur-md shadow-xl"
+          className="absolute top-3 right-3 z-[60] w-10 h-10 flex items-center justify-center bg-zinc-900/90 text-amber-400 rounded-2xl border border-white/10 backdrop-blur-md shadow-xl"
           title="הצג שוב את הנתונים על המפה"
         >
           <EyeOff className="w-[18px] h-[18px]" />
@@ -766,7 +766,7 @@ export default function TrailApp() {
 
       {/* Tour Progress Bar */}
       {trail && !uiHidden && progress > 0 && Math.floor(progress * trail.coords.length) < trail.coords.length && (
-        <div className="absolute bottom-[76px] left-3 right-3 md:bottom-auto md:top-3 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-[70%] md:max-w-lg z-40 bg-black/80 px-3 py-2 rounded-2xl border border-white/10 backdrop-blur-md">
+        <div className="absolute bottom-[76px] left-3 right-3 md:bottom-auto md:top-3 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-[55%] md:max-w-md z-40 bg-black/80 px-3 py-2 rounded-2xl border border-white/10 backdrop-blur-md">
           <div className="flex justify-between text-[11px] font-bold mb-1.5" dir="rtl">
             <div className="text-emerald-400">הושלם: {(trail.totalDistance * progress).toFixed(1)} ק"מ <span className="text-emerald-300 font-bold">({Math.round(progress*100)}%)</span></div>
             <div className="text-sky-400">נותר: {(trail.totalDistance * (1 - progress)).toFixed(1)} ק"מ</div>
