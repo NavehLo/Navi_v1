@@ -13,6 +13,7 @@
 //   node scripts/buildSummerIndex.mjs                 # all trails, writes trails.json
 //   node scripts/buildSummerIndex.mjs --only כזיב     # one trail, prints, writes nothing
 //   node scripts/buildSummerIndex.mjs --shade-only    # no network at all
+//   node scripts/buildSummerIndex.mjs --refetch       # ignore the resume cache
 //
 // Overpass fails often enough that it has to be planned for. A partial run
 // would leave some trails with figures and others silently without, which in
@@ -35,6 +36,12 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const only = argValue('--only');
 const shadeOnly = process.argv.includes('--shade-only');
 const DELAY_MS = 2500;          // courtesy gap between Overpass queries
+// Overpass is a free service and a heavy `around` query over a 120-point
+// polyline genuinely can take a minute. The first run of this script lost a
+// trail to a 60s abort, so the client waits longer than the server is allowed
+// to take, rather than cutting off a query that was about to answer.
+const SERVER_TIMEOUT_S = 90;
+const CLIENT_TIMEOUT_MS = 120_000;
 const SEARCH_RADIUS_M = 150;    // must match src/app/api/water/route.ts
 const GEOMETRY_SPACING_KM = 0.05;
 
@@ -90,7 +97,7 @@ async function overpass(query) {
             'User-Agent': 'Navi-Trail-App/1.0 (naveh@hamarag.com)',
           },
           body: 'data=' + encodeURIComponent(query),
-          signal: AbortSignal.timeout(60_000),
+          signal: AbortSignal.timeout(CLIENT_TIMEOUT_MS),
         });
         if (res.ok) return res.json();
         lastError = new Error(`${endpoint} → HTTP ${res.status}`);
@@ -122,7 +129,7 @@ async function fetchWater(coords) {
   const sampled = coords.filter((_, i) => i % step === 0).slice(0, 120);
   const poly = sampled.map(([lat, lon]) => `${lat.toFixed(5)},${lon.toFixed(5)}`).join(',');
   const around = `(around:${SEARCH_RADIUS_M},${poly})`;
-  const data = await overpass(`[out:json][timeout:60];
+  const data = await overpass(`[out:json][timeout:${SERVER_TIMEOUT_S}];
 (
   way${around}[natural=water];
   node${around}[natural=spring];
@@ -157,6 +164,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ── run ──────────────────────────────────────────────────────────────────────
 
+// A run over 83 trails takes minutes and Overpass fails part-way often enough
+// that it has to be assumed. Successful answers are kept here so a re-run picks
+// up where the last one stopped instead of asking for all 83 again. It is a
+// build artifact, not data — delete it to force a fresh fetch.
+const CACHE_FILE = path.join(ROOT, 'scripts/.summer-cache.json');
+const cache = fs.existsSync(CACHE_FILE) ? JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8')) : {};
+const saveCache = () => fs.writeFileSync(CACHE_FILE, JSON.stringify(cache));
+const refetch = process.argv.includes('--refetch');
+
 const index = JSON.parse(fs.readFileSync(path.join(ROOT, 'public/trails.json'), 'utf8'));
 const targets = only ? index.filter((t) => t.name.includes(only)) : index;
 if (!targets.length) {
@@ -176,9 +192,22 @@ for (const [i, trail] of targets.entries()) {
   const shade = computeShade(coords, acc, grid);
 
   let water = null;
+  let fromCache = false;
   if (!shadeOnly) {
+    // The cache key includes the point count so an edited GPX is re-fetched
+    // rather than answered from a stale entry.
+    const cacheKey = `${trail.id}|${coords.length}`;
     try {
-      water = computeWater(coords, acc, await fetchWater(coords));
+      let sources;
+      if (!refetch && cache[cacheKey]) {
+        sources = cache[cacheKey];
+        fromCache = true;
+      } else {
+        sources = await fetchWater(coords);
+        cache[cacheKey] = sources;
+        saveCache();
+      }
+      water = computeWater(coords, acc, sources);
     } catch (e) {
       failures.push(`${trail.name}: ${e.message}`);
       console.log(`${String(i + 1).padStart(3)}/${targets.length}  ${trail.name}  — נכשל: ${e.message}`);
@@ -208,10 +237,11 @@ for (const [i, trail] of targets.entries()) {
   console.log(
     `${String(i + 1).padStart(3)}/${targets.length}  ${trail.name.slice(0, 34).padEnd(35)}` +
     `צל ${String(trail.summer.shadePct ?? '—').padStart(5)}%` +
-    (water ? `   יבש ${String(trail.summer.longestDryKm).padStart(5)} ק״מ   ליד מים ${String(trail.summer.nearWaterPct).padStart(5)}%   ${water.points.length} מקורות` : '')
+    (water ? `   יבש ${String(trail.summer.longestDryKm).padStart(5)} ק״מ   ליד מים ${String(trail.summer.nearWaterPct).padStart(5)}%   ${water.points.length} מקורות${fromCache ? '  (cache)' : ''}` : '')
   );
 
-  if (!shadeOnly && i < targets.length - 1) await sleep(DELAY_MS);
+  // Only a real fetch owes Overpass a pause.
+  if (!shadeOnly && !fromCache && i < targets.length - 1) await sleep(DELAY_MS);
 }
 
 // Every water source that survived the filter, for the review-by-eye pass.

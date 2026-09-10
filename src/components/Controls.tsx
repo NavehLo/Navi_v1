@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Home, Settings, UserCircle2, BookmarkPlus, Check, Share2, Headphones, HeadphoneOff,
-  ListMusic, Layers, Maximize2, LocateFixed, Footprints, Play, Square, Eye, MoreHorizontal, X,
+  ListMusic, Layers, Maximize2, LocateFixed, Footprints, Play, Square, Eye, MoreHorizontal, X, Tag,
 } from "lucide-react";
 
 interface ControlsProps {
@@ -41,10 +41,48 @@ interface ControlsProps {
 // A 44px icon rail instead of the old 192px labelled column: the map is the
 // point of the app, and on a phone the chrome was eating most of it. Anything
 // that is not a one-tap map action lives behind the "עוד" sheet.
-const RAIL_BTN =
-  "w-10 h-10 flex items-center justify-center text-zinc-200 hover:bg-white/10 active:bg-white/20 transition-colors";
 const PILL =
   "flex flex-col bg-zinc-900/90 rounded-2xl border border-white/10 backdrop-blur-md overflow-hidden shadow-xl";
+
+// Naming the icons without giving up the icon rail.
+//
+// A rail of unlabelled glyphs is clean and, for three of these, genuinely
+// unguessable — the footprints, the headphones and the arrows that recentre the
+// trail all had to be pressed to find out what they did. Rather than go back to
+// the 192px labelled column this rail replaced, the name sits inline next to
+// the glyph and the pill grows only as wide as the longest word. Off, it is the
+// same 40px rail as before, to the pixel.
+//
+// It defaults to on: an icon nobody can read is not minimal, it is only quiet.
+// One tap on the tag button at the bottom of the rail puts it back to bare
+// glyphs, and the choice is remembered.
+const LABELS_KEY = "navi:railLabels";
+
+function RailBtn({
+  label, labelsOn, onClick, className = "", title, children, ariaPressed,
+}: {
+  label: string;
+  labelsOn: boolean;
+  onClick?: () => void;
+  className?: string;
+  title?: string;
+  children: React.ReactNode;
+  ariaPressed?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title ?? label}
+      aria-label={label}
+      aria-pressed={ariaPressed}
+      className={`${labelsOn ? "h-10 w-full px-3 gap-2 justify-start" : "w-10 h-10 justify-center"} flex items-center text-zinc-200 hover:bg-white/10 active:bg-white/20 transition-colors ${className}`}
+    >
+      {children}
+      {labelsOn && <span className="text-[11px] font-medium whitespace-nowrap">{label}</span>}
+    </button>
+  );
+}
+
 
 export default function Controls(props: ControlsProps) {
   const {
@@ -57,6 +95,26 @@ export default function Controls(props: ControlsProps) {
 
   const [showLayers, setShowLayers] = useState(false);
   const [showMore, setShowMore] = useState(false);
+  const [labelsOn, setLabelsOn] = useState(true);
+
+  // Read the stored preference after mount rather than in the initial state, so
+  // the server-rendered markup and the first client render agree.
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(LABELS_KEY);
+      if (stored !== null) setLabelsOn(stored === "1");
+    } catch {
+      // Storage blocked — labels simply stay on.
+    }
+  }, []);
+
+  const toggleLabels = () => {
+    setLabelsOn((on) => {
+      const next = !on;
+      try { localStorage.setItem(LABELS_KEY, next ? "1" : "0"); } catch {}
+      return next;
+    });
+  };
 
   const compass = (
     <svg width="17" height="17" viewBox="0 0 18 18" style={{ transform: `rotate(${-mapBearing}deg)`, transition: 'transform 0.15s linear' }}>
@@ -68,85 +126,119 @@ export default function Controls(props: ControlsProps) {
   return (
     <>
       {/* Top-right: home + hide-everything */}
-      <div className="absolute top-3 right-3 z-30 flex flex-col gap-2" dir="rtl">
+      <div className="absolute top-3 right-3 z-30 flex flex-col items-end gap-2" dir="rtl">
         <div className={PILL}>
           {hasTrail && onHome && (
-            <button onClick={onHome} className={RAIL_BTN} title="מסך הבית">
+            <RailBtn label="בית" labelsOn={labelsOn} onClick={onHome} title="מסך הבית — יציאה מהמסלול">
               <Home className="w-[18px] h-[18px]" />
-            </button>
+            </RailBtn>
           )}
           {onHideUI && (
-            <button onClick={onHideUI} className={`${RAIL_BTN} text-amber-400 ${hasTrail && onHome ? 'border-t border-white/10' : ''}`} title="הסתר את כל הנתונים מהמפה">
+            <RailBtn
+              label="הסתר הכל"
+              labelsOn={labelsOn}
+              onClick={onHideUI}
+              className={`text-amber-400 ${hasTrail && onHome ? 'border-t border-white/10' : ''}`}
+              title="הסתר את כל הנתונים מהמפה"
+            >
               <Eye className="w-[18px] h-[18px]" />
-            </button>
+            </RailBtn>
           )}
         </div>
       </div>
 
       {/* Left rail — map actions, one tap each */}
-      <div className="absolute top-3 left-3 z-20 flex flex-col gap-2" dir="rtl">
+      <div className="absolute top-3 left-3 z-20 flex flex-col items-start gap-2" dir="rtl">
         <div className={PILL}>
-          <button
+          <RailBtn
+            label="תצוגת מפה"
+            labelsOn={labelsOn}
             onClick={() => { setShowLayers(v => !v); setShowMore(false); }}
-            className={`${RAIL_BTN} ${showLayers ? 'bg-white/10 text-orange-400' : ''}`}
+            className={showLayers ? 'bg-white/10 text-orange-400' : ''}
             title="סוג מפה ותלת מימד"
           >
             <Layers className="w-[18px] h-[18px]" />
-          </button>
-          <button onClick={onZoomIn} className={`${RAIL_BTN} text-lg font-bold border-t border-white/10`} title="התקרב">+</button>
-          <button onClick={onCompass} className={`${RAIL_BTN} border-t border-white/10`} title="הצפן למצפן צפון">{compass}</button>
-          <button onClick={onZoomOut} className={`${RAIL_BTN} text-lg font-bold border-t border-white/10`} title="התרחק">&#8722;</button>
+          </RailBtn>
+          <RailBtn label="התקרב" labelsOn={labelsOn} onClick={onZoomIn} className="border-t border-white/10">
+            <span className="text-lg font-bold leading-none w-[18px] text-center">+</span>
+          </RailBtn>
+          <RailBtn label="צפון" labelsOn={labelsOn} onClick={onCompass} className="border-t border-white/10" title="הצפן למצפן צפון">{compass}</RailBtn>
+          <RailBtn label="התרחק" labelsOn={labelsOn} onClick={onZoomOut} className="border-t border-white/10">
+            <span className="text-lg font-bold leading-none w-[18px] text-center">&#8722;</span>
+          </RailBtn>
         </div>
 
         {hasTrail && (
           <div className={PILL}>
-            <button onClick={onFitToTrail} className={`${RAIL_BTN} text-amber-400`} title="חזור למפת המסלול">
+            <RailBtn label="כל המסלול" labelsOn={labelsOn} onClick={onFitToTrail} className="text-amber-400" title="מרכוז התצוגה על כל המסלול">
               <Maximize2 className="w-[18px] h-[18px]" />
-            </button>
-            <button onClick={onLocateUser} className={`${RAIL_BTN} text-sky-400 border-t border-white/10`} title="מיקום חי — קפיצה חד-פעמית למיקום שלי על המפה">
+            </RailBtn>
+            <RailBtn label="המיקום שלי" labelsOn={labelsOn} onClick={onLocateUser} className="text-sky-400 border-t border-white/10" title="מיקום חי — קפיצה חד-פעמית למיקום שלי על המפה">
               <LocateFixed className="w-[18px] h-[18px]" />
-            </button>
+            </RailBtn>
             {onToggleFieldMode && (
-              <button
+              <RailBtn
+                label="מצב שטח"
+                labelsOn={labelsOn}
                 onClick={onToggleFieldMode}
-                className={`${RAIL_BTN} border-t border-white/10 ${isFieldMode ? 'bg-sky-500 text-white' : 'text-sky-400'}`}
+                className={`border-t border-white/10 ${isFieldMode ? 'bg-sky-500 text-white' : 'text-sky-400'}`}
                 title={isFieldMode
                   ? 'מצב שטח פעיל — מעקב GPS רציף, המדריכה נכנסת אוטומטית כשמגיעים לנקודה'
                   : 'מצב שטח — לטיול אמיתי ברגליים: מעקב GPS רציף שמפעיל את המדריכה לפי המיקום'}
-                aria-pressed={isFieldMode}
+                ariaPressed={isFieldMode}
               >
                 <Footprints className="w-[18px] h-[18px]" />
-              </button>
+              </RailBtn>
             )}
             {onToggleGuide && (
-              <button
+              <RailBtn
+                label={isGuideEnabled ? 'מדריכה פעילה' : 'מדריכה כבויה'}
+                labelsOn={labelsOn}
                 onClick={onToggleGuide}
-                className={`${RAIL_BTN} border-t border-white/10 ${isGuideEnabled ? 'text-emerald-400' : 'text-zinc-500'}`}
+                className={`border-t border-white/10 ${isGuideEnabled ? 'text-emerald-400' : 'text-zinc-400'}`}
                 title={isGuideEnabled ? 'המדריכה פעילה — לחץ לכיבוי' : 'המדריכה כבויה — לחץ להפעלה'}
-                aria-pressed={isGuideEnabled}
+                ariaPressed={isGuideEnabled}
               >
                 {isGuideEnabled ? <Headphones className="w-[18px] h-[18px]" /> : <HeadphoneOff className="w-[18px] h-[18px]" />}
-              </button>
+              </RailBtn>
             )}
             {onOpenGuidePoints && (
-              <button onClick={onOpenGuidePoints} className={`${RAIL_BTN} border-t border-white/10 relative`} title="נקודות המדריכה במסלול והורדה לאופליין">
+              <RailBtn
+                label={guidePointCount ? `נקודות (${guidePointCount})` : 'נקודות'}
+                labelsOn={labelsOn}
+                onClick={onOpenGuidePoints}
+                className="border-t border-white/10 relative"
+                title="נקודות המדריכה במסלול והורדה לאופליין"
+              >
                 <ListMusic className="w-[18px] h-[18px]" />
-                {!!guidePointCount && (
-                  <span className="absolute top-1 left-1 text-[9px] font-bold text-emerald-400">{guidePointCount}</span>
+                {!labelsOn && !!guidePointCount && (
+                  <span className="absolute top-1 left-1 text-[10px] font-bold text-emerald-400">{guidePointCount}</span>
                 )}
-              </button>
+              </RailBtn>
             )}
           </div>
         )}
 
         <div className={PILL}>
-          <button
+          <RailBtn
+            label="עוד"
+            labelsOn={labelsOn}
             onClick={() => { setShowMore(v => !v); setShowLayers(false); }}
-            className={`${RAIL_BTN} ${showMore ? 'bg-white/10 text-orange-400' : ''}`}
+            className={showMore ? 'bg-white/10 text-orange-400' : ''}
             title="עוד — הגדרות, אזור אישי, שמירה ושיתוף"
           >
             <MoreHorizontal className="w-[18px] h-[18px]" />
-          </button>
+          </RailBtn>
+          <RailBtn
+            label="הסתר שמות"
+            labelsOn={labelsOn}
+            onClick={toggleLabels}
+            className={`border-t border-white/10 ${labelsOn ? 'text-zinc-400' : 'text-zinc-500'}`}
+            title={labelsOn ? 'הסתר את שמות הכפתורים' : 'הצג את שמות הכפתורים'}
+            ariaPressed={labelsOn}
+          >
+            <Tag className="w-[18px] h-[18px]" />
+          </RailBtn>
         </div>
       </div>
 

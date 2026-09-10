@@ -65,7 +65,11 @@ export default function MapComponent({ onMapLoad }: { onMapLoad?: (map: mapboxgl
           '© ESA WorldCover 2021 (CC BY 4.0)',
         ],
       }),
-      'bottom-right'
+      // bottom-left, not bottom-right: the bottom-right corner sits under the
+      // narration card and the tour transport, and the expanded attribution
+      // strip was disappearing behind them. The bottom-left corner is the one
+      // piece of chrome nothing else claims.
+      'bottom-left'
     );
 
     mapRef.current = mapInstance;

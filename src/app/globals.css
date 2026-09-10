@@ -39,3 +39,19 @@ body {
 .trail-hover-popup .mapboxgl-popup-tip {
   border-top-color: #18181b; /* zinc-900 */
 }
+
+/* The bottom UI stack (narration card + tour transport) is z-50 and spans the
+   full width. The attribution control has to stay clickable and readable above
+   it — ODbL and CC BY both require the credit to actually be visible, and an
+   ⓘ that opens behind the tour button is not visible. */
+.mapboxgl-ctrl-bottom-left {
+  z-index: 60;
+}
+.mapboxgl-ctrl-bottom-left .mapboxgl-ctrl-attrib {
+  background: rgba(24, 24, 27, 0.9);
+  border-radius: 10px;
+  backdrop-filter: blur(6px);
+}
+.mapboxgl-ctrl-bottom-left .mapboxgl-ctrl-attrib a {
+  color: #e4e4e7;
+}
