@@ -1,6 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { MapPin, Loader2, ChevronUp, ChevronDown, Search, X } from 'lucide-react';
+import { MapPin, Loader2, ChevronUp, ChevronDown, Search, X, Droplets, Trees } from 'lucide-react';
+import {
+  matchesShade, matchesWater, SHADE_FILTER_LABELS, WATER_FILTER_LABELS,
+  type ShadeFilter, type WaterFilter, type TrailSummer,
+} from '../lib/summerFilters';
 import GPXLoader from './GPXLoader';
 
 export interface TrailInfo {
@@ -10,6 +14,10 @@ export interface TrailInfo {
   type: string;
   region: string;
   startCoord: [number, number];
+  // Burned in at build time by scripts/buildSummerIndex.mjs. Absent for a trail
+  // the script has not covered, which the filters treat as "unknown", never as
+  // a match.
+  summer?: TrailSummer;
 }
 
 interface TrailDiscoveryProps {
@@ -29,6 +37,8 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
   const [isExpanded, setIsExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [filterShade, setFilterShade] = useState<ShadeFilter | null>(null);
+  const [filterWater, setFilterWater] = useState<WaterFilter | null>(null);
 
   const onSelectTrailRef = useRef(onSelectTrail);
   useEffect(() => {
@@ -47,10 +57,17 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
     return trails.filter(t => {
       if (filterRegion && t.region !== filterRegion) return false;
       if (filterType && t.type !== filterType) return false;
+      if (filterShade && !matchesShade(t.summer, filterShade)) return false;
+      if (filterWater && !matchesWater(t.summer, filterWater)) return false;
       if (query && !t.name.toLowerCase().includes(query)) return false;
       return true;
     });
-  }, [trails, filterRegion, filterType, searchQuery]);
+  }, [trails, filterRegion, filterType, filterShade, filterWater, searchQuery]);
+
+  // Whether the index has summer figures at all. Before the build script has
+  // run there is nothing to filter on, and showing two chips that always return
+  // an empty list would read as a bug rather than as missing data.
+  const hasSummerData = useMemo(() => trails.some(t => t.summer?.shadePct != null), [trails]);
 
   const searchSuggestions = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -328,7 +345,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
             </button>
           ))}
         </div>
-        <div className="flex flex-wrap gap-2 shrink-0 pb-2 border-b border-white/5">
+        <div className="flex flex-wrap gap-2 shrink-0">
           {regions.map(region => (
             <button
               key={region}
@@ -340,6 +357,34 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
           ))}
         </div>
 
+        {/* Summer: shade and water, two steps each. The numbers behind them are
+            estimates from maps, so the chips deliberately offer coarse steps
+            rather than a threshold anyone could mistake for a measurement. */}
+        {hasSummerData && (
+          <div className="flex flex-wrap items-center gap-2 shrink-0 pb-2 border-b border-white/5">
+            <Trees className="w-3.5 h-3.5 text-lime-400 shrink-0" />
+            {(['some', 'lots'] as ShadeFilter[]).map(level => (
+              <button
+                key={level}
+                onClick={() => setFilterShade(filterShade === level ? null : level)}
+                className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all border ${filterShade === level ? 'bg-lime-500 text-black border-lime-400' : 'bg-transparent text-zinc-300 border-white/10 hover:bg-white/5'}`}
+              >
+                {SHADE_FILTER_LABELS[level]}
+              </button>
+            ))}
+            <Droplets className="w-3.5 h-3.5 text-sky-400 shrink-0 mr-1" />
+            {(['any', 'lots'] as WaterFilter[]).map(level => (
+              <button
+                key={level}
+                onClick={() => setFilterWater(filterWater === level ? null : level)}
+                className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all border ${filterWater === level ? 'bg-sky-500 text-white border-sky-400' : 'bg-transparent text-zinc-300 border-white/10 hover:bg-white/5'}`}
+              >
+                {WATER_FILTER_LABELS[level]}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar flex flex-col gap-3 min-h-0">
           {filteredTrails.length === 0 ? (
             <div className="text-zinc-500 text-center py-10 text-sm font-medium">לא נמצאו מסלולים. נסה לשנות את הסינון.</div>
@@ -348,7 +393,15 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
               <div key={t.id} onClick={() => onSelectTrail(t.path, t.name)} className="bg-white/5 border border-white/5 p-4 rounded-2xl cursor-pointer hover:bg-white/10 hover:border-orange-500/40 transition-all flex justify-between items-center group shadow-sm">
                 <div className="flex flex-col gap-1.5">
                   <span className="text-white font-bold text-sm group-hover:text-orange-400 transition-colors">{t.name}</span>
-                  <span className="text-[10px] font-bold tracking-wide text-zinc-400 uppercase bg-black/30 w-fit px-2 py-0.5 rounded-md">{t.type} • {t.region}</span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] font-bold tracking-wide text-zinc-400 uppercase bg-black/30 w-fit px-2 py-0.5 rounded-md">{t.type} • {t.region}</span>
+                    {t.summer?.shadePct != null && (
+                      <span className="text-[10px] font-bold text-lime-400 bg-lime-500/10 px-2 py-0.5 rounded-md">{Math.round(t.summer.shadePct)}% צל</span>
+                    )}
+                    {!!t.summer?.nearWaterPct && (
+                      <span className="text-[10px] font-bold text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-md">{Math.round(t.summer.nearWaterPct)}% ליד מים</span>
+                    )}
+                  </div>
                 </div>
               </div>
             ))
