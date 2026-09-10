@@ -19,6 +19,7 @@ import { pointAtDistance, projectOntoTrail } from "@/utils/trailUtils";
 import { useTrailPOIs } from "@/hooks/useTrailPOIs";
 import { useAuth } from "@/hooks/useAuth";
 import { useOfflineTrail } from "@/hooks/useOfflineTrail";
+import { useSummerConditions } from "@/hooks/useSummerConditions";
 import { saveTrail, recordTour, SavedTrail, describeSupabaseError, clearPersonalCache } from "@/lib/personalArea";
 import type { TrailPOI } from "@/hooks/useTrailData";
 
@@ -242,6 +243,10 @@ export default function TrailApp() {
 
   // Narration audio kept on the device, so the guide works with no reception.
   const offlineTrail = useOfflineTrail(trail?.name ?? null, enrichedPois);
+
+  // How shaded the trail is — read from a grid that ships with the app, so this
+  // costs no request and works offline.
+  const { shade, shadeLoading } = useSummerConditions(trail);
 
   // Replaying a point someone asked for jumps the queue — they pressed a
   // button and expect to hear it now.
@@ -584,7 +589,7 @@ export default function TrailApp() {
 
       {/* Stats UI Layer */}
       {trail && !uiHidden && (
-        <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} />
+        <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} />
       )}
 
       {/* Map Controls */}
