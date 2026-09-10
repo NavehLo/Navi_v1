@@ -2,17 +2,32 @@ import { TrailData } from "../hooks/useTrailData";
 import { SUN_MAX, SHADE_MIN, type ShadeResult, type WaterResult } from "../lib/summerConditions";
 import type { WaterStatus } from "../hooks/useSummerConditions";
 import { ArrowRight, ChevronDown, ChevronUp } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 // Sits above the bottom stack (narration card + tour bar) and starts collapsed
 // on phones — expanded, this card alone used to cover a third of the screen.
 export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus }) {
   const [collapsed, setCollapsed] = useState(true);
+  const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const isPhone = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
     setCollapsed(!!isTourActive || isPhone);
   }, [isTourActive]);
+
+  // Tapping the map puts the card away again. Expanded, it is deliberately
+  // stacked above the control rails (see the z-index on the wrapper below), so
+  // without this the buttons it covers would be unreachable — including the
+  // one that collapses it. Listening on pointerdown rather than click means the
+  // card is gone before the map starts handling the gesture.
+  useEffect(() => {
+    if (collapsed) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!cardRef.current?.contains(e.target as Node)) setCollapsed(true);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [collapsed]);
 
   const generateElevationPath = () => {
     if (!trail.elevations || trail.elevations.length === 0) return "";
@@ -58,9 +73,39 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
   const shadeColor = (f: number) =>
     f < SUN_MAX ? "#f59e0b" : f < SHADE_MIN ? "#84cc16" : "#16a34a";
 
+  // The water strip is the same idea as the shade strip and shares its column
+  // count, so the two line up: a column here sits above the same stretch of
+  // trail as the column above it. What it shows is different, though — shade is
+  // a fraction per column, water is "was there any within reach", so a column
+  // counts as wet if any of the trail points inside it was in reach.
+  const waterColumns = () => {
+    const covered = water?.covered;
+    if (!covered || covered.length === 0) return [];
+    const cols: boolean[] = [];
+    const per = covered.length / SHADE_COLUMNS;
+    for (let c = 0; c < SHADE_COLUMNS; c++) {
+      const from = Math.floor(c * per);
+      const to = Math.max(from + 1, Math.floor((c + 1) * per));
+      let wet = false;
+      for (let i = from; i < to && i < covered.length; i++) if (covered[i]) { wet = true; break; }
+      cols.push(wet);
+    }
+    return cols;
+  };
+
+  // Where each source sits along the strip, 0..1 from the start of the trail,
+  // so a marker can be dropped on the bar at the point it was found.
+  const waterMarkers = () =>
+    (water?.points ?? []).map((p) => ({
+      pos: trail.totalDistance > 0 ? Math.min(1, Math.max(0, p.km / trail.totalDistance)) : 0,
+      confident: p.confident,
+      label: p.name ? `${p.label} · ${p.name}` : p.label,
+      km: p.km,
+    }));
+
   if (collapsed) {
     return (
-      <div className="absolute bottom-[76px] left-3 right-3 md:top-3 md:right-16 md:left-auto md:bottom-auto bg-zinc-900/90 py-2 px-3 rounded-2xl shadow-xl border border-white/10 z-10 md:w-80 backdrop-blur-md flex justify-between items-center gap-2" dir="rtl">
+      <div ref={cardRef} className="absolute bottom-[76px] left-3 right-3 md:top-3 md:right-16 md:left-auto md:bottom-auto bg-zinc-900/90 py-2 px-3 rounded-2xl shadow-xl border border-white/10 z-10 md:w-80 backdrop-blur-md flex justify-between items-center gap-2" dir="rtl">
         <div className="flex items-center gap-2 overflow-hidden min-w-0">
           {onClose && (
             <button onClick={onClose} className="p-1.5 bg-white/5 hover:bg-white/10 rounded-full transition-colors shrink-0" title="חזור למפה">
@@ -87,7 +132,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
   }
 
   return (
-    <div className="absolute bottom-[76px] left-3 right-3 md:top-3 md:right-16 md:left-auto md:bottom-auto bg-zinc-900/90 p-4 md:p-5 rounded-3xl shadow-xl border border-white/10 z-10 md:w-80 backdrop-blur-md" dir="rtl">
+    <div ref={cardRef} className="absolute bottom-[76px] left-3 right-3 md:top-3 md:right-16 md:left-auto md:bottom-auto bg-zinc-900/90 p-4 md:p-5 rounded-3xl shadow-xl border border-white/10 z-[45] max-h-[75vh] overflow-y-auto overscroll-contain md:w-80 backdrop-blur-md" dir="rtl">
       <div className="flex justify-between items-center gap-3">
         {onClose && (
           <button 
@@ -150,7 +195,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
         <div className="text-[11px] text-zinc-300 font-bold mb-1">מים להתרעננות</div>
 
         {waterStatus === 'loading' && !water && (
-          <div className="text-zinc-500 text-[11px] mb-3">מחפש מקורות מים…</div>
+          <div className="text-zinc-300 text-[11px] mb-3">מחפש מקורות מים…</div>
         )}
 
         {/* Overpass could not be reached. Saying so matters more than it looks:
@@ -165,23 +210,51 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
 
         {water && (
           <div className="mb-3">
-            <div className="flex items-baseline gap-2 mb-1">
+            <div className="flex items-baseline gap-2 mb-2">
               <span className="text-lg font-bold text-sky-400 leading-none">{water.longestDryKm.toFixed(1)}</span>
-              <span className="text-[10px] text-zinc-400">ק״מ ברצף בלי מים</span>
+              <span className="text-[11px] text-zinc-300">ק״מ ברצף בלי מים</span>
               <span className="text-zinc-600">·</span>
-              <span className="text-[10px] text-zinc-400">{Math.round(water.nearWaterPct)}% מהמסלול ליד מים</span>
+              <span className="text-[11px] text-zinc-300">{Math.round(water.nearWaterPct)}% ליד מים</span>
+            </div>
+
+            {/* The water strip, drawn to line up column-for-column with the
+                shade strip below it: same column count, same scaleX(-1) so the
+                right edge is the start of the walk. Markers sit on the bar at
+                the kilometre the source was found, hollow for the ones we
+                cannot stand behind — the same solid/hollow distinction the map
+                uses, so the two read the same way. */}
+            <div dir="ltr" className="relative w-full h-4 bg-zinc-800 rounded-md overflow-hidden">
+              <svg viewBox="0 0 120 10" preserveAspectRatio="none" className="absolute inset-0 w-full h-full" style={{ transform: 'scaleX(-1)' }}>
+                {waterColumns().map((wet, i) => (
+                  <rect key={i} x={i} y={0} width={1.02} height={10} fill={wet ? "#0ea5e9" : "#3f3f46"} />
+                ))}
+              </svg>
+              {waterMarkers().map((m, i) => (
+                <div
+                  key={i}
+                  title={`${m.label} · ${m.km.toFixed(1)} ק״מ`}
+                  className={`absolute top-1/2 w-2 h-2 rounded-full border ${m.confident ? "bg-sky-300 border-white" : "bg-zinc-800 border-sky-300"}`}
+                  style={{ right: `calc(${m.pos * 100}% - 4px)`, transform: "translateY(-50%)" }}
+                />
+              ))}
+            </div>
+
+            <div className="flex justify-between text-[10px] text-zinc-400 mt-1 mb-2">
+              <span>סוף</span>
+              <span className="text-sky-400">מים בטווח 150 מ׳</span>
+              <span>התחלה</span>
             </div>
 
             {water.points.length === 0 && (
-              <div className="text-zinc-500 text-[11px]">אין מקורות מים ידועים לאורך המסלול.</div>
+              <div className="text-zinc-300 text-[11px]">אין מקורות מים ידועים לאורך המסלול.</div>
             )}
 
             {water.points.map((p, i) => (
               <div key={i} className="flex items-baseline gap-2 text-[11px] py-0.5">
-                <span className="text-zinc-500 tabular-nums w-12 shrink-0">{p.km.toFixed(1)} ק״מ</span>
-                <span className={p.confident ? 'text-sky-300' : 'text-zinc-400'}>{p.label}</span>
-                {p.name && <span className="text-zinc-300 truncate">{p.name}</span>}
-                <span className="text-zinc-600 text-[9px] shrink-0">{p.offTrailM} מ׳ מהשביל</span>
+                <span className="text-zinc-400 tabular-nums w-12 shrink-0">{p.km.toFixed(1)} ק״מ</span>
+                <span className={p.confident ? "text-sky-300" : "text-zinc-300"}>{p.label}</span>
+                {p.name && <span className="text-zinc-100 truncate">{p.name}</span>}
+                <span className="text-zinc-400 text-[10px] shrink-0">{p.offTrailM} מ׳</span>
               </div>
             ))}
 
@@ -189,25 +262,25 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
                 information there is, but they do not shorten the dry stretch —
                 so the panel has to say which of the two a line is. */}
             {water.points.some((p) => !p.confident) && (
-              <div className="text-[9px] text-zinc-500 mt-1 leading-relaxed">
-                מעיינות ובריכות לא מאומתות מסומנים באפור ולא נספרים במספרים למעלה — אין במפה מידע
-                אם יש בהם מים בקיץ.
+              <div className="text-[10px] text-zinc-300 mt-1.5 leading-relaxed">
+                <span className="inline-block w-2 h-2 rounded-full bg-zinc-800 border border-sky-300 align-middle ml-1" />
+                מעיינות ובריכות לא מאומתות — אין במפה מידע אם יש בהם מים בקיץ, ולכן הם לא נספרים במספרים שלמעלה.
               </div>
             )}
 
             {waterStatus === 'cached' && (
-              <div className="text-[9px] text-zinc-500 mt-1">מהזיכרון המקומי — לא נבדק עכשיו.</div>
+              <div className="text-[10px] text-zinc-400 mt-1">מהזיכרון המקומי — לא נבדק עכשיו.</div>
             )}
           </div>
         )}
 
         {/* צל */}
         {shadeLoading && !shade && (
-          <div className="text-zinc-500 text-[11px]">מחשב צל…</div>
+          <div className="text-zinc-300 text-[11px]">מחשב צל…</div>
         )}
 
         {!shadeLoading && !shade && (
-          <div className="text-zinc-500 text-[11px]">אין נתוני צל למסלול הזה.</div>
+          <div className="text-zinc-300 text-[11px]">אין נתוני צל למסלול הזה.</div>
         )}
 
         {shade && (
@@ -216,7 +289,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
               <div className="text-[11px] text-zinc-300 font-bold">צל</div>
               <div className="text-lg font-bold text-lime-400 leading-none">
                 {Math.round(shade.shadePct)}%
-                <span className="text-[10px] font-normal text-zinc-500 mr-1">מהמסלול</span>
+                <span className="text-[10px] font-normal text-zinc-400 mr-1">מהמסלול</span>
               </div>
             </div>
 
@@ -230,12 +303,12 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
               </svg>
             </div>
 
-            <div className="flex justify-between text-[9px] text-zinc-500 mt-1">
+            <div className="flex justify-between text-[10px] text-zinc-400 mt-1">
               <span>סוף</span>
               <span>
-                <span className="text-amber-500">שמש</span> ·{' '}
-                <span className="text-lime-500">חלקי</span> ·{' '}
-                <span className="text-green-600">מוצל</span>
+                <span className="text-amber-400">שמש</span> ·{' '}
+                <span className="text-lime-400">חלקי</span> ·{' '}
+                <span className="text-green-400">מוצל</span>
               </span>
               <span>התחלה</span>
             </div>
@@ -246,14 +319,14 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
             above it is an estimate read off a map, and the one thing that could
             actually get somebody hurt is treating it as a permission to swim. */}
         <div className="mt-3 rounded-lg bg-amber-500/10 border border-amber-500/25 p-2">
-          <div className="text-[10px] text-amber-300 font-bold mb-1">לפני שיוצאים — לאמת ברט״ג</div>
-          <p className="text-[9px] text-zinc-300 leading-relaxed">
+          <div className="text-[11px] text-amber-300 font-bold mb-1">לפני שיוצאים — לאמת ברט״ג</div>
+          <p className="text-[10px] text-zinc-200 leading-relaxed">
             המספרים כאן הם הערכת תכנון לפי מפות, לא אישור רחצה ולא בדיקה בשטח.
-            ערב הטיול יש לוודא באתר רשות הטבע והגנים את <span className="text-zinc-100">פתיחת המסלול</span>,
-            את <span className="text-zinc-100">היתר הכניסה למים</span>, את <span className="text-zinc-100">עומס החום</span>,
-            <span className="text-zinc-100"> חשש לשיטפונות</span> ואת <span className="text-zinc-100">איכות המים</span>.
+            ערב הטיול יש לוודא באתר רשות הטבע והגנים את <span className="text-white font-semibold">פתיחת המסלול</span>,
+            את <span className="text-white font-semibold">היתר הכניסה למים</span>, את <span className="text-white font-semibold">עומס החום</span>,
+            <span className="text-white font-semibold"> חשש לשיטפונות</span> ואת <span className="text-white font-semibold">איכות המים</span>.
           </p>
-          <p className="text-[9px] text-zinc-400 leading-relaxed mt-1">
+          <p className="text-[10px] text-zinc-300 leading-relaxed mt-1.5">
             מים: מעיינות ובריכות עלולים להיות יבשים בקיץ, ולמפה אין מידע על מצבם.
             <span className="text-amber-300"> אלה לא מי שתייה.</span>{' '}
             צל: לפי כיסוי עצים במפות לוויין (ESA WorldCover 2021) — לא כולל צל של מדרונות וּואדיות,

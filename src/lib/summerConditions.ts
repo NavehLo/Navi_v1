@@ -124,6 +124,10 @@ export interface WaterResult {
   points: WaterPoint[];
   // Split out so the panel can say "one of these is a maybe" honestly.
   confidentCount: number;
+  // Whether water was in reach at each trail point, parallel to trail.coords
+  // the way the shade profile is. A single percentage cannot say *where* the
+  // water is; this is what lets the panel draw it along the trail.
+  covered: boolean[];
 }
 
 // One degree of latitude is about 111 km everywhere; longitude shrinks with
@@ -201,5 +205,6 @@ export function computeWater(
     nearWaterPct: (coveredKm / totalKm) * 100,
     points,
     confidentCount: points.filter((p) => p.confident).length,
+    covered,
   };
 }

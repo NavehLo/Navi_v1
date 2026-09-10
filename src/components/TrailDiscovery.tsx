@@ -61,6 +61,10 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
   }, [trails, searchQuery]);
 
   const hasFittedBoundsRef = useRef(false);
+
+  // Matches the zoom Map.tsx opens at. If the map is still there, nobody has
+  // navigated yet and framing all the trails is helpful rather than intrusive.
+  const INITIAL_ZOOM = 6;
   const listenersAddedRef = useRef(false);
 
   // Handle map markers via Mapbox Clustering
@@ -192,7 +196,14 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
         features: features as any
       });
 
-      if (features.length > 0 && !hasFittedBoundsRef.current) {
+      // Frame every trail in the country only when the map has not been
+      // pointed anywhere yet. Closing a trail remounts this component, and it
+      // used to re-fit on the way back — so someone comparing trails in the
+      // Galilee was thrown out to a view of the whole country after each one,
+      // and had to zoom back in every time. Past the opening zoom the camera is
+      // where the user put it, and that is worth more than a tidy fit.
+      const cameraIsUntouched = map.getZoom() <= INITIAL_ZOOM + 0.5;
+      if (features.length > 0 && !hasFittedBoundsRef.current && cameraIsUntouched) {
         hasFittedBoundsRef.current = true;
         const bounds = new mapboxgl.LngLatBounds();
         features.forEach(f => bounds.extend(f.geometry.coordinates as any));
