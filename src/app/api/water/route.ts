@@ -23,6 +23,12 @@ export interface WaterSource {
   name: string | null;
   osmType: string | null;
   osmId: number | null;
+  // Present for streams and rivers only. A stream is not a place, it is a line
+  // that runs alongside the trail — collapsing it to one point (which is what
+  // `out center` gives) reported נחל כזיב as 3% near water, when in truth you
+  // walk in its bed for most of the route. Carrying the line lets the distance
+  // maths ask "how far is the water from here" at every step of the walk.
+  geometry?: Array<[number, number]>;
 }
 
 // Same three-way answer as POI discovery. An empty list has to say which of
@@ -37,6 +43,37 @@ type DiscoveryStatus = 'ok' | 'unavailable' | 'rate-limited';
 const SEARCH_RADIUS_M = 150;
 const MAX_QUERY_POINTS = 120;
 const MAX_RESULTS = 60;
+
+// A stream way can carry hundreds of vertices, and the client compares every
+// one of them against every trail point. Thinning to roughly one vertex per
+// 50 m keeps that comparison cheap while staying far finer than the 150 m
+// buffer it feeds, so the answer does not change.
+const GEOMETRY_SPACING_KM = 0.05;
+
+function thin(geometry: Array<{ lat: number; lon: number }>): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  let last: { lat: number; lon: number } | null = null;
+  for (const g of geometry) {
+    if (last && haversineKm(last.lat, last.lon, g.lat, g.lon) < GEOMETRY_SPACING_KM) continue;
+    out.push([g.lat, g.lon]);
+    last = g;
+  }
+  // Always keep the far end, so a long straight run is not clipped short.
+  const tail = geometry[geometry.length - 1];
+  if (tail && (out.length === 0 || out[out.length - 1][0] !== tail.lat || out[out.length - 1][1] !== tail.lon)) {
+    out.push([tail.lat, tail.lon]);
+  }
+  return out;
+}
+
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
 
 const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
@@ -71,17 +108,22 @@ function buildQuery(coords: [number, number][]): string {
   const around = `(around:${SEARCH_RADIUS_M},${poly})`;
   // Asked broadly and filtered here rather than narrowed in the query: the
   // block list is the part that has to be reviewable, and it can only be
-  // reviewed if it sees everything. `out center` gives a polygon one point,
-  // which is all the distance-along-trail maths needs.
+  // reviewed if it sees everything.
+  //
+  // Two output modes, because the two kinds of source are different shapes. A
+  // pool or a spring is a place, and `out center` gives it the single point the
+  // maths wants. A stream is a line, and its centre is meaningless — so
+  // waterways come back with `out geom` and keep their shape.
   return `
 [out:json][timeout:25];
 (
   way${around}[natural=water];
   node${around}[natural=spring];
-  way${around}[waterway~"^(stream|river)$"][name];
   way${around}[natural=coastline];
-);
-out center ${MAX_RESULTS * 3};
+)->.places;
+way${around}[waterway~"^(stream|river)$"][name]->.lines;
+.places out center ${MAX_RESULTS * 3};
+.lines out geom ${MAX_RESULTS};
 `.trim();
 }
 
@@ -113,8 +155,12 @@ export async function POST(request: Request) {
       const tags = el.tags ?? {};
       const props = classifyWater(tags);
       if (!props) continue;
-      const lat = el.lat ?? el.center?.lat;
-      const lon = el.lon ?? el.center?.lon;
+      const geometry = Array.isArray(el.geometry) && el.geometry.length > 1 ? thin(el.geometry) : undefined;
+      // A way returned with `out geom` has no centre of its own, so its first
+      // vertex stands in as the anchor; the geometry is what actually gets
+      // measured against the trail.
+      const lat = el.lat ?? el.center?.lat ?? geometry?.[0]?.[0];
+      const lon = el.lon ?? el.center?.lon ?? geometry?.[0]?.[1];
       if (lat == null || lon == null) continue;
       sources.push({
         lat,
@@ -125,6 +171,7 @@ export async function POST(request: Request) {
         name: tags['name:he'] || tags.name || null,
         osmType: el.type ?? null,
         osmId: el.id ?? null,
+        ...(geometry ? { geometry } : {}),
       });
       if (sources.length >= MAX_RESULTS) break;
     }

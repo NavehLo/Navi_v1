@@ -246,7 +246,7 @@ export default function TrailApp() {
 
   // How shaded the trail is — read from a grid that ships with the app, so this
   // costs no request and works offline.
-  const { shade, shadeLoading } = useSummerConditions(trail);
+  const { shade, shadeLoading, water, waterStatus } = useSummerConditions(trail);
 
   // Replaying a point someone asked for jumps the queue — they pressed a
   // button and expect to hear it now.
@@ -559,6 +559,67 @@ export default function TrailApp() {
     };
   }, [map, enrichedPois, styleRev, playPoiNow]);
 
+  // Water sources along the trail. Drawn in the same shape as the POI layer
+  // above, but kept as its own source so the two do not fight over labels, and
+  // coloured by whether we can stand behind it: a confirmed pool or perennial
+  // stream is solid blue, a spring or an unverified polygon is hollow. The
+  // hollow ones are on the map because they are the best information there is,
+  // not because they are a promise of water — same distinction the panel makes.
+  useEffect(() => {
+    if (!map) return;
+
+    const points = water?.points ?? [];
+
+    const syncWaterLayers = () => {
+      if (!map.getStyle()) return;
+      const fc = {
+        type: 'FeatureCollection',
+        features: points.map((p) => ({
+          type: 'Feature',
+          properties: {
+            label: p.name ? `${p.label} · ${p.name}` : p.label,
+            confident: p.confident ? 1 : 0,
+          },
+          geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+        })),
+      };
+      if (!map.getSource('trail-water')) {
+        map.addSource('trail-water', { type: 'geojson', data: fc as any });
+        map.addLayer({
+          id: 'trail-water-dot', type: 'circle', source: 'trail-water',
+          paint: {
+            'circle-radius': 6,
+            'circle-color': ['case', ['==', ['get', 'confident'], 1], '#0ea5e9', '#1e293b'],
+            'circle-stroke-color': ['case', ['==', ['get', 'confident'], 1], '#e0f2fe', '#7dd3fc'],
+            'circle-stroke-width': 2,
+          },
+        });
+        map.addLayer({
+          id: 'trail-water-label', type: 'symbol', source: 'trail-water',
+          layout: {
+            'text-field': ['get', 'label'],
+            'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
+            'text-size': 12,
+            'text-offset': [0, -1.4],
+            'text-anchor': 'bottom',
+            'text-allow-overlap': false,
+          },
+          paint: {
+            'text-color': '#e0f2fe',
+            'text-halo-color': '#082f49',
+            'text-halo-width': 1.5,
+          },
+        });
+      } else {
+        (map.getSource('trail-water') as mapboxgl.GeoJSONSource).setData(fc as any);
+      }
+    };
+
+    try { syncWaterLayers(); } catch (e) {}
+    map.on('style.load', syncWaterLayers);
+    return () => { map.off('style.load', syncWaterLayers); };
+  }, [map, water, styleRev]);
+
   return (
     <div className="w-full h-screen relative bg-zinc-900 overflow-hidden m-0 p-0 select-none touch-none" dir="rtl">
       {/* Map Engine Layer */}
@@ -589,7 +650,7 @@ export default function TrailApp() {
 
       {/* Stats UI Layer */}
       {trail && !uiHidden && (
-        <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} />
+        <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} water={water} waterStatus={waterStatus} />
       )}
 
       {/* Map Controls */}

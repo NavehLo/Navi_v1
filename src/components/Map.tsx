@@ -40,6 +40,10 @@ export default function MapComponent({ onMapLoad }: { onMapLoad?: (map: mapboxgl
         center: [34.8516, 31.0461],
         zoom: 6,
         pitch: 0,
+        // Turned off so the default control can be replaced by a compact one
+        // below. It is not optional: the map is Mapbox, the water sources come
+        // from OpenStreetMap (ODbL, which requires the credit) and the shade
+        // from ESA WorldCover (CC BY 4.0, likewise). Three sources, one line.
         attributionControl: false,
         // Disable heavy features upfront — added after load
         antialias: false,
@@ -50,6 +54,19 @@ export default function MapComponent({ onMapLoad }: { onMapLoad?: (map: mapboxgl
       setNeedsToken(true);
       return;
     }
+
+    // compact:true keeps it as an ⓘ button on a phone rather than a strip of
+    // text across the bottom of the map.
+    mapInstance.addControl(
+      new mapboxgl.AttributionControl({
+        compact: true,
+        customAttribution: [
+          '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">מפתחי OpenStreetMap</a>',
+          '© ESA WorldCover 2021 (CC BY 4.0)',
+        ],
+      }),
+      'bottom-right'
+    );
 
     mapRef.current = mapInstance;
 

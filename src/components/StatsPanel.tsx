@@ -1,11 +1,12 @@
 import { TrailData } from "../hooks/useTrailData";
-import { SUN_MAX, SHADE_MIN, type ShadeResult } from "../lib/summerConditions";
+import { SUN_MAX, SHADE_MIN, type ShadeResult, type WaterResult } from "../lib/summerConditions";
+import type { WaterStatus } from "../hooks/useSummerConditions";
 import { ArrowRight, ChevronDown, ChevronUp } from "lucide-react";
 import { useState, useEffect } from "react";
 
 // Sits above the bottom stack (narration card + tour bar) and starts collapsed
 // on phones — expanded, this card alone used to cover a third of the screen.
-export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean }) {
+export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus }) {
   const [collapsed, setCollapsed] = useState(true);
 
   useEffect(() => {
@@ -145,6 +146,62 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
       <div className="mt-3 border-t border-white/10 pt-3">
         <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-2 font-bold">בקיץ</div>
 
+        {/* מים */}
+        <div className="text-[11px] text-zinc-300 font-bold mb-1">מים להתרעננות</div>
+
+        {waterStatus === 'loading' && !water && (
+          <div className="text-zinc-500 text-[11px] mb-3">מחפש מקורות מים…</div>
+        )}
+
+        {/* Overpass could not be reached. Saying so matters more than it looks:
+            rendering this as "no water on this trail" is a wrong answer someone
+            could plan an August walk around. */}
+        {(waterStatus === 'unavailable' || waterStatus === 'rate-limited') && !water && (
+          <div className="text-amber-500/80 text-[11px] mb-3">
+            {waterStatus === 'rate-limited' ? 'יותר מדי בקשות כרגע — ' : 'לא הצלחנו לבדוק כרגע — '}
+            אין מידע על מים במסלול הזה. זה לא אומר שאין בו מים.
+          </div>
+        )}
+
+        {water && (
+          <div className="mb-3">
+            <div className="flex items-baseline gap-2 mb-1">
+              <span className="text-lg font-bold text-sky-400 leading-none">{water.longestDryKm.toFixed(1)}</span>
+              <span className="text-[10px] text-zinc-400">ק״מ ברצף בלי מים</span>
+              <span className="text-zinc-600">·</span>
+              <span className="text-[10px] text-zinc-400">{Math.round(water.nearWaterPct)}% מהמסלול ליד מים</span>
+            </div>
+
+            {water.points.length === 0 && (
+              <div className="text-zinc-500 text-[11px]">אין מקורות מים ידועים לאורך המסלול.</div>
+            )}
+
+            {water.points.map((p, i) => (
+              <div key={i} className="flex items-baseline gap-2 text-[11px] py-0.5">
+                <span className="text-zinc-500 tabular-nums w-12 shrink-0">{p.km.toFixed(1)} ק״מ</span>
+                <span className={p.confident ? 'text-sky-300' : 'text-zinc-400'}>{p.label}</span>
+                {p.name && <span className="text-zinc-300 truncate">{p.name}</span>}
+                <span className="text-zinc-600 text-[9px] shrink-0">{p.offTrailM} מ׳ מהשביל</span>
+              </div>
+            ))}
+
+            {/* Springs and unnamed polygons are shown because they are the best
+                information there is, but they do not shorten the dry stretch —
+                so the panel has to say which of the two a line is. */}
+            {water.points.some((p) => !p.confident) && (
+              <div className="text-[9px] text-zinc-500 mt-1 leading-relaxed">
+                מעיינות ובריכות לא מאומתות מסומנים באפור ולא נספרים במספרים למעלה — אין במפה מידע
+                אם יש בהם מים בקיץ.
+              </div>
+            )}
+
+            {waterStatus === 'cached' && (
+              <div className="text-[9px] text-zinc-500 mt-1">מהזיכרון המקומי — לא נבדק עכשיו.</div>
+            )}
+          </div>
+        )}
+
+        {/* צל */}
         {shadeLoading && !shade && (
           <div className="text-zinc-500 text-[11px]">מחשב צל…</div>
         )}
@@ -182,13 +239,27 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
               </span>
               <span>התחלה</span>
             </div>
-
-            <p className="text-[9px] text-zinc-500 leading-relaxed mt-2">
-              הערכה לפי כיסוי עצים במפות לוויין (ESA WorldCover 2021), לא בדיקה בשטח.
-              לא כולל צל של מדרונות וּואדיות, ולא מעודכן אחרי שריפות.
-            </p>
           </>
         )}
+
+        {/* The warning is not tucked behind a toggle on purpose. Everything
+            above it is an estimate read off a map, and the one thing that could
+            actually get somebody hurt is treating it as a permission to swim. */}
+        <div className="mt-3 rounded-lg bg-amber-500/10 border border-amber-500/25 p-2">
+          <div className="text-[10px] text-amber-300 font-bold mb-1">לפני שיוצאים — לאמת ברט״ג</div>
+          <p className="text-[9px] text-zinc-300 leading-relaxed">
+            המספרים כאן הם הערכת תכנון לפי מפות, לא אישור רחצה ולא בדיקה בשטח.
+            ערב הטיול יש לוודא באתר רשות הטבע והגנים את <span className="text-zinc-100">פתיחת המסלול</span>,
+            את <span className="text-zinc-100">היתר הכניסה למים</span>, את <span className="text-zinc-100">עומס החום</span>,
+            <span className="text-zinc-100"> חשש לשיטפונות</span> ואת <span className="text-zinc-100">איכות המים</span>.
+          </p>
+          <p className="text-[9px] text-zinc-400 leading-relaxed mt-1">
+            מים: מעיינות ובריכות עלולים להיות יבשים בקיץ, ולמפה אין מידע על מצבם.
+            <span className="text-amber-300"> אלה לא מי שתייה.</span>{' '}
+            צל: לפי כיסוי עצים במפות לוויין (ESA WorldCover 2021) — לא כולל צל של מדרונות וּואדיות,
+            ולא מעודכן אחרי שריפות.
+          </p>
+        </div>
       </div>
     </div>
   );

@@ -7,7 +7,7 @@
 // already computes — no React, no network — so it can run in the browser for an
 // uploaded GPX and in scripts/generateTrailIndex.js for the bundled trails.
 
-import type { Coordinate3D } from '../utils/trailUtils';
+import { getDistance, type Coordinate3D } from '../utils/trailUtils';
 import type { CanopyGrid } from './canopy';
 
 // ── Shade ────────────────────────────────────────────────────────────────────
@@ -81,5 +81,125 @@ export function computeShade(
       shade: (shade / sampledLength) * 100,
     },
     profile,
+  };
+}
+
+// ── Water ────────────────────────────────────────────────────────────────────
+
+// How far off the trail a source still counts. 150 m is a two-to-three minute
+// detour each way — close enough that "there is water here" is a true statement
+// about the walk rather than about the map. Deliberately tighter than the 250 m
+// the app uses to find points of interest: a viewpoint is worth knowing about
+// from a distance, water is only worth knowing about if you can reach it.
+export const WATER_BUFFER_KM = 0.15;
+
+export interface WaterSourceInput {
+  lat: number;
+  lon: number;
+  category: string;
+  label: string;
+  confident: boolean;
+  name: string | null;
+  // Streams carry their line; a pool or spring is just its point. See the note
+  // in api/water/route.ts for why the difference matters.
+  geometry?: Array<[number, number]>;
+}
+
+export interface WaterPoint extends WaterSourceInput {
+  // Where along the trail it sits, and how far off it. For a stream this is the
+  // nearest approach — the point where you are closest to the water.
+  km: number;
+  offTrailM: number;
+  // Index of the nearest trail point, for putting a marker on the line.
+  index: number;
+}
+
+export interface WaterResult {
+  // The headline number: the longest stretch you walk with nothing in reach.
+  // Built only from sources we can stand behind — a spring that may well be dry
+  // in August does not get to shorten it.
+  longestDryKm: number;
+  // Secondary: how much of the walk is within reach of something.
+  nearWaterPct: number;
+  points: WaterPoint[];
+  // Split out so the panel can say "one of these is a maybe" honestly.
+  confidentCount: number;
+}
+
+// One degree of latitude is about 111 km everywhere; longitude shrinks with
+// latitude but never grows, so this over-estimates the box and never clips it.
+// Used only to skip the trigonometry for trail points that are obviously far
+// away — a 4,000-point trail against a few hundred stream vertices is close to
+// a million comparisons otherwise.
+const KM_PER_DEGREE = 111;
+
+export function computeWater(
+  coords: Coordinate3D[],
+  accumulatedDistances: number[],
+  sources: WaterSourceInput[],
+  bufferKm: number = WATER_BUFFER_KM
+): WaterResult | null {
+  if (coords.length < 2) return null;
+  const totalKm = accumulatedDistances[accumulatedDistances.length - 1] ?? 0;
+  if (!(totalKm > 0)) return null;
+
+  // Coverage is measured from the trail rather than from the sources: for every
+  // point of the walk, is there water within reach of *here*. That is the
+  // question a walker actually asks, and unlike snapping each source to one
+  // spot it gives the right answer for a stream running alongside the path.
+  const covered = new Array<boolean>(coords.length).fill(false);
+  const points: WaterPoint[] = [];
+  const degrees = bufferKm / KM_PER_DEGREE;
+
+  for (const source of sources) {
+    const positions = source.geometry?.length ? source.geometry : [[source.lat, source.lon] as [number, number]];
+    let bestIdx = -1;
+    let bestKm = Infinity;
+
+    for (const [plat, plon] of positions) {
+      for (let i = 0; i < coords.length; i++) {
+        if (Math.abs(coords[i][0] - plat) > degrees) continue;
+        if (Math.abs(coords[i][1] - plon) > degrees) continue;
+        const d = getDistance(plat, plon, coords[i][0], coords[i][1]);
+        if (d > bufferKm) continue;
+        if (source.confident) covered[i] = true;
+        if (d < bestKm) { bestKm = d; bestIdx = i; }
+      }
+    }
+
+    // Nothing on this trail came within reach of it.
+    if (bestIdx < 0) continue;
+    points.push({
+      ...source,
+      index: bestIdx,
+      km: accumulatedDistances[bestIdx],
+      offTrailM: Math.round(bestKm * 1000),
+    });
+  }
+  points.sort((a, b) => a.km - b.km);
+
+  // A segment counts as walked-near-water when either end is in reach. Dry
+  // stretches are measured the same way, so the two are consistent: they are
+  // the two sides of the same partition of the trail.
+  let coveredKm = 0;
+  let longestDryKm = 0;
+  let dryRun = 0;
+  for (let i = 1; i < coords.length; i++) {
+    const len = accumulatedDistances[i] - accumulatedDistances[i - 1];
+    if (!(len > 0)) continue;
+    if (covered[i - 1] || covered[i]) {
+      coveredKm += len;
+      dryRun = 0;
+    } else {
+      dryRun += len;
+      if (dryRun > longestDryKm) longestDryKm = dryRun;
+    }
+  }
+
+  return {
+    longestDryKm,
+    nearWaterPct: (coveredKm / totalKm) * 100,
+    points,
+    confidentCount: points.filter((p) => p.confident).length,
   };
 }
