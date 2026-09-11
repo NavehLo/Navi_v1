@@ -34,6 +34,7 @@ Development). משתנה חדש נכנס לתוקף רק ב-deploy הבא — א
 
 | משתנה | חובה? | מאיפה משיגים |
 |---|---|---|
+| `NEXT_PUBLIC_MAPBOX_TOKEN` | לא, אבל בלעדיו כל משתמש חדש נדרש להזין טוקן אישי | mapbox.com → Account → Tokens (הגבל ל-URL של האתר) |
 | `ELEVENLABS_API_KEY` | לקול טוב בעברית | elevenlabs.io → Profile → API Keys |
 | `ELEVENLABS_VOICE_ID` | יחד עם המפתח | elevenlabs.io → Voices → הקול → Copy Voice ID |
 | `GEMINI_API_KEY` | לפחות ספק אחד | aistudio.google.com → Get API key |

@@ -15,6 +15,11 @@ export default function MapComponent({ onMapLoad }: { onMapLoad?: (map: mapboxgl
   const initMap = (token: string) => {
     if (!mapContainer.current || mapRef.current) return;
 
+    // A shared token (site operator's own, via NEXT_PUBLIC_MAPBOX_TOKEN) failing
+    // isn't something the visitor can fix by entering their own — that just
+    // re-enters the same broken token next reload. Tell them to wait instead.
+    const isSharedToken = !!process.env.NEXT_PUBLIC_MAPBOX_TOKEN && token === process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+
     try {
       mapboxgl.accessToken = token;
     } catch (e) {
@@ -49,6 +54,10 @@ export default function MapComponent({ onMapLoad }: { onMapLoad?: (map: mapboxgl
         antialias: false,
       });
     } catch (e: any) {
+      if (isSharedToken) {
+        setMapError("המפה לא זמינה כרגע. נסה שוב מאוחר יותר.");
+        return;
+      }
       setMapError("לא ניתן לאתחל את המפה: " + (e?.message || "בדוק את ה-Token"));
       localStorage.removeItem("mapbox_token");
       setNeedsToken(true);
@@ -115,9 +124,13 @@ export default function MapComponent({ onMapLoad }: { onMapLoad?: (map: mapboxgl
       console.error("Mapbox error:", e);
       // If we get a 401 / unauthorized error, clear the token and ask again
       if ((e.error as any)?.status === 401 || String(e.error?.message).includes("401")) {
-        localStorage.removeItem("mapbox_token");
         mapInstance.remove();
         mapRef.current = null;
+        if (isSharedToken) {
+          setMapError("המפה לא זמינה כרגע. נסה שוב מאוחר יותר.");
+          return;
+        }
+        localStorage.removeItem("mapbox_token");
         setMapError("Token לא תקין. אנא הכנס token חדש.");
         setNeedsToken(true);
       }
@@ -125,11 +138,16 @@ export default function MapComponent({ onMapLoad }: { onMapLoad?: (map: mapboxgl
   };
 
   useEffect(() => {
-    const savedToken = localStorage.getItem("mapbox_token");
+    // A shared token configured by the site operator skips the prompt
+    // entirely — friends and family shouldn't need their own Mapbox account.
+    // Self-hosters without this env var still get the manual-entry flow below.
+    const shared = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+    const savedToken = shared || localStorage.getItem("mapbox_token");
     if (!savedToken) {
       setNeedsToken(true);
       return;
     }
+    if (shared) localStorage.setItem("mapbox_token", shared);
     initMap(savedToken);
 
     return () => {
@@ -164,27 +182,31 @@ export default function MapComponent({ onMapLoad }: { onMapLoad?: (map: mapboxgl
                 {mapError}
               </div>
             )}
-            <p className="text-zinc-400 text-sm text-center">
-              הכנס Mapbox token להפעלת המפה.
-              ניתן לקבל ב-<span className="text-orange-400">mapbox.com</span>
-            </p>
-            <input
-              type="text"
-              value={tokenInput}
-              onChange={e => setTokenInput(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleTokenSubmit()}
-              placeholder="pk.eyJ1..."
-              className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-zinc-600 focus:outline-none focus:border-orange-500"
-              autoComplete="off"
-              autoCorrect="off"
-              spellCheck={false}
-            />
-            <button
-              onClick={handleTokenSubmit}
-              className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2.5 rounded-lg transition-colors"
-            >
-              אישור
-            </button>
+            {needsToken && (
+              <>
+                <p className="text-zinc-400 text-sm text-center">
+                  הכנס Mapbox token להפעלת המפה.
+                  ניתן לקבל ב-<span className="text-orange-400">mapbox.com</span>
+                </p>
+                <input
+                  type="text"
+                  value={tokenInput}
+                  onChange={e => setTokenInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleTokenSubmit()}
+                  placeholder="pk.eyJ1..."
+                  className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-zinc-600 focus:outline-none focus:border-orange-500"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+                <button
+                  onClick={handleTokenSubmit}
+                  className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2.5 rounded-lg transition-colors"
+                >
+                  אישור
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
