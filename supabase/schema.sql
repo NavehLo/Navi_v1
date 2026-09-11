@@ -78,6 +78,15 @@ drop policy if exists "read own usage" on public.guide_usage;
 create policy "read own usage" on public.guide_usage
   for select using (auth.uid() = user_id);
 
+-- בלי ה-grant הזה, PostgREST דוחה כל קריאת anon בשגיאת הרשאות (42501, שקוף
+-- כ-401) עוד לפני שה-RLS למעלה בכלל מופעל. ה-RLS ממילא חוסם את השורות
+-- (auth.uid() הוא NULL עבור anon, לעולם לא שווה ל-user_id) — ה-grant רק
+-- מאפשר ל-PostgREST להריץ את השאילתה ולקבל מערך ריק, 200, במקום להיכשל
+-- על הרשאות לפני שהיא בכלל מגיעה ל-RLS. זה גם מה ש-/api/keepalive
+-- (pingSupabase ב-src/lib/supabaseServer.ts) מסתמך עליו: הוא צריך שהבקשה
+-- האנונימית באמת תגיע ל-Postgres, לא תיפסל בשער לפני כן.
+grant select on public.guide_usage to anon;
+
 -- מגדיל את המונה היומי של המשתמש המחובר (auth.uid()) ומחזיר האם הוא עדיין
 -- מתחת למכסה. p_daily_limit מגיע מהשרת (Next.js), לא מהלקוח.
 create or replace function public.increment_guide_usage(p_daily_limit int)
