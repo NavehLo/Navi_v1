@@ -14,8 +14,16 @@ export interface TrailPOI {
   tags?: Record<string, string> | null;
 }
 
+// What kind of journey this is. A drive is the same geometry with none of
+// the hiking extras: no guide, no shade, no water, no elevation profile — and
+// a faster tour.
+export type TrailKind = 'hike' | 'drive';
+
 export interface TrailData {
   name: string;
+  kind: TrailKind;
+  // Driving time from the routing service, in seconds. Only on drives.
+  driveDurationSec?: number;
   coords: Coordinate3D[];
   elevations: number[];
   minEle: number;
@@ -36,7 +44,15 @@ export type TrailSource =
   | { kind: 'url'; url: string }
   | { kind: 'file'; content: string }
   // A marked route from OpenStreetMap via Waymarked Trails, by relation id.
-  | { kind: 'wmt'; id: number };
+  | { kind: 'wmt'; id: number }
+  // A drive between two places, re-routable from the endpoints alone.
+  | { kind: 'drive'; from: DrivePlace; to: DrivePlace };
+
+export interface DrivePlace {
+  name: string;
+  lon: number;
+  lat: number;
+}
 
 export function useTrailData() {
   const [trail, setTrail] = useState<TrailData | null>(null);
@@ -187,7 +203,11 @@ export function useTrailData() {
     }
   };
 
-  const processCoordinates = (coordsArr: Coordinate3D[], name: string) => {
+  const processCoordinates = (
+    coordsArr: Coordinate3D[],
+    name: string,
+    extras: { kind?: TrailKind; driveDurationSec?: number } = {}
+  ) => {
     let tDist = 0;
     const accDists = [0];
     let minE = Infinity, maxE = -Infinity;
@@ -231,6 +251,8 @@ export function useTrailData() {
     setTrailError(null);
     setTrail({
       name,
+      kind: extras.kind ?? 'hike',
+      driveDurationSec: extras.driveDurationSec,
       coords: coordsArr,
       elevations: eles,
       minEle: minE === Infinity ? 0 : minE,
@@ -249,12 +271,17 @@ export function useTrailData() {
 
   // Coordinates that already came from somewhere else (a routing API, an OSM
   // route) — no file to parse, just the trail to build and its origin to keep.
-  const loadTrailFromCoords = (coords: Coordinate3D[], name: string, source: TrailSource) => {
+  const loadTrailFromCoords = (
+    coords: Coordinate3D[],
+    name: string,
+    source: TrailSource,
+    extras: { kind?: TrailKind; driveDurationSec?: number } = {}
+  ) => {
     if (coords.length < 2) {
       setTrailError('למסלול אין מספיק נקודות.');
       return;
     }
-    processCoordinates(coords, name);
+    processCoordinates(coords, name, extras);
     setTrailSource(source);
   };
 

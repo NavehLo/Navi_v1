@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo, memo, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, memo, useRef, useSyncExternalStore } from "react";
 import mapboxgl from "mapbox-gl";
 import { EyeOff } from "lucide-react";
 import MapComponent from "@/components/Map";
@@ -12,6 +12,9 @@ import SettingsPanel from "@/components/SettingsPanel";
 import PersonalArea from "@/components/PersonalArea";
 import GuidePointsPanel from "@/components/GuidePointsPanel";
 import WorldTrailCard from "@/components/WorldTrailCard";
+import DrivePlanner, { type DriveRequest } from "@/components/DrivePlanner";
+import { Car, Footprints } from "lucide-react";
+import { driveRoute } from "@/lib/mapboxDirections";
 import { useTrailData } from "@/hooks/useTrailData";
 import { useTour } from "@/hooks/useTour";
 import { useAIGuide } from "@/hooks/useAIGuide";
@@ -23,10 +26,43 @@ import { useOfflineTrail } from "@/hooks/useOfflineTrail";
 import { useSummerConditions } from "@/hooks/useSummerConditions";
 import { useWorldTrails } from "@/hooks/useWorldTrails";
 import { saveTrail, recordTour, SavedTrail, describeSupabaseError, clearPersonalCache } from "@/lib/personalArea";
-import type { TrailPOI } from "@/hooks/useTrailData";
+import type { TrailPOI, DrivePlace } from "@/hooks/useTrailData";
 
 // The guide can be switched off entirely, and the choice sticks between visits.
 const GUIDE_ENABLED_KEY = "guide_enabled";
+
+// Which of the two worlds the home screen is in: hiking trails, or a drive
+// between two places. Remembered per device, read through an external store
+// so the server render (always trails) and the first client render agree.
+type AppMode = 'trails' | 'drive';
+const APP_MODE_KEY = "navi:appMode";
+const modeListeners = new Set<() => void>();
+function readAppMode(): AppMode {
+  try { return localStorage.getItem(APP_MODE_KEY) === 'drive' ? 'drive' : 'trails'; } catch { return 'trails'; }
+}
+function writeAppMode(mode: AppMode) {
+  try { localStorage.setItem(APP_MODE_KEY, mode); } catch {}
+  modeListeners.forEach((l) => l());
+}
+function subscribeAppMode(l: () => void) {
+  modeListeners.add(l);
+  return () => { modeListeners.delete(l); };
+}
+
+// A saved or shared drive is just its two endpoints; the road is asked for
+// again when it is opened. "drive:lon,lat;lon,lat|from name|to name".
+function encodeDrive(from: DrivePlace, to: DrivePlace): string {
+  return `drive:${from.lon},${from.lat};${to.lon},${to.lat}|${from.name}|${to.name}`;
+}
+function decodeDrive(raw: string | null | undefined): { from: DrivePlace; to: DrivePlace } | null {
+  const m = raw?.match(/^drive:(-?[\d.]+),(-?[\d.]+);(-?[\d.]+),(-?[\d.]+)(?:\|([^|]*)\|(.*))?$/);
+  if (!m) return null;
+  const [, flon, flat, tlon, tlat, fname, tname] = m;
+  const from = { lon: Number(flon), lat: Number(flat), name: fname || `${flat}, ${flon}` };
+  const to = { lon: Number(tlon), lat: Number(tlat), name: tname || `${tlat}, ${tlon}` };
+  if ([from.lon, from.lat, to.lon, to.lat].some((n) => !Number.isFinite(n))) return null;
+  return { from, to };
+}
 
 // A narration runs about 40 seconds. Firing it 150 m out means it finishes
 // roughly as the point is reached, rather than starting there and trailing
@@ -104,6 +140,33 @@ export default function TrailApp() {
   const { trail, setTrail, trailSource, loadTrailFile, loadTrailFromUrl, loadTrailFromText, loadTrailFromCoords, trailError, trailLoading } = useTrailData();
   // Marked hiking routes from OSM, worldwide, as an overlay anyone can tap.
   const worldTrails = useWorldTrails(map, styleRev, { onLoadTrail: loadTrailFromCoords });
+
+  // Hiking trails or a road trip — the home screen's two faces.
+  const appMode = useSyncExternalStore(subscribeAppMode, readAppMode, () => 'trails' as AppMode);
+  const isDrive = trail?.kind === 'drive';
+  const [drivePreview, setDrivePreview] = useState<{ from: DrivePlace | null; to: DrivePlace | null }>({ from: null, to: null });
+  const handleDrivePreview = useCallback((from: DrivePlace | null, to: DrivePlace | null) => setDrivePreview({ from, to }), []);
+
+  const openDrive = useCallback((req: DriveRequest) => {
+    loadTrailFromCoords(
+      req.coords,
+      `${req.from.name} ← ${req.to.name}`,
+      { kind: 'drive', from: req.from, to: req.to },
+      { kind: 'drive', driveDurationSec: req.durationSec }
+    );
+  }, [loadTrailFromCoords]);
+
+  // A saved or shared drive: route it again from its endpoints.
+  const openDriveFromEndpoints = useCallback(async (from: DrivePlace, to: DrivePlace): Promise<boolean> => {
+    try {
+      const route = await driveRoute([from.lon, from.lat], [to.lon, to.lat]);
+      openDrive({ from, to, ...route });
+      return true;
+    } catch (e) {
+      console.error('Drive re-route failed:', e);
+      return false;
+    }
+  }, [openDrive]);
   const { isActive: isTourActive, startTour, stopTour, speed: tourSpeed, setSpeed: setTourSpeed, progress, setProgressByJump } = useTour(map, trail);
   const { requestGuideForPoint, unlockAudio, isSpeaking, isLoading, currentScript, stopSpeaking, queueLength, currentVoice, currentFromDevice } = useAIGuide();
 
@@ -150,7 +213,8 @@ export default function TrailApp() {
       await saveTrail({
         name: trail.name,
         sourceUrl: trailSource?.kind === 'url' ? trailSource.url
-          : trailSource?.kind === 'wmt' ? `wmt:${trailSource.id}` : null,
+          : trailSource?.kind === 'wmt' ? `wmt:${trailSource.id}`
+          : trailSource?.kind === 'drive' ? encodeDrive(trailSource.from, trailSource.to) : null,
         sourceContent: trailSource?.kind === 'file' ? trailSource.content : null,
         totalDistance: trail.totalDistance,
       });
@@ -165,7 +229,12 @@ export default function TrailApp() {
   const handleLoadSavedTrail = useCallback((saved: SavedTrail) => {
     setShowPersonalArea(false);
     const wmtId = saved.source_url?.match(/^wmt:(\d+)$/)?.[1];
-    if (wmtId) {
+    const drive = decodeDrive(saved.source_url);
+    if (drive) {
+      openDriveFromEndpoints(drive.from, drive.to).then((ok) => {
+        if (!ok) alert('לא הצלחנו לחשב מחדש את מסלול הנסיעה.');
+      });
+    } else if (wmtId) {
       worldTrails.loadById(Number(wmtId)).then((ok) => {
         if (!ok) alert('המסלול לא זמין כרגע משירות Waymarked Trails.');
       });
@@ -176,7 +245,7 @@ export default function TrailApp() {
     } else {
       alert('למסלול השמור אין מקור לטעינה.');
     }
-  }, [loadTrailFromUrl, loadTrailFromText, worldTrails]);
+  }, [loadTrailFromUrl, loadTrailFromText, worldTrails, openDriveFromEndpoints]);
 
   // Record a completed virtual tour in the personal history (once per trail load)
   const tourRecordedRef = useRef(false);
@@ -229,7 +298,7 @@ export default function TrailApp() {
   // Real POIs discovered along the trail (waterfalls, viewpoints, ruins...),
   // enriching the synthetic start/midway/end. Best-effort; falls back gracefully.
   const { pois: enrichedPois, source: poiSource, discoveryFailed: poiDiscoveryFailed } =
-    useTrailPOIs(trail);
+    useTrailPOIs(isDrive ? null : trail);
 
   // Where each narration point sits along the route, in kilometres — the
   // ordering key the geofence needs so point N+1 cannot speak before point N.
@@ -243,7 +312,7 @@ export default function TrailApp() {
     guidePos,
     (poi) => requestGuideForPoint(poi, trail!.name),
     {
-      enabled: isGuideEnabled && (isTourActive || isFieldMode),
+      enabled: isGuideEnabled && !isDrive && (isTourActive || isFieldMode),
       radiusKm: GEOFENCE_RADIUS_KM,
       resetKey: trail?.name,
       poiDistancesKm,
@@ -256,7 +325,7 @@ export default function TrailApp() {
 
   // How shaded the trail is — read from a grid that ships with the app, so this
   // costs no request and works offline.
-  const { shade, shadeLoading, water, waterStatus } = useSummerConditions(trail);
+  const { shade, shadeLoading, water, waterStatus } = useSummerConditions(isDrive ? null : trail);
 
   // Replaying a point someone asked for jumps the queue — they pressed a
   // button and expect to hear it now.
@@ -390,21 +459,28 @@ export default function TrailApp() {
     const params = new URLSearchParams(window.location.search);
     const shared = params.get('trail');
     const sharedWmt = params.get('wmt');
+    const sharedDrive = decodeDrive(params.get('drive'));
     if (shared) {
       loadTrailFromUrl(shared);
       window.history.replaceState({}, '', window.location.pathname);
     } else if (sharedWmt && /^\d+$/.test(sharedWmt)) {
       worldTrails.loadById(Number(sharedWmt));
       window.history.replaceState({}, '', window.location.pathname);
+    } else if (sharedDrive) {
+      writeAppMode('drive');
+      openDriveFromEndpoints(sharedDrive.from, sharedDrive.to);
+      window.history.replaceState({}, '', window.location.pathname);
     }
-  }, [loadTrailFromUrl, worldTrails]);
+  }, [loadTrailFromUrl, worldTrails, openDriveFromEndpoints]);
 
   // Share the current trail (only trails that can be re-opened from a link)
   const handleShare = useCallback(async () => {
     if (!trail || !trailSource || trailSource.kind === 'file') return;
     const shareUrl = trailSource.kind === 'url'
       ? `${window.location.origin}/?trail=${encodeURIComponent(trailSource.url)}`
-      : `${window.location.origin}/?wmt=${trailSource.id}`;
+      : trailSource.kind === 'wmt'
+        ? `${window.location.origin}/?wmt=${trailSource.id}`
+        : `${window.location.origin}/?drive=${encodeURIComponent(encodeDrive(trailSource.from, trailSource.to))}`;
     try {
       if (navigator.share) {
         await navigator.share({ title: `מסלול: ${trail.name}`, text: `בוא לטייל ב${trail.name} עם Navi`, url: shareUrl });
@@ -450,7 +526,7 @@ export default function TrailApp() {
       map.addLayer({
         id: 'route-line', type: 'line', source: 'route',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': '#f97316', 'line-width': 6 }
+        paint: { 'line-color': trail.kind === 'drive' ? '#3b82f6' : '#f97316', 'line-width': 6 }
       });
 
       map.addSource('fly-pos', {
@@ -582,6 +658,59 @@ export default function TrailApp() {
   // stream is solid blue, a spring or an unverified polygon is hollow. The
   // hollow ones are on the map because they are the best information there is,
   // not because they are a promise of water — same distinction the panel makes.
+  // The two ends of a drive being planned, as pins with names. Cleared once
+  // the drive opens (the planner unmounts and the route has its own marker).
+  useEffect(() => {
+    if (!map) return;
+    const ends = trail ? [] : [
+      drivePreview.from && { ...drivePreview.from, role: 'מוצא' },
+      drivePreview.to && { ...drivePreview.to, role: 'יעד' },
+    ].filter((p): p is DrivePlace & { role: string } => !!p);
+
+    const syncDriveEnds = () => {
+      if (!map.getStyle()) return;
+      const fc: GeoJSON.FeatureCollection<GeoJSON.Point> = {
+        type: 'FeatureCollection',
+        features: ends.map((p) => ({
+          type: 'Feature',
+          properties: { label: `${p.role} · ${p.name}` },
+          geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+        })),
+      };
+      if (!map.getSource('drive-ends')) {
+        map.addSource('drive-ends', { type: 'geojson', data: fc });
+        map.addLayer({
+          id: 'drive-ends-dot', type: 'circle', source: 'drive-ends',
+          paint: { 'circle-radius': 7, 'circle-color': '#3b82f6', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 },
+        });
+        map.addLayer({
+          id: 'drive-ends-label', type: 'symbol', source: 'drive-ends',
+          layout: {
+            'text-field': ['get', 'label'],
+            'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
+            'text-size': 12,
+            'text-offset': [0, -1.4],
+            'text-anchor': 'bottom',
+          },
+          paint: { 'text-color': '#dbeafe', 'text-halo-color': '#1e3a8a', 'text-halo-width': 1.5 },
+        });
+      } else {
+        (map.getSource('drive-ends') as mapboxgl.GeoJSONSource).setData(fc);
+      }
+      if (ends.length === 2) {
+        const bounds = new mapboxgl.LngLatBounds();
+        ends.forEach((p) => bounds.extend([p.lon, p.lat]));
+        map.fitBounds(bounds, { padding: 100, duration: 1000, maxZoom: 12 });
+      } else if (ends.length === 1) {
+        map.easeTo({ center: [ends[0].lon, ends[0].lat], zoom: Math.max(map.getZoom(), 10), duration: 800 });
+      }
+    };
+
+    try { syncDriveEnds(); } catch {}
+    map.on('style.load', syncDriveEnds);
+    return () => { map.off('style.load', syncDriveEnds); };
+  }, [map, drivePreview, trail, styleRev]);
+
   useEffect(() => {
     if (!map) return;
 
@@ -642,8 +771,34 @@ export default function TrailApp() {
       {/* Map Engine Layer */}
       <MemoizedMapComponent onMapLoad={handleMapLoad} />
 
+      {/* Home screen: hiking trails, or a drive between two places */}
+      {map && !trail && !uiHidden && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[44] flex bg-zinc-900/90 rounded-full border border-white/10 backdrop-blur-md shadow-xl p-1" dir="rtl" role="tablist">
+          <button
+            role="tab"
+            aria-selected={appMode === 'trails'}
+            aria-label="מסלולי טיול"
+            title="מסלולי טיול"
+            onClick={() => writeAppMode('trails')}
+            className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full transition-colors ${appMode === 'trails' ? 'bg-orange-500 text-white' : 'text-zinc-300 hover:bg-white/10'}`}
+          >
+            <Footprints className="w-4 h-4 sm:w-3.5 sm:h-3.5" /><span className="hidden sm:inline whitespace-nowrap">מסלולי טיול</span>
+          </button>
+          <button
+            role="tab"
+            aria-selected={appMode === 'drive'}
+            aria-label="נסיעה בכביש"
+            title="נסיעה בכביש"
+            onClick={() => writeAppMode('drive')}
+            className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full transition-colors ${appMode === 'drive' ? 'bg-orange-500 text-white' : 'text-zinc-300 hover:bg-white/10'}`}
+          >
+            <Car className="w-4 h-4 sm:w-3.5 sm:h-3.5" /><span className="hidden sm:inline whitespace-nowrap">נסיעה בכביש</span>
+          </button>
+        </div>
+      )}
+
       {/* Trail Discovery overlay with markers & GPX upload fallback */}
-      {map && !trail && (
+      {map && !trail && appMode === 'trails' && (
         <MemoizedTrailDiscovery 
           map={map} 
           onSelectTrail={loadTrailFromUrl} 
@@ -652,6 +807,9 @@ export default function TrailApp() {
           error={trailError} 
           styleRev={styleRev}
         />
+      )}
+      {map && !trail && appMode === 'drive' && !uiHidden && (
+        <DrivePlanner map={map} onRoute={openDrive} onPreview={handleDrivePreview} />
       )}
 
       {/* Restore button — the only chrome that survives "map only" mode */}
@@ -689,7 +847,7 @@ export default function TrailApp() {
         onTourSpeedChange={setTourSpeed}
         onLocateUser={handleLocateUser}
         isFieldMode={isFieldMode}
-        onToggleFieldMode={handleToggleFieldMode}
+        onToggleFieldMode={isDrive ? undefined : handleToggleFieldMode}
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
         onCompass={handleCompass}
@@ -704,11 +862,11 @@ export default function TrailApp() {
         onAuthClick={() => user ? setShowPersonalArea(true) : signInWithGoogle()}
         onSaveTrail={handleSaveTrail}
         saveTrailState={saveTrailState}
-        canShare={trailSource?.kind === 'url' || trailSource?.kind === 'wmt'}
+        canShare={!!trailSource && trailSource.kind !== 'file'}
         onShare={handleShare}
         isGuideEnabled={isGuideEnabled}
-        onToggleGuide={handleToggleGuide}
-        onOpenGuidePoints={() => setShowGuidePoints(true)}
+        onToggleGuide={isDrive ? undefined : handleToggleGuide}
+        onOpenGuidePoints={isDrive ? undefined : () => setShowGuidePoints(true)}
         guidePointCount={enrichedPois.length}
         onHideUI={() => setUiHidden(true)}
         showWorldTrails={worldTrails.enabled}
@@ -768,7 +926,7 @@ export default function TrailApp() {
           the transcript can never cover the speed buttons the way it used to. */}
       {trail && !uiHidden && (
         <div className="absolute bottom-0 inset-x-0 z-50 flex flex-col items-center gap-2 px-3 pb-3 pointer-events-none">
-          <AIAssistantUI
+          {!isDrive && <AIAssistantUI
             isLoading={isLoading}
             isSpeaking={isSpeaking}
             currentScript={currentScript}
@@ -777,9 +935,10 @@ export default function TrailApp() {
             queueLength={queueLength}
             voice={currentVoice}
             voiceFromDevice={currentFromDevice}
-          />
+          />}
           <MemoizedBottomBar
             hasTrail={!!trail}
+            trailKind={trail.kind}
             isTourActive={isTourActive}
             tourSpeed={tourSpeed}
             onTourSpeedChange={setTourSpeed}
@@ -804,9 +963,11 @@ export default function TrailApp() {
             <div className="text-emerald-400">הושלם: {(trail.totalDistance * progress).toFixed(1)} ק"מ <span className="text-emerald-300 font-bold">({Math.round(progress*100)}%)</span></div>
             <div className="text-sky-400">נותר: {(trail.totalDistance * (1 - progress)).toFixed(1)} ק"מ</div>
           </div>
-          <div className="text-center text-orange-400 text-[10px] font-bold mb-1.5 uppercase tracking-widest">
-            גובה נוכחי: {Math.round(trail.elevations[Math.floor(progress * (trail.elevations.length - 1))])} מ'
-          </div>
+          {!isDrive && (
+            <div className="text-center text-orange-400 text-[10px] font-bold mb-1.5 uppercase tracking-widest">
+              גובה נוכחי: {Math.round(trail.elevations[Math.floor(progress * (trail.elevations.length - 1))])} מ'
+            </div>
+          )}
           {/* dir=ltr forces correct offsetX math; we flip the visual with scale */}
           <div dir="ltr" className="w-full h-3 bg-zinc-800 rounded-full cursor-pointer relative overflow-hidden" onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();

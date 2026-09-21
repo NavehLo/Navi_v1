@@ -1,18 +1,39 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import mapboxgl from "mapbox-gl";
-import { TrailData } from "./useTrailData";
+import { TrailData, TrailKind } from "./useTrailData";
 import { getBearing } from "../utils/trailUtils";
 
 const SEC_PER_KM = 45;
+
+// Playback multipliers the transport bar offers. The engine accepts any
+// number; these are only what is shown. A drive can be hundreds of
+// kilometres, hence its long tail.
+export const TOUR_SPEEDS = [1, 2, 5] as const;
+export const DRIVE_TOUR_SPEEDS = [1, 2, 5, 10, 20, 50] as const;
+export function tourSpeedsFor(kind: TrailKind | undefined): readonly number[] {
+  return kind === 'drive' ? DRIVE_TOUR_SPEEDS : TOUR_SPEEDS;
+}
 
 // The camera height that keeps the ground moving at a readable pace. At x1 the
 // traveller covers ~22 m/s; at x5 it is ~110 m/s, and at zoom 17 that is a
 // blur the satellite tiles cannot even load fast enough for. Pulling back a
 // little per step keeps the route legible and the tiles ahead of the camera.
-const ZOOM_BY_SPEED: Record<number, number> = { 1: 17, 2: 16.5, 5: 15.5 };
+// The drive speeds go further: at x50 (1.1 km/s) a zoom-12 tile is ~10 km
+// across, so a new column arrives every ~9 s — enough time to load it.
+const ZOOM_BY_SPEED: Record<number, number> = { 1: 17, 2: 16.5, 5: 15.5, 10: 14.5, 20: 13.5, 50: 12.5 };
 function zoomForSpeed(speed: number): number {
   return ZOOM_BY_SPEED[speed] ?? Math.max(11, 17 - Math.log2(Math.max(speed, 1)) * 1.1);
 }
+// Terrain seen from low zoom at a steep pitch looks like a flat sheet with a
+// horizon far too close; the faster we go, the more we look down.
+function pitchForSpeed(speed: number): number {
+  return speed >= 50 ? 45 : speed >= 20 ? 50 : speed >= 10 ? 55 : 60;
+}
+
+// The traveller dot is a GeoJSON source; rewriting it 60 times a second is
+// wasted work nobody can see. Every 50 ms is still 20 updates a second.
+const DOT_UPDATE_MS = 50;
+const MAX_FRAME_MS = 1000;
 
 export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
   // External state just for UI reactivity
@@ -28,6 +49,11 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
   const virtualElapsedRef = useRef(0); // never reset on resume
   const currentBearingRef = useRef(0);
   const lastGeoJsonUpdateRef = useRef(0);
+  // A zoom/pitch the loop is easing towards after a speed change. The loop
+  // repositions the camera every frame, and that cancels any easeTo — so the
+  // easing has to happen here. Once reached it lets go, and the zoom is the
+  // user's again (they may want to lean in or out mid-tour).
+  const cameraTargetRef = useRef<{ zoom: number; pitch: number } | null>(null);
 
   // Keep speedRef in sync with speed state
   useEffect(() => { speedRef.current = speed; }, [speed]);
@@ -90,7 +116,12 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
       if (!lastTsRef.current) lastTsRef.current = ts;
       let dt = ts - lastTsRef.current;
       lastTsRef.current = ts;
-      if (dt > 100) dt = 16; // clamp spikes
+      // A frame that took ages is either a tab switch (many seconds — don't
+      // leap ahead) or the map struggling to render (a weak GPU at a wide,
+      // pitched view can drop to a few frames a second — real time the
+      // traveller should still cover, or a "x50" runs at x10). Capping at a
+      // second keeps the tour honest without letting a tab switch teleport it.
+      if (dt > MAX_FRAME_MS) dt = MAX_FRAME_MS;
 
       virtualElapsedRef.current += dt * speedRef.current;
       const t = Math.min(virtualElapsedRef.current / totalDuration, 1);
@@ -112,11 +143,27 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
       const smoothFactor = 1.0 - Math.exp(-dt * 0.0015 * speedRef.current);
       currentBearingRef.current += diff * smoothFactor;
 
-      // Move camera — preserve zoom entirely, only update center + bearing
-      map.setCenter([pt[1], pt[0]]);
-      map.setBearing(currentBearingRef.current);
+      // Move camera — centre and bearing every frame; zoom and pitch only
+      // while easing to a new speed's height, otherwise they stay the user's.
+      const target = cameraTargetRef.current;
+      if (target) {
+        const k = 1 - Math.exp(-dt / 350);
+        const zoom = map.getZoom() + (target.zoom - map.getZoom()) * k;
+        const pitch = map.getPitch() + (target.pitch - map.getPitch()) * k;
+        const arrived = Math.abs(target.zoom - zoom) < 0.01 && Math.abs(target.pitch - pitch) < 0.1;
+        if (arrived) cameraTargetRef.current = null;
+        map.jumpTo({
+          center: [pt[1], pt[0]],
+          bearing: currentBearingRef.current,
+          zoom: arrived ? target.zoom : zoom,
+          pitch: arrived ? target.pitch : pitch,
+        });
+      } else {
+        map.jumpTo({ center: [pt[1], pt[0]], bearing: currentBearingRef.current });
+      }
 
-      if (map.getSource('fly-pos')) {
+      if (map.getSource('fly-pos') && (ts - lastGeoJsonUpdateRef.current >= DOT_UPDATE_MS || t >= 1)) {
+        lastGeoJsonUpdateRef.current = ts;
         (map.getSource('fly-pos') as mapboxgl.GeoJSONSource).setData({
           type: 'Feature',
           geometry: { type: 'Point', coordinates: [pt[1], pt[0], pt[2] || 0] },
@@ -144,6 +191,7 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
 
     isActiveRef.current = true;
     setIsActive(true);
+    cameraTargetRef.current = null;
     lastTsRef.current = null; // Reset dt on next tick to avoid a jumpy first frame
     currentBearingRef.current = map.getBearing();
 
@@ -160,7 +208,7 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
       map.jumpTo({
         center: [startPt[1], startPt[0]],
         zoom: targetZoom,
-        pitch: 60,
+        pitch: pitchForSpeed(speedRef.current),
         bearing: map.getBearing()
       });
       // Ensure the fly-pos is updated immediately for the first frame
@@ -178,8 +226,13 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
     }
   }, [map, trail, lerpByDist, runLoop]);
 
-  // Reset tour state when a new trail is loaded
+  // Reset tour state when a new trail is loaded. x50 is a drive speed; a hike
+  // opened after one starts back at x1.
   useEffect(() => {
+    if (!tourSpeedsFor(trail?.kind).includes(speedRef.current)) {
+      speedRef.current = 1;
+      setSpeed(1);
+    }
     setProgress(0);
     virtualElapsedRef.current = 0;
     isActiveRef.current = false;
@@ -207,7 +260,7 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
       speedRef.current = s;
       // Only while flying: changing speed on a paused tour must not move the map
       if (isActiveRef.current && map && s !== prev) {
-        map.easeTo({ zoom: zoomForSpeed(s), duration: 600 });
+        cameraTargetRef.current = { zoom: zoomForSpeed(s), pitch: pitchForSpeed(s) };
       }
     },
     progress,

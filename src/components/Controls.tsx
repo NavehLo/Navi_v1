@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import type { TrailKind } from "../hooks/useTrailData";
+import { tourSpeedsFor } from "../hooks/useTour";
 import {
   Home, Settings, UserCircle2, BookmarkPlus, Check, Share2, Headphones, HeadphoneOff,
   ListMusic, Layers, Maximize2, LocateFixed, Footprints, Play, Square, Eye, MoreHorizontal, X, Tag,
@@ -60,9 +62,6 @@ interface ControlsProps {
 const PILL =
   "flex flex-col bg-zinc-900/90 rounded-2xl border border-white/10 backdrop-blur-md overflow-hidden shadow-xl";
 
-// Playback multipliers offered during a virtual tour. The engine (useTour)
-// accepts any number; this list is only what the transport bar shows.
-export const TOUR_SPEEDS = [1, 2, 5] as const;
 
 // Naming the icons without giving up the icon rail.
 //
@@ -337,9 +336,10 @@ export default function Controls(props: ControlsProps) {
 // Rendered inside the bottom stack in page.tsx so the narration card and the
 // tour transport can never cover each other.
 export function BottomBar({
-  onToggleTour, isTourActive, tourSpeed, onTourSpeedChange, hasTrail, tourProgress,
-}: Pick<ControlsProps, 'onToggleTour' | 'isTourActive' | 'tourSpeed' | 'onTourSpeedChange' | 'hasTrail' | 'tourProgress'>) {
+  onToggleTour, isTourActive, tourSpeed, onTourSpeedChange, hasTrail, tourProgress, trailKind,
+}: Pick<ControlsProps, 'onToggleTour' | 'isTourActive' | 'tourSpeed' | 'onTourSpeedChange' | 'hasTrail' | 'tourProgress'> & { trailKind?: TrailKind }) {
   if (!hasTrail) return null;
+  const speeds = tourSpeedsFor(trailKind);
 
   return (
     <div className="pointer-events-auto flex items-center gap-2" dir="rtl">
@@ -351,12 +351,12 @@ export function BottomBar({
           >
             <Square className="w-3.5 h-3.5" /> עצור
           </button>
-          {onTourSpeedChange && TOUR_SPEEDS.map((s) => (
+          {onTourSpeedChange && speeds.map((s) => (
             <button
               key={s}
               onClick={() => onTourSpeedChange(s)}
               aria-pressed={tourSpeed === s}
-              className={`px-2.5 py-2 text-xs rounded-xl font-bold ${tourSpeed === s ? 'bg-orange-500 text-white' : 'text-zinc-400 hover:bg-white/10'}`}
+              className={`${speeds.length > 3 ? 'px-1.5 text-[11px]' : 'px-2.5 text-xs'} py-2 rounded-xl font-bold ${tourSpeed === s ? 'bg-orange-500 text-white' : 'text-zinc-400 hover:bg-white/10'}`}
             >x{s}</button>
           ))}
         </div>

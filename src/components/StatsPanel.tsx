@@ -4,12 +4,16 @@ import type { WaterStatus } from "../hooks/useSummerConditions";
 import { ArrowRight, ChevronDown, ChevronUp, TrendingUp, TrendingDown } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { computeElevationGain } from "../utils/trailUtils";
+import { formatDuration } from "./DrivePlanner";
 
 // Sits above the bottom stack (narration card + tour bar) and starts collapsed
 // on phones — expanded, this card alone used to cover a third of the screen.
 export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus }) {
   const [collapsed, setCollapsed] = useState(true);
   const cardRef = useRef<HTMLDivElement>(null);
+  // A drive has a road, a length and a time; none of the hiking readouts
+  // (elevation, shade, water) mean anything for it.
+  const isDrive = trail.kind === 'drive';
 
   // The tour progress bar claims the same strip of phone screen this card sits
   // on — both were pinned to bottom-[76px], so starting a tour dropped the bar
@@ -113,8 +117,14 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           <div className="min-w-0">
             <div className="text-white font-bold text-xs truncate" title={trail.name}>{trail.name}</div>
             <div className="text-zinc-400 text-[10px]">
-              {trail.totalDistance.toFixed(1)} ק״מ · {Math.round(trail.minEle)}–{Math.round(trail.maxEle)} מ׳
-              {shade && <> · <span className="text-lime-400">{Math.round(shade.shadePct)}% צל</span></>}
+              {isDrive ? (
+                <>{trail.totalDistance.toFixed(0)} ק״מ{trail.driveDurationSec != null && <> · <span className="text-sky-400">{formatDuration(trail.driveDurationSec)}</span></>}</>
+              ) : (
+                <>
+                  {trail.totalDistance.toFixed(1)} ק״מ · {Math.round(trail.minEle)}–{Math.round(trail.maxEle)} מ׳
+                  {shade && <> · <span className="text-lime-400">{Math.round(shade.shadePct)}% צל</span></>}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -154,6 +164,14 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
             <span className="text-xs font-normal text-zinc-500 mr-1">ק"מ</span>
           </div>
         </div>
+        {isDrive ? (
+          <div className="text-center flex-1 border-r border-white/5 px-1">
+            <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-1 font-bold">זמן נסיעה</div>
+            <div className="text-xl font-bold text-emerald-400">
+              {trail.driveDurationSec != null ? formatDuration(trail.driveDurationSec) : '—'}
+            </div>
+          </div>
+        ) : (<>
         <div className="text-center flex-1 border-r border-white/5 px-1">
           <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-1 font-bold">גובה מינימלי</div>
           <div className="text-xl font-bold text-red-400">
@@ -168,6 +186,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
             <span className="text-xs font-normal text-zinc-500 mr-1">מ'</span>
           </div>
         </div>
+        </>)}
       </div>
       {climb && (
         <div className="flex justify-center gap-6 text-xs font-bold mt-2 pt-2 border-t border-white/5">
@@ -175,6 +194,13 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           <span className="text-red-400 flex items-center gap-1"><TrendingDown className="w-3.5 h-3.5" /> ירידה {climb.loss} {"מ'"}</span>
         </div>
       )}
+      {isDrive && (
+        <p className="mt-3 border-t border-white/10 pt-3 text-[11px] text-zinc-400 leading-relaxed">
+          מסלול נסיעה לפי Mapbox Directions. זמן הנסיעה הוא הערכה לתנאי דרך רגילים, בלי פקקים ועצירות.
+          הסיור הווירטואלי מתקדם ב־80 קמ״ש ב־x1.
+        </p>
+      )}
+      {!isDrive && (<>
       <div className="mt-3 border-t border-white/10 pt-3 relative" dir="ltr">
         <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-2 text-right font-bold">פרופיל גובה</div>
         <div className="relative w-full h-14 bg-zinc-800 rounded-lg overflow-hidden">
@@ -339,6 +365,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           </p>
         </div>
       </div>
+      </>)}
     </div>
   );
 }
