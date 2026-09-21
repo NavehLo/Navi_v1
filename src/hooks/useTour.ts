@@ -5,6 +5,15 @@ import { getBearing } from "../utils/trailUtils";
 
 const SEC_PER_KM = 45;
 
+// The camera height that keeps the ground moving at a readable pace. At x1 the
+// traveller covers ~22 m/s; at x5 it is ~110 m/s, and at zoom 17 that is a
+// blur the satellite tiles cannot even load fast enough for. Pulling back a
+// little per step keeps the route legible and the tiles ahead of the camera.
+const ZOOM_BY_SPEED: Record<number, number> = { 1: 17, 2: 16.5, 5: 15.5 };
+function zoomForSpeed(speed: number): number {
+  return ZOOM_BY_SPEED[speed] ?? Math.max(11, 17 - Math.log2(Math.max(speed, 1)) * 1.1);
+}
+
 export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
   // External state just for UI reactivity
   const [isActive, setIsActive] = useState(false);
@@ -147,7 +156,7 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
       setProgress(0);
       
       const startPt = lerpByDist(0);
-      const targetZoom = Math.max(map.getZoom(), 17);
+      const targetZoom = Math.max(map.getZoom(), zoomForSpeed(speedRef.current));
       map.jumpTo({
         center: [startPt[1], startPt[0]],
         zoom: targetZoom,
@@ -192,7 +201,15 @@ export function useTour(map: mapboxgl.Map | null, trail: TrailData | null) {
     startTour,
     stopTour,
     speed,
-    setSpeed: (s: number) => { setSpeed(s); speedRef.current = s; },
+    setSpeed: (s: number) => {
+      const prev = speedRef.current;
+      setSpeed(s);
+      speedRef.current = s;
+      // Only while flying: changing speed on a paused tour must not move the map
+      if (isActiveRef.current && map && s !== prev) {
+        map.easeTo({ zoom: zoomForSpeed(s), duration: 600 });
+      }
+    },
     progress,
     setProgressByJump: (pct: number) => {
       if (!trail) return;

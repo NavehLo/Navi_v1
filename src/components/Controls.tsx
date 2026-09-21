@@ -58,6 +58,10 @@ interface ControlsProps {
 const PILL =
   "flex flex-col bg-zinc-900/90 rounded-2xl border border-white/10 backdrop-blur-md overflow-hidden shadow-xl";
 
+// Playback multipliers offered during a virtual tour. The engine (useTour)
+// accepts any number; this list is only what the transport bar shows.
+export const TOUR_SPEEDS = [1, 2, 5] as const;
+
 // Naming the icons without giving up the icon rail.
 //
 // A rail of unlabelled glyphs is clean and, for three of these, genuinely
@@ -335,12 +339,14 @@ export function BottomBar({
           >
             <Square className="w-3.5 h-3.5" /> עצור
           </button>
-          {onTourSpeedChange && (
-            <>
-              <button onClick={() => onTourSpeedChange(1)} className={`px-2.5 py-2 text-xs rounded-xl font-bold ${tourSpeed === 1 ? 'bg-orange-500 text-white' : 'text-zinc-400 hover:bg-white/10'}`}>x1</button>
-              <button onClick={() => onTourSpeedChange(2)} className={`px-2.5 py-2 text-xs rounded-xl font-bold ${tourSpeed === 2 ? 'bg-orange-500 text-white' : 'text-zinc-400 hover:bg-white/10'}`}>x2</button>
-            </>
-          )}
+          {onTourSpeedChange && TOUR_SPEEDS.map((s) => (
+            <button
+              key={s}
+              onClick={() => onTourSpeedChange(s)}
+              aria-pressed={tourSpeed === s}
+              className={`px-2.5 py-2 text-xs rounded-xl font-bold ${tourSpeed === s ? 'bg-orange-500 text-white' : 'text-zinc-400 hover:bg-white/10'}`}
+            >x{s}</button>
+          ))}
         </div>
       ) : (
         <button
