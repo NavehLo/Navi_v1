@@ -21,6 +21,7 @@ import {
   type Grounding,
   gatherGrounding,
   groundingPromptBlock,
+  isWorthNarrating,
   sourcesForStorage,
 } from './grounding';
 
@@ -28,32 +29,27 @@ import {
 // caller can put a quota check between them: `lookupNarration` is free and
 // `generateNarration` is what costs money.
 
-// ── POI type → Hebrew description (unknown types pass through as-is) ──────────
-const POI_TYPE_HE: Record<string, string> = {
-  start: 'נקודת הפתיחה של המסלול',
-  midway: 'אמצע המסלול',
-  end: 'נקודת הסיום של המסלול',
-};
-
 // Written against the failure mode of the old prompt, which had nothing but a
 // coordinate to work with and so produced "the view here is breathtaking" for
 // every point on every trail. The rules below are all one rule: say something
-// only if a source says it.
+// only if a source says it — and a point without a source is never sent here
+// at all (see `generateNarration`), so the prompt no longer needs a rule for
+// what to do with nothing.
 //
-// Bump PROMPT_VERSION in narrationCache.ts whenever this changes — it is what
-// retires narrations written under the old wording.
+// Bump PROMPT_VERSION in poiKey.ts whenever this changes in a way that should
+// retire narrations written under the old wording.
 const SYSTEM_PROMPT = [
   'אתה מדריך טיולים ישראלי מנוסה. אתה כותב קטע קריינות קצר שיוקרא בקול למטייל שעומד עכשיו בנקודה מסוימת במסלול.',
   '',
   'כללים מחייבים:',
   '1. כתוב אך ורק על סמך המקורות שיסופקו לך. אל תמציא שום עובדה, שם, תאריך או מספר שאינם מופיעים בהם.',
-  '2. אם סופקו מקורות — הבא לפחות עובדה קונקרטית אחת מתוכם: שם, תאריך, אדם, אירוע, מספר או תקופה.',
-  '3. אם לא סופקו מקורות — תאר עובדתית את סוג הנקודה ואת מה שידוע עליה מהנתונים שקיבלת בלבד, ואל תמלא את החסר בניחושים.',
-  '4. אסור להשתמש בקלישאות נוף: "הנוף עוצר נשימה", "יפה במיוחד", "קסום", "מרהיב". אסור לספקולציה על מזג אוויר, פריחה או עונה — הקטע נשמר לתמיד ויושמע בכל חודש בשנה.',
+  '2. הקטע חייב להיות על הנקודה הזו עצמה. הבא ממנה לפחות שתי עובדות קונקרטיות: שם, תאריך, אדם, אירוע, מספר, תקופה או מה נמצא שם בפועל.',
+  '3. אל תכתוב משפטים שנכונים לכל מקום מהסוג הזה. "מקום שמזמין להרגיש את כוח הטבע", "אתר מרתק", "הנוף עוצר נשימה" — אסורים. אם משפט יכול להופיע בקריינות של מערה אחרת, מעיין אחר או חורבה אחרת, מחק אותו.',
+  '4. אסור לספקולציה על מזג אוויר, פריחה או עונה — הקטע נשמר לתמיד ויושמע בכל חודש בשנה. אסור לתאר מה המטייל רואה או מרגיש.',
   '5. אל תחזור על נושאים שכבר סופרו במסלול הזה, אם צוינו כאלה. כל נקודה מוסיפה משהו חדש.',
-  '6. אורך: 4 עד 6 משפטים, בערך 600 תווים.',
+  '6. אורך: 4 עד 6 משפטים, בערך 600 תווים. אם המקורות דלים — קצר יותר, ולא מרופד.',
   '7. הטקסט יוקרא בקול: כתוב דיבור טבעי ורציף, בלי כותרות, בלי רשימות, בלי סוגריים, בלי סימנים מיוחדים ובלי ציון מקורות.',
-  '8. התאם את הפתיחה לסוג הנקודה: בנקודת הפתיחה — ברכה קצרה; בנקודת הסיום — סיום קצר. בשאר הנקודות גש ישר לעניין.',
+  '8. פתח ישר בעניין — משפט אחד שאומר מה הנקודה, ואז העובדות. בלי ברכות ובלי "אתם נמצאים עכשיו".',
 ].join('\n');
 
 export function availableProviders(): Record<TextProvider, boolean> {
@@ -254,15 +250,17 @@ export function resultFromLookup(lookup: NarrationLookup): NarrationResult | nul
 }
 
 function buildUserPrompt(input: NarrationInput, grounding: Grounding): string {
-  const typeDesc = POI_TYPE_HE[input.type] ?? input.type ?? 'נקודת עניין';
+  const typeDesc = input.type || 'נקודת עניין';
   const place = input.name ? `${typeDesc} "${input.name}"` : typeDesc;
 
   const parts = [
     `המטייל נמצא עכשיו ב${place}, בנ.צ: קו רוחב ${input.lat}, קו אורך ${input.lon}.`,
   ];
 
+  // Never null here: a point with nothing to say is turned away before the
+  // prompt is built.
   const sources = groundingPromptBlock(grounding);
-  parts.push(sources ?? 'לא נמצאו מקורות על הנקודה הזו. אל תמציא עובדות — הסתמך רק על סוג הנקודה ועל שמה, אם יש לה שם.');
+  if (sources) parts.push(sources);
 
   const covered = (input.covered ?? []).filter(Boolean);
   if (covered.length > 0) {
@@ -273,18 +271,36 @@ function buildUserPrompt(input: NarrationInput, grounding: Grounding): string {
   return parts.join('\n\n');
 }
 
+// The sources a new narration would be written from, or null when there are
+// none worth writing from — no article about the point, no description on it.
+// Free (Wikipedia only), so the routes call it before their quota checks: a
+// point with nothing to say must not use up a daily slot. Returns an empty
+// grounding when the text is already cached, since nothing will be written.
+export async function groundingFor(input: NarrationInput, lookup: NarrationLookup): Promise<Grounding | null> {
+  if (lookup.text) return { sources: [], osmFacts: [] };
+  const grounding = await gatherGrounding({ lat: input.lat, lon: input.lon, name: input.name, tags: input.tags });
+  return isWorthNarrating(grounding, input.tags) ? grounding : null;
+}
+
 // The paid half: fills in whatever the lookup didn't have, then writes both
 // halves back to the cache so nobody pays for this point again.
+//
+// `grounding` is what `groundingFor` returned. Without it the sources are
+// gathered here, and null comes back when there is nothing specific to say —
+// a narration that could be about any cave is worth less than silence, and it
+// would have cost the same as a real one.
 export async function generateNarration(
   input: NarrationInput,
   lookup: NarrationLookup,
-  provider: TextProvider
-): Promise<NarrationResult> {
+  provider: TextProvider,
+  grounding?: Grounding
+): Promise<NarrationResult | null> {
   const { poiKey, voice } = lookup;
 
   let text = lookup.text;
   if (!text) {
-    const grounding = await gatherGrounding({ lat: input.lat, lon: input.lon, tags: input.tags });
+    grounding ??= (await groundingFor(input, lookup)) ?? undefined;
+    if (!grounding) return null;
     text = (await generateText(provider, SYSTEM_PROMPT, buildUserPrompt(input, grounding))).trim();
     rememberInMemory(memNarration, poiKey, text);
     // The sources are stored with the text so it stays possible to check, after

@@ -7,6 +7,7 @@ import {
   pickTextProvider,
   lookupNarration,
   resultFromLookup,
+  groundingFor,
   generateNarration,
 } from '../../../../lib/narration';
 import { isNarrationCacheConfigured } from '../../../../lib/narrationCache';
@@ -36,6 +37,7 @@ type PendingReason =
   | 'batch-limit'   // fine: ask again and it will be generated
   | 'quota'         // out of budget for today
   | 'no-provider'   // no AI key configured on the server
+  | 'no-sources'    // nothing specific is known about the point — never will be
   | 'error';        // generation threw — `detail` says what
 
 interface Pending {
@@ -138,6 +140,14 @@ export async function POST(request: Request) {
         continue;
       }
 
+      // Nothing specific is known about the point: nothing to write, and —
+      // checked before the quota — nothing to charge for.
+      const grounding = await groundingFor(input, lookup);
+      if (!grounding) {
+        pending.push({ poiKey: lookup.poiKey, reason: 'no-sources' });
+        continue;
+      }
+
       // Each generation is charged, so each one is checked.
       let quotaEnforced = false;
       if (token) {
@@ -167,7 +177,11 @@ export async function POST(request: Request) {
       // One point failing must not lose the points that already succeeded:
       // the batch keeps going and reports the failure alongside the results.
       try {
-        const result = await generateNarration(input, lookup, provider);
+        const result = await generateNarration(input, lookup, provider, grounding);
+        if (!result) {
+          pending.push({ poiKey: lookup.poiKey, reason: 'no-sources' });
+          continue;
+        }
         generated++;
         charsThisRequest += result.charsSynthesized;
         if (token && quotaEnforced && result.charsSynthesized > 0) {

@@ -13,10 +13,7 @@ export interface PoiIdentity {
   type: string;
   osmType?: string | null; // 'node' | 'way' | 'relation'
   osmId?: number | string | null;
-  trailSlug?: string | null; // only for the synthetic start/midway/end points
 }
-
-const SYNTHETIC_TYPES = new Set(['start', 'midway', 'end']);
 
 // Identifies the *point*, not the trail it was found on, so a spring that
 // appears in two different trails is paid for once. Four decimal places is
@@ -26,9 +23,6 @@ export function poiKeyFor(p: PoiIdentity): string {
   const v = `v${PROMPT_VERSION}`;
   if (p.osmType && p.osmId != null && p.osmId !== '') {
     return `osm:${p.osmType}/${p.osmId}:${v}`;
-  }
-  if (p.trailSlug && SYNTHETIC_TYPES.has(p.type)) {
-    return `trail:${p.trailSlug}:${p.type}:${v}`;
   }
   return `geo:${p.lat.toFixed(4)}:${p.lon.toFixed(4)}:${p.type}:${v}`;
 }

@@ -1,4 +1,4 @@
-import { Volume2, Loader2, StopCircle, X, Smartphone, ChevronUp, ChevronDown, Minus, MessageSquareText } from "lucide-react";
+import { Volume2, Loader2, StopCircle, X, Smartphone, ChevronUp, ChevronDown, Minus, MessageSquareText, Headphones, HeadphoneOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type PlayingVoice } from "../hooks/useAIGuide";
 import { voiceNameFor } from "../lib/voicePrefs";
@@ -14,7 +14,13 @@ interface AIAssistantUIProps {
   isSpeaking: boolean;
   currentScript: string | null;
   onStop: () => void;
-  onManualTrigger: () => void;
+  // The guide is opt-in per tour. When it is off, the idle pill is the way to
+  // switch it on; when it is on, the same pill says so and switches it off.
+  guideEnabled: boolean;
+  onToggleGuide: () => void;
+  // Whether this trail has anything for the guide to say. Without points the
+  // pill would promise a narration that can never come.
+  hasPoints: boolean;
   // Narrations waiting their turn. Points can be reached faster than they can
   // be spoken, so saying how many are queued explains why the guide is talking
   // about somewhere you have already walked past.
@@ -38,7 +44,9 @@ export default function AIAssistantUI({
   isSpeaking,
   currentScript,
   onStop,
-  onManualTrigger,
+  guideEnabled,
+  onToggleGuide,
+  hasPoints,
   queueLength = 0,
   voice = null,
   voiceFromDevice = false,
@@ -55,10 +63,36 @@ export default function AIAssistantUI({
   const voiceName = voiceNameFor(voice?.voiceId);
 
   if (!isLoading && !currentScript) {
-    return (
+    if (!hasPoints) {
+      return (
+        <div
+          className="pointer-events-auto bg-zinc-900/90 text-zinc-400 shadow-xl rounded-full px-3.5 py-2 flex items-center gap-1.5 backdrop-blur-md border border-white/10"
+          dir="rtl"
+          title="לא נמצאו במסלול הזה נקודות שיש עליהן מידע ייחודי"
+        >
+          <HeadphoneOff className="w-4 h-4" />
+          <span className="text-xs font-bold">אין נקודות למדריכה במסלול</span>
+        </div>
+      );
+    }
+    return guideEnabled ? (
       <button
-        onClick={onManualTrigger}
+        onClick={onToggleGuide}
+        aria-pressed
+        title="המדריכה תקריין אוטומטית בהגעה לכל נקודה — לחץ לכיבוי"
+        className="pointer-events-auto bg-zinc-900/90 text-emerald-400 shadow-xl rounded-full px-3.5 py-2 flex items-center gap-1.5 backdrop-blur-md transition-all border border-emerald-500/40 hover:border-emerald-400"
+        dir="rtl"
+      >
+        <Headphones className="w-4 h-4" />
+        <span className="text-xs font-bold">מדריכה פעילה</span>
+      </button>
+    ) : (
+      <button
+        onClick={onToggleGuide}
+        aria-pressed={false}
+        title="המדריכה כבויה ולא תקריין מעצמה — לחץ להפעלה לסיור הזה"
         className="pointer-events-auto bg-emerald-500/90 hover:bg-emerald-500 text-white shadow-xl rounded-full px-3.5 py-2 flex items-center gap-1.5 backdrop-blur-md transition-all border border-emerald-400/30"
+        dir="rtl"
       >
         <Volume2 className="w-4 h-4" />
         <span className="text-xs font-bold">הפעל מדריכה</span>

@@ -4,10 +4,9 @@
 // service that throttles, times out and occasionally refuses outright. Every
 // one of those failures used to land in the same place: an empty result, which
 // is indistinguishable from "this trail genuinely has no points", so the app
-// quietly fell back to the three synthetic start/midway/end points. A trail
-// that had shown eight named places showed three generic ones instead, with
-// nothing on screen to say why, and the narrations already downloaded for the
-// other five no longer matched anything on the list.
+// quietly showed an empty list. A trail that had shown eight named places
+// showed none, with nothing on screen to say why, and the narrations already
+// downloaded for them no longer matched anything on the list.
 //
 // Caching the last successful discovery makes that failure invisible in the
 // other direction: the list stays, and it also means opening the same trail
@@ -21,9 +20,14 @@ export interface DiscoveredPOI {
   osmType: string | null;
   osmId: number | null;
   tags: Record<string, string>;
+  grounding?: 'wikipedia' | 'osm';
 }
 
-const PREFIX = 'navi:pois:';
+// The version is part of the prefix: lists saved before the server started
+// keeping only points with something to say about them still hold the generic
+// ones, and would keep the guide stopping at them for as long as the cache
+// lived.
+const PREFIX = 'navi:pois:v2:';
 const MAX_ENTRIES = 20;
 
 interface CacheEntry {

@@ -7,6 +7,7 @@ import {
   pickTextProvider,
   lookupNarration,
   resultFromLookup,
+  groundingFor,
   generateNarration,
 } from '../../../lib/narration';
 import { resolveTtsVoice, voiceStamp } from '../../../lib/tts';
@@ -110,6 +111,15 @@ export async function POST(request: Request) {
       });
     }
 
+    // Nothing specific is known about this point, so nothing will be written
+    // and nothing charged — checked before the quota so it costs no daily slot
+    // either. The app skips it in silence: a stop with nothing to say is not a
+    // stop.
+    const grounding = await groundingFor(input, lookup);
+    if (!grounding) {
+      return NextResponse.json({ poiKey: lookup.poiKey, text: null, reason: 'no-sources' });
+    }
+
     // From here on the request costs money, so it has to pass a quota.
     const token = bearerToken(request);
     let quotaEnforced = false;
@@ -142,7 +152,10 @@ export async function POST(request: Request) {
       }
     }
 
-    const result = await generateNarration(input, lookup, provider);
+    const result = await generateNarration(input, lookup, provider, grounding);
+    if (!result) {
+      return NextResponse.json({ poiKey: lookup.poiKey, text: null, reason: 'no-sources' });
+    }
 
     // Charge for what was actually synthesized, now that it is known.
     if (token && quotaEnforced && result.charsSynthesized > 0) {

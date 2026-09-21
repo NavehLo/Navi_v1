@@ -13,13 +13,14 @@ const MIN_SPACING_KM = 0.25;    // min distance along trail between narrated POI
 const MAX_DISCOVERED = 12;
 // A national trail loaded from the world overlay can run hundreds of km. An
 // Overpass "around" query over that is a request that times out for everyone;
-// past this length the trail keeps its own three points and we do not ask.
+// past this length we do not ask, and the trail has no guide points.
 export const MAX_KM_FOR_OSM_QUERIES = 100;
 
-// Where the list on screen came from. 'base' means the three synthetic
-// start/midway/end points and nothing else — which used to be reported the same
-// as a full list, so an Overpass outage looked like a trail losing its points.
-export type PoiSource = 'base' | 'live' | 'cache';
+// Where the list on screen came from. 'pending' means discovery has not
+// answered yet and 'skipped' that it was not attempted — an empty list used to
+// be reported the same as a full one, so an Overpass outage looked like a
+// trail losing its points.
+export type PoiSource = 'pending' | 'skipped' | 'live' | 'cache';
 
 export interface TrailPOIsResult {
   pois: TrailPOI[];
@@ -29,28 +30,31 @@ export interface TrailPOIsResult {
   discoveryFailed: boolean;
 }
 
-// Enriches the trail's hardcoded start/midway/end POIs with real points of
-// interest (waterfalls, springs, viewpoints, ruins...) from OpenStreetMap.
+// The trail's guide points: real places along it (waterfalls, springs,
+// viewpoints, ruins...) from OpenStreetMap that have something of their own to
+// be said about them — the server keeps only points with a Hebrew Wikipedia
+// article or a written description. There are no synthetic start, midway or
+// end points any more: a greeting at the trailhead told the walker nothing
+// about the trailhead, and a trail where nothing is known has no guide points.
+//
 // Discovery is best-effort, and its failures are common enough — Overpass is a
 // free service that throttles and times out — that the last successful result
 // is kept on the device and used when a new one cannot be had.
 export function useTrailPOIs(trail: TrailData | null): TrailPOIsResult {
   const [pois, setPois] = useState<TrailPOI[]>([]);
-  const [source, setSource] = useState<PoiSource>('base');
+  const [source, setSource] = useState<PoiSource>('pending');
   const [discoveryFailed, setDiscoveryFailed] = useState(false);
 
   useEffect(() => {
-    if (!trail) {
-      setPois([]);
-      setSource('base');
-      setDiscoveryFailed(false);
+    setPois([]);
+    setSource('pending');
+    setDiscoveryFailed(false);
+    if (!trail) return;
+
+    if (trail.totalDistance > MAX_KM_FOR_OSM_QUERIES) {
+      setSource('skipped');
       return;
     }
-    setPois(trail.pois); // immediate fallback while discovery runs
-    setSource('base');
-    setDiscoveryFailed(false);
-
-    if (trail.totalDistance > MAX_KM_FOR_OSM_QUERIES) return;
 
     const cacheKey = trailCacheKey(trail.name, trail.coords);
 
@@ -58,7 +62,7 @@ export function useTrailPOIs(trail: TrailData | null): TrailPOIsResult {
     // seconds even when it works, and this is the same list it will return.
     const cached = readCachedPois(cacheKey);
     if (cached) {
-      setPois(merge(trail, cached));
+      setPois(snapToTrail(trail, cached));
       setSource('cache');
     }
 
@@ -88,9 +92,8 @@ export function useTrailPOIs(trail: TrailData | null): TrailPOIsResult {
         return;
       }
 
-      if (discovered.length === 0) return;
       writeCachedPois(cacheKey, discovered);
-      setPois(merge(trail, discovered));
+      setPois(snapToTrail(trail, discovered));
       setSource('live');
     })();
 
@@ -100,10 +103,9 @@ export function useTrailPOIs(trail: TrailData | null): TrailPOIsResult {
   return { pois, source, discoveryFailed };
 }
 
-// Snaps discovered points onto the trail line, spaces them out and merges them
-// with the trail's own start and end. Returns the trail's own points unchanged
-// when nothing lands close enough to be worth narrating.
-function merge(trail: TrailData, discovered: DiscoveredPOI[]): TrailPOI[] {
+// Snaps discovered points onto the trail line, orders them along it, spaces
+// them out and caps their number.
+function snapToTrail(trail: TrailData, discovered: DiscoveredPOI[]): TrailPOI[] {
   const snapped: TrailPOI[] = [];
   for (const p of discovered) {
     let bestIdx = -1, bestDist = Infinity;
@@ -123,31 +125,16 @@ function merge(trail: TrailData, discovered: DiscoveredPOI[]): TrailPOI[] {
       });
     }
   }
-  if (snapped.length === 0) return trail.pois;
 
-  // Order along the trail, enforce spacing, cap
   snapped.sort((a, b) => a.index - b.index);
   const acc = trail.accumulatedDistances;
   const spaced: TrailPOI[] = [];
   for (const p of snapped) {
     const last = spaced[spaced.length - 1];
-    if (last && p.index !== last.index && acc[p.index] - acc[last.index] < MIN_SPACING_KM) continue;
     if (last && p.index === last.index) continue; // two POIs on same point — keep first
+    if (last && acc[p.index] - acc[last.index] < MIN_SPACING_KM) continue;
     spaced.push(p);
     if (spaced.length >= MAX_DISCOVERED) break;
   }
-
-  // Keep start/end; keep the synthetic midway only when nothing real was found
-  const startPoi = trail.pois.find((p) => p.type === 'start');
-  const endPoi = trail.pois.find((p) => p.type === 'end');
-  const totalKm = acc[acc.length - 1] ?? 0;
-  const interior = spaced.filter(
-    (p) => acc[p.index] > MIN_SPACING_KM && acc[p.index] < totalKm - MIN_SPACING_KM
-  );
-
-  return [
-    ...(startPoi ? [startPoi] : []),
-    ...(interior.length > 0 ? interior : trail.pois.filter((p) => p.type === 'midway')),
-    ...(endPoi ? [endPoi] : []),
-  ].sort((a, b) => a.index - b.index);
+  return spaced;
 }

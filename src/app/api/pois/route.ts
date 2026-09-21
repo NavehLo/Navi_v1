@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { rateLimit, clientIp } from '../../../lib/rateLimit';
+import { hasOwnFacts, resolveArticles } from '../../../lib/grounding';
 
 export interface DiscoveredPOI {
   lat: number;
@@ -10,6 +11,9 @@ export interface DiscoveredPOI {
   osmType: string | null;  // node | way | relation — half of the cache key
   osmId: number | null;
   tags: Record<string, string>;  // the kept subset of KEPT_TAGS below
+  // What the narration will be written from. Every point returned has one:
+  // a Hebrew Wikipedia article about it, or a description in its own tags.
+  grounding: 'wikipedia' | 'osm';
 }
 
 // An empty list is not one answer but three, and the caller has to tell them
@@ -143,7 +147,7 @@ export async function POST(request: Request) {
     if (!data) {
       return NextResponse.json({ pois: [], status: 'unavailable' satisfies DiscoveryStatus });
     }
-    const pois: DiscoveredPOI[] = [];
+    const candidates: Omit<DiscoveredPOI, 'grounding'>[] = [];
     for (const el of data.elements ?? []) {
       const tags = el.tags ?? {};
       const type = classify(tags);
@@ -151,17 +155,36 @@ export async function POST(request: Request) {
       const lat = el.lat ?? el.center?.lat;
       const lon = el.lon ?? el.center?.lon;
       if (lat == null || lon == null) continue;
-      pois.push({
+      const name = tags['name:he'] || tags.name || null;
+      // An unnamed cave with no description is "a cave". There is nothing to
+      // say about it that is not true of every cave, so it is not a stop.
+      if (!name && !hasOwnFacts(tags)) continue;
+      candidates.push({
         lat,
         lon,
         type,
-        name: tags['name:he'] || tags.name || null,
+        name,
         osmType: el.type ?? null,
         osmId: el.id ?? null,
         tags: keptTags(tags),
       });
-      if (pois.length >= MAX_RESULTS) break;
+      if (candidates.length >= MAX_RESULTS) break;
     }
+
+    // Only points with something of their own to say survive: an article
+    // about the point, or a description written on the element. The resolved
+    // article title is stored in the tags so the narration reads that article
+    // and never has to guess again.
+    const articles = await resolveArticles(candidates);
+    const pois: DiscoveredPOI[] = [];
+    candidates.forEach((c, i) => {
+      const article = articles[i];
+      if (article) {
+        pois.push({ ...c, tags: { ...c.tags, wikipedia: `he:${article.title}` }, grounding: 'wikipedia' });
+      } else if (hasOwnFacts(c.tags)) {
+        pois.push({ ...c, grounding: 'osm' });
+      }
+    });
 
     if (cache.size > 50) cache.delete(cache.keys().next().value!);
     cache.set(key, pois);

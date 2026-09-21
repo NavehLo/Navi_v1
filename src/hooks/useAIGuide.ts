@@ -274,7 +274,6 @@ export function useAIGuide() {
         type: item.target.type,
         osmType: item.target.osmType,
         osmId: item.target.osmId,
-        trailSlug: item.trailSlug,
       }),
       voiceSignatureRef.current
     );

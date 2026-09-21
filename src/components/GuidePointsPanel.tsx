@@ -5,12 +5,6 @@ import { PoiSource } from "../hooks/useTrailPOIs";
 // Answers, directly, the question "how many narrations are there and where?".
 // Until now the only way to find out was to run the tour and count.
 
-const TYPE_LABEL: Record<string, string> = {
-  start: "נקודת פתיחה",
-  midway: "אמצע המסלול",
-  end: "נקודת סיום",
-};
-
 export type PointOfflineState = "missing" | "saved";
 
 export interface OfflineControls {
@@ -80,8 +74,8 @@ export default function GuidePointsPanel({
         </div>
 
         <p className="text-zinc-500 text-xs px-6 pb-3 shrink-0">
-          {pois.length} נקודות קריינות במסלול הזה. הקריינות תופעל אוטומטית בהגעה לכל נקודה,
-          ואפשר להשמיע כל אחת גם מכאן.
+          {pois.length} נקודות במסלול הזה שיש עליהן מידע ייחודי. כשהמדריכה מופעלת היא מקריינת
+          אותן בהגעה לכל נקודה, ואפשר להשמיע כל אחת גם מכאן.
         </p>
 
         {/* A short list after a failed discovery is not the same as a short
@@ -93,7 +87,7 @@ export default function GuidePointsPanel({
             <span>
               {poiSource === "cache"
                 ? "לא ניתן לרענן כרגע את נקודות העניין מ-OpenStreetMap — מוצגת הרשימה האחרונה שנשמרה במכשיר."
-                : "לא ניתן לטעון כרגע את נקודות העניין מ-OpenStreetMap, ולכן מוצגות נקודות הבסיס בלבד. הקריינויות שהורדו לא נמחקו — סגור ופתח את המסלול שוב בעוד רגע."}
+                : "לא ניתן לטעון כרגע את נקודות העניין מ-OpenStreetMap. הקריינויות שהורדו לא נמחקו — סגור ופתח את המסלול שוב בעוד רגע."}
             </span>
           </div>
         )}
@@ -143,8 +137,10 @@ export default function GuidePointsPanel({
 
         <div className="overflow-y-auto px-6 pb-6 flex flex-col gap-2">
           {pois.length === 0 && (
-            <div className="text-zinc-500 text-sm text-center py-6">
-              עדיין לא נמצאו נקודות במסלול הזה.
+            <div className="text-zinc-500 text-sm text-center py-6 leading-relaxed">
+              {poiSource === "pending" && !poiDiscoveryFailed
+                ? "מחפשת נקודות במסלול..."
+                : "לא נמצאו במסלול הזה נקודות שיש עליהן מידע ייחודי, ולכן למדריכה אין מה לספר כאן."}
             </div>
           )}
 
@@ -166,10 +162,10 @@ export default function GuidePointsPanel({
 
                 <div className="flex-1 min-w-0">
                   <div className="text-white text-sm font-bold truncate">
-                    {poi.name || TYPE_LABEL[poi.type] || poi.type}
+                    {poi.name || poi.type}
                   </div>
                   <div className="text-zinc-500 text-[11px]">
-                    {poi.name ? `${TYPE_LABEL[poi.type] || poi.type} · ` : ""}
+                    {poi.name ? `${poi.type} · ` : ""}
                     ק״מ {km.toFixed(1)}
                   </div>
                 </div>

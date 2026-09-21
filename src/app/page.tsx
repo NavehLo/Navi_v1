@@ -28,9 +28,6 @@ import { useWorldTrails } from "@/hooks/useWorldTrails";
 import { saveTrail, recordTour, SavedTrail, describeSupabaseError, clearPersonalCache } from "@/lib/personalArea";
 import type { TrailPOI, DrivePlace } from "@/hooks/useTrailData";
 
-// The guide can be switched off entirely, and the choice sticks between visits.
-const GUIDE_ENABLED_KEY = "guide_enabled";
-
 // Which of the two worlds the home screen is in: hiking trails, or a drive
 // between two places. Remembered per device, read through an external store
 // so the server render (always trails) and the first client render agree.
@@ -170,21 +167,22 @@ export default function TrailApp() {
   const { isActive: isTourActive, startTour, stopTour, speed: tourSpeed, setSpeed: setTourSpeed, progress, setProgressByJump } = useTour(map, trail);
   const { requestGuideForPoint, unlockAudio, isSpeaking, isLoading, currentScript, stopSpeaking, queueLength, currentVoice, currentFromDevice } = useAIGuide();
 
-  // Guide on/off, remembered per device. Off is a real off: the geofence never
-  // fires, so not a single request goes out.
-  const [isGuideEnabled, setIsGuideEnabled] = useState(true);
+  // The guide is opt-in, every time. It starts off, and goes back to off when
+  // a new trail is opened, when a virtual tour reaches its end and when field
+  // mode is switched off — so a tour or a walk never narrates, and never spends
+  // a TTS credit, unless it was switched on for that tour or that walk. Off is
+  // a real off: the geofence never fires, so not a single request goes out.
+  // Tapping a point on the map or in the list still plays it — that is a
+  // deliberate press, not the automatic guide.
+  const [isGuideEnabled, setIsGuideEnabled] = useState(false);
 
   // "Map only" mode: everything except the trail, the traveller and the one
   // button that brings the chrome back is taken off the screen.
   const [uiHidden, setUiHidden] = useState(false);
   const [showGuidePoints, setShowGuidePoints] = useState(false);
-  useEffect(() => {
-    setIsGuideEnabled(localStorage.getItem(GUIDE_ENABLED_KEY) !== "0");
-  }, []);
   const handleToggleGuide = useCallback(() => {
     setIsGuideEnabled((prev) => {
       const next = !prev;
-      localStorage.setItem(GUIDE_ENABLED_KEY, next ? "1" : "0");
       if (!next) stopSpeaking();
       else unlockAudio(); // the toggle is a user gesture — use it to unlock audio
       return next;
@@ -278,6 +276,16 @@ export default function TrailApp() {
   // During a virtual tour the camera is the "traveler"; in field mode it's the real GPS
   const guidePos = isTourActive ? virtualPos : (isFieldMode ? gpsPos : null);
 
+  // Back to opt-in: a new trail, a tour that has run to its end, field mode
+  // switched off. Pausing a tour and resuming it keeps the choice.
+  useEffect(() => { setIsGuideEnabled(false); }, [trail]);
+  useEffect(() => {
+    if (!isTourActive && progress >= 1) setIsGuideEnabled(false);
+  }, [isTourActive, progress]);
+  useEffect(() => {
+    if (!isFieldMode) setIsGuideEnabled(false);
+  }, [isFieldMode]);
+
   // How far along the trail the traveler is — exact for the virtual tour,
   // projected onto the route from the GPS fix in field mode. This is what lets
   // the guide narrate points in the order they are actually walked.
@@ -295,8 +303,8 @@ export default function TrailApp() {
 
   const travelerKm = isTourActive ? virtualKm : fieldKm;
 
-  // Real POIs discovered along the trail (waterfalls, viewpoints, ruins...),
-  // enriching the synthetic start/midway/end. Best-effort; falls back gracefully.
+  // The trail's guide points: real places along it with something of their own
+  // to be said. Best-effort; empty until discovery answers.
   const { pois: enrichedPois, source: poiSource, discoveryFailed: poiDiscoveryFailed } =
     useTrailPOIs(isDrive ? null : trail);
 
@@ -583,13 +591,11 @@ export default function TrailApp() {
   useEffect(() => {
     if (!map) return;
 
-    const namedPois = enrichedPois.filter(p => p.type !== 'start' && p.type !== 'end' && p.type !== 'midway');
-
     const syncPoiLayers = () => {
       if (!map.getStyle()) return;
       const fc = {
         type: 'FeatureCollection',
-        features: namedPois.map((p, i) => ({
+        features: enrichedPois.map((p, i) => ({
           type: 'Feature',
           properties: { label: p.name ? `${p.type} · ${p.name}` : p.type, poiIdx: i },
           geometry: { type: 'Point', coordinates: [p.coord[1], p.coord[0]] },
@@ -633,7 +639,7 @@ export default function TrailApp() {
     const handlePoiClick = (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) => {
       const idx = e.features?.[0]?.properties?.poiIdx;
       if (typeof idx !== 'number') return;
-      const poi = namedPois[idx];
+      const poi = enrichedPois[idx];
       if (poi) playPoiNow(poi);
     };
     const showPointer = () => { map.getCanvas().style.cursor = 'pointer'; };
@@ -931,7 +937,9 @@ export default function TrailApp() {
             isSpeaking={isSpeaking}
             currentScript={currentScript}
             onStop={stopSpeaking}
-            onManualTrigger={() => playPoiNow(enrichedPois[0] ?? trail.pois[0])}
+            guideEnabled={isGuideEnabled}
+            onToggleGuide={handleToggleGuide}
+            hasPoints={enrichedPois.length > 0}
             queueLength={queueLength}
             voice={currentVoice}
             voiceFromDevice={currentFromDevice}

@@ -36,7 +36,6 @@ export interface TrailData {
   start: Coordinate3D | null;
   end: Coordinate3D | null;
   geoJson: any;
-  pois: TrailPOI[];
 }
 
 // Where the current trail came from — needed to persist it to the personal area
@@ -233,12 +232,6 @@ export function useTrailData() {
     const startPt = coordsArr[0];
     const endPt = coordsArr[coordsArr.length - 1];
 
-    const pois = [
-      { index: 0, coord: startPt, type: 'start' },
-      { index: Math.floor(coordsArr.length / 2), coord: coordsArr[Math.floor(coordsArr.length / 2)], type: 'midway' },
-      { index: coordsArr.length - 1, coord: endPt, type: 'end' }
-    ];
-
     const geoJson = {
       type: 'Feature',
       properties: {},
@@ -265,7 +258,6 @@ export function useTrailData() {
       start: startPt,
       end: endPt,
       geoJson,
-      pois
     });
   };
 

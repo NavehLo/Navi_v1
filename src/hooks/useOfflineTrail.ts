@@ -35,7 +35,7 @@ interface PrefetchResult {
   voice: { provider: string; voiceId: string | null; signature: string } | null;
 }
 
-type PendingReason = 'batch-limit' | 'quota' | 'no-provider' | 'error';
+type PendingReason = 'batch-limit' | 'quota' | 'no-provider' | 'no-sources' | 'error';
 
 interface Pending {
   poiKey: string;
@@ -104,9 +104,8 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
         type: poi.type,
         osmType: poi.osmType,
         osmId: poi.osmId,
-        trailSlug: trailSlug ?? undefined,
       }),
-    [trailSlug]
+    []
   );
 
   // Two points can share a narration key — the same OSM element met twice on
@@ -212,7 +211,13 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
           setSavedKeys(new Set(stored));
         }
 
-        const pending: Pending[] = data.pending ?? [];
+        // A point nothing specific is known about is not coming back on any
+        // later round, and nothing was spent on it. It is dropped from the
+        // count rather than reported as a failure: silence there is the
+        // intended result.
+        const unnarratable = (data.pending ?? []).filter((p: Pending) => p.reason === 'no-sources');
+        for (const p of unnarratable) stored.add(p.poiKey);
+        const pending: Pending[] = (data.pending ?? []).filter((p: Pending) => p.reason !== 'no-sources');
         if (pending.length === 0) break;
 
         const soFar = `הורדו ${stored.size} מתוך ${total} נקודות.`;

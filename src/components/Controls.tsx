@@ -202,8 +202,8 @@ export default function Controls(props: ControlsProps) {
                 onClick={onToggleFieldMode}
                 className={`border-t border-white/10 ${isFieldMode ? 'bg-sky-500 text-white' : 'text-sky-400'}`}
                 title={isFieldMode
-                  ? 'מצב שטח פעיל — מעקב GPS רציף, המדריכה נכנסת אוטומטית כשמגיעים לנקודה'
-                  : 'מצב שטח — לטיול אמיתי ברגליים: מעקב GPS רציף שמפעיל את המדריכה לפי המיקום'}
+                  ? 'מצב שטח פעיל — מעקב GPS רציף. אם המדריכה מופעלת, היא תקריין כשמגיעים לנקודה'
+                  : 'מצב שטח — לטיול אמיתי ברגליים: מעקב GPS רציף. המדריכה מקריינת רק אם הפעלת אותה'}
                 ariaPressed={isFieldMode}
               >
                 <Footprints className="w-[18px] h-[18px]" />
@@ -215,7 +215,7 @@ export default function Controls(props: ControlsProps) {
                 labelsOn={labelsOn}
                 onClick={onToggleGuide}
                 className={`border-t border-white/10 ${isGuideEnabled ? 'text-emerald-400' : 'text-zinc-400'}`}
-                title={isGuideEnabled ? 'המדריכה פעילה — לחץ לכיבוי' : 'המדריכה כבויה — לחץ להפעלה'}
+                title={isGuideEnabled ? 'המדריכה פעילה לסיור הזה — לחץ לכיבוי' : 'המדריכה כבויה ולא תקריין מעצמה — לחץ להפעלה לסיור הזה'}
                 ariaPressed={isGuideEnabled}
               >
                 {isGuideEnabled ? <Headphones className="w-[18px] h-[18px]" /> : <HeadphoneOff className="w-[18px] h-[18px]" />}
