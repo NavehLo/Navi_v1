@@ -1,8 +1,9 @@
 import { TrailData } from "../hooks/useTrailData";
 import { SUN_MAX, SHADE_MIN, BAR_COLUMNS, type ShadeResult, type WaterResult } from "../lib/summerConditions";
 import type { WaterStatus } from "../hooks/useSummerConditions";
-import { ArrowRight, ChevronDown, ChevronUp } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { ArrowRight, ChevronDown, ChevronUp, TrendingUp, TrendingDown } from "lucide-react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { computeElevationGain } from "../utils/trailUtils";
 
 // Sits above the bottom stack (narration card + tour bar) and starts collapsed
 // on phones — expanded, this card alone used to cover a third of the screen.
@@ -38,6 +39,13 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [collapsed]);
+
+  // Total climb and descent, with the usual 5 m hysteresis so GPS jitter does
+  // not add up to a mountain. A flat profile means the file had no elevation.
+  const climb = useMemo(
+    () => (trail.maxEle > trail.minEle ? computeElevationGain(trail.elevations) : null),
+    [trail]
+  );
 
   const generateElevationPath = () => {
     if (!trail.elevations || trail.elevations.length === 0) return "";
@@ -161,6 +169,12 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           </div>
         </div>
       </div>
+      {climb && (
+        <div className="flex justify-center gap-6 text-xs font-bold mt-2 pt-2 border-t border-white/5">
+          <span className="text-emerald-400 flex items-center gap-1"><TrendingUp className="w-3.5 h-3.5" /> עלייה {climb.gain} {"מ'"}</span>
+          <span className="text-red-400 flex items-center gap-1"><TrendingDown className="w-3.5 h-3.5" /> ירידה {climb.loss} {"מ'"}</span>
+        </div>
+      )}
       <div className="mt-3 border-t border-white/10 pt-3 relative" dir="ltr">
         <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-2 text-right font-bold">פרופיל גובה</div>
         <div className="relative w-full h-14 bg-zinc-800 rounded-lg overflow-hidden">

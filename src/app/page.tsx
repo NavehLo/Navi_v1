@@ -11,6 +11,7 @@ import AIAssistantUI from "@/components/AIAssistantUI";
 import SettingsPanel from "@/components/SettingsPanel";
 import PersonalArea from "@/components/PersonalArea";
 import GuidePointsPanel from "@/components/GuidePointsPanel";
+import WorldTrailCard from "@/components/WorldTrailCard";
 import { useTrailData } from "@/hooks/useTrailData";
 import { useTour } from "@/hooks/useTour";
 import { useAIGuide } from "@/hooks/useAIGuide";
@@ -20,6 +21,7 @@ import { useTrailPOIs } from "@/hooks/useTrailPOIs";
 import { useAuth } from "@/hooks/useAuth";
 import { useOfflineTrail } from "@/hooks/useOfflineTrail";
 import { useSummerConditions } from "@/hooks/useSummerConditions";
+import { useWorldTrails } from "@/hooks/useWorldTrails";
 import { saveTrail, recordTour, SavedTrail, describeSupabaseError, clearPersonalCache } from "@/lib/personalArea";
 import type { TrailPOI } from "@/hooks/useTrailData";
 
@@ -99,7 +101,9 @@ export default function TrailApp() {
   const [mapBearing, setMapBearing] = useState(0);
   const [styleRev, setStyleRev] = useState(0);
   
-  const { trail, setTrail, trailSource, loadTrailFile, loadTrailFromUrl, loadTrailFromText, trailError, trailLoading } = useTrailData();
+  const { trail, setTrail, trailSource, loadTrailFile, loadTrailFromUrl, loadTrailFromText, loadTrailFromCoords, trailError, trailLoading } = useTrailData();
+  // Marked hiking routes from OSM, worldwide, as an overlay anyone can tap.
+  const worldTrails = useWorldTrails(map, styleRev, { onLoadTrail: loadTrailFromCoords });
   const { isActive: isTourActive, startTour, stopTour, speed: tourSpeed, setSpeed: setTourSpeed, progress, setProgressByJump } = useTour(map, trail);
   const { requestGuideForPoint, unlockAudio, isSpeaking, isLoading, currentScript, stopSpeaking, queueLength, currentVoice, currentFromDevice } = useAIGuide();
 
@@ -145,7 +149,8 @@ export default function TrailApp() {
     try {
       await saveTrail({
         name: trail.name,
-        sourceUrl: trailSource?.kind === 'url' ? trailSource.url : null,
+        sourceUrl: trailSource?.kind === 'url' ? trailSource.url
+          : trailSource?.kind === 'wmt' ? `wmt:${trailSource.id}` : null,
         sourceContent: trailSource?.kind === 'file' ? trailSource.content : null,
         totalDistance: trail.totalDistance,
       });
@@ -159,14 +164,19 @@ export default function TrailApp() {
 
   const handleLoadSavedTrail = useCallback((saved: SavedTrail) => {
     setShowPersonalArea(false);
-    if (saved.source_url) {
+    const wmtId = saved.source_url?.match(/^wmt:(\d+)$/)?.[1];
+    if (wmtId) {
+      worldTrails.loadById(Number(wmtId)).then((ok) => {
+        if (!ok) alert('המסלול לא זמין כרגע משירות Waymarked Trails.');
+      });
+    } else if (saved.source_url) {
       loadTrailFromUrl(saved.source_url, saved.name);
     } else if (saved.source_content) {
       loadTrailFromText(saved.source_content, saved.name);
     } else {
       alert('למסלול השמור אין מקור לטעינה.');
     }
-  }, [loadTrailFromUrl, loadTrailFromText]);
+  }, [loadTrailFromUrl, loadTrailFromText, worldTrails]);
 
   // Record a completed virtual tour in the personal history (once per trail load)
   const tourRecordedRef = useRef(false);
@@ -377,17 +387,24 @@ export default function TrailApp() {
   useEffect(() => {
     if (didLoadFromUrlRef.current) return;
     didLoadFromUrlRef.current = true;
-    const shared = new URLSearchParams(window.location.search).get('trail');
+    const params = new URLSearchParams(window.location.search);
+    const shared = params.get('trail');
+    const sharedWmt = params.get('wmt');
     if (shared) {
       loadTrailFromUrl(shared);
       window.history.replaceState({}, '', window.location.pathname);
+    } else if (sharedWmt && /^\d+$/.test(sharedWmt)) {
+      worldTrails.loadById(Number(sharedWmt));
+      window.history.replaceState({}, '', window.location.pathname);
     }
-  }, [loadTrailFromUrl]);
+  }, [loadTrailFromUrl, worldTrails]);
 
-  // Share the current trail (only trails with a URL source can be re-opened)
+  // Share the current trail (only trails that can be re-opened from a link)
   const handleShare = useCallback(async () => {
-    if (!trail || trailSource?.kind !== 'url') return;
-    const shareUrl = `${window.location.origin}/?trail=${encodeURIComponent(trailSource.url)}`;
+    if (!trail || !trailSource || trailSource.kind === 'file') return;
+    const shareUrl = trailSource.kind === 'url'
+      ? `${window.location.origin}/?trail=${encodeURIComponent(trailSource.url)}`
+      : `${window.location.origin}/?wmt=${trailSource.id}`;
     try {
       if (navigator.share) {
         await navigator.share({ title: `מסלול: ${trail.name}`, text: `בוא לטייל ב${trail.name} עם Navi`, url: shareUrl });
@@ -687,14 +704,30 @@ export default function TrailApp() {
         onAuthClick={() => user ? setShowPersonalArea(true) : signInWithGoogle()}
         onSaveTrail={handleSaveTrail}
         saveTrailState={saveTrailState}
-        canShare={trailSource?.kind === 'url'}
+        canShare={trailSource?.kind === 'url' || trailSource?.kind === 'wmt'}
         onShare={handleShare}
         isGuideEnabled={isGuideEnabled}
         onToggleGuide={handleToggleGuide}
         onOpenGuidePoints={() => setShowGuidePoints(true)}
         guidePointCount={enrichedPois.length}
         onHideUI={() => setUiHidden(true)}
+        showWorldTrails={worldTrails.enabled}
+        onToggleWorldTrails={worldTrails.toggle}
       />}
+
+      {/* A tapped route in the world trails overlay */}
+      {worldTrails.selection && !uiHidden && (
+        <WorldTrailCard
+          selection={worldTrails.selection}
+          onClose={worldTrails.clearSelection}
+          onLoad={worldTrails.loadSelected}
+        />
+      )}
+      {worldTrails.hint && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 bg-zinc-900/90 text-white text-xs font-bold px-4 py-2 rounded-full border border-white/10 backdrop-blur-md shadow-xl pointer-events-none" dir="rtl">
+          {worldTrails.hint}
+        </div>
+      )}
 
       {/* Settings modal */}
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}

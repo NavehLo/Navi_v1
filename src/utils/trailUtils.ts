@@ -133,3 +133,37 @@ export function projectOntoTrail(
 
   return { index: bestIdx, km: acc[bestIdx] ?? 0, offTrailKm: bestDist };
 }
+
+// ── Elevation gain / loss ────────────────────────────────────────────────────
+// Summed with hysteresis: a climb or descent only counts once it has run past
+// `threshold` metres in one direction. Without it, the metre-scale jitter of
+// a GPS track or a 30 m DEM adds up to hundreds of metres of "climbing" that
+// nobody walked. 5 m is the usual figure (it is what most trail sites use).
+export function computeElevationGain(elevations: number[], threshold = 5): { gain: number; loss: number } {
+  let gain = 0, loss = 0;
+  if (elevations.length < 2) return { gain, loss };
+
+  let anchor = elevations[0];
+  let extreme = elevations[0];
+  let dir: 1 | -1 | 0 = 0; // which way the current run is going
+
+  for (let i = 1; i < elevations.length; i++) {
+    const e = elevations[i];
+    if (dir === 0) {
+      if (e - anchor >= threshold) { dir = 1; extreme = e; }
+      else if (anchor - e >= threshold) { dir = -1; extreme = e; }
+      continue;
+    }
+    if (dir === 1) {
+      if (e > extreme) extreme = e;
+      else if (extreme - e >= threshold) { gain += extreme - anchor; anchor = extreme; extreme = e; dir = -1; }
+    } else {
+      if (e < extreme) extreme = e;
+      else if (e - extreme >= threshold) { loss += anchor - extreme; anchor = extreme; extreme = e; dir = 1; }
+    }
+  }
+  // Close the run that was still going at the end.
+  if (dir === 1) gain += extreme - anchor;
+  else if (dir === -1) loss += anchor - extreme;
+  return { gain: Math.round(gain), loss: Math.round(loss) };
+}

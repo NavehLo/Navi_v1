@@ -36,6 +36,8 @@ interface ControlsProps {
   onOpenGuidePoints?: () => void;
   guidePointCount?: number;
   onHideUI?: () => void;
+  showWorldTrails?: boolean;
+  onToggleWorldTrails?: () => void;
 }
 
 // A 44px icon rail instead of the old 192px labelled column: the map is the
@@ -108,7 +110,7 @@ export default function Controls(props: ControlsProps) {
     onLocateUser, isFieldMode, onToggleFieldMode, onZoomIn, onZoomOut, onCompass, mapBearing,
     onFitToTrail, hasTrail, onHome, onOpenSettings, authAvailable, isSignedIn,
     onAuthClick, onSaveTrail, saveTrailState, canShare, onShare, isGuideEnabled, onToggleGuide,
-    onOpenGuidePoints, guidePointCount, onHideUI,
+    onOpenGuidePoints, guidePointCount, onHideUI, showWorldTrails, onToggleWorldTrails,
   } = props;
 
   const [showLayers, setShowLayers] = useState(false);
@@ -272,6 +274,16 @@ export default function Controls(props: ControlsProps) {
           >
             {is3D ? 'תלת מימד פעיל — כבה' : 'תלת מימד כבוי — הפעל'}
           </button>
+          {onToggleWorldTrails && (
+            <button
+              onClick={onToggleWorldTrails}
+              aria-pressed={!!showWorldTrails}
+              className={`text-xs p-2 rounded-lg font-bold text-right ${showWorldTrails ? 'text-orange-400' : 'text-zinc-400'}`}
+              title="מסלולי טיול מסומנים מ-OpenStreetMap, בכל העולם. לחיצה על מסלול פותחת את פרטיו."
+            >
+              {showWorldTrails ? 'מסלולים בעולם — הסתר' : 'מסלולים בעולם — הצג'}
+            </button>
+          )}
         </div>
       )}
 

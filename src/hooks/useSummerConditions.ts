@@ -6,6 +6,7 @@ import { readCachedWater, writeCachedWater, trailCacheKey } from '../lib/waterCa
 import { unpackBar } from '../lib/summerConditions';
 import type { WaterSource } from '../app/api/water/route';
 import type { TrailSummer } from '../lib/summerFilters';
+import { MAX_KM_FOR_OSM_QUERIES } from './useTrailPOIs';
 
 // Whether the answer about water can be believed. 'unavailable' and
 // 'rate-limited' are not "no water here" — they are "we could not ask" — and
@@ -119,6 +120,13 @@ export function useSummerConditions(trail: TrailData | null): SummerConditions {
           bar: unpackBar(precomputed.waterBar),
         });
         setWaterStatus('precomputed');
+        return;
+      }
+
+      // Too long to ask Overpass about (see useTrailPOIs) — say so rather than
+      // wait on a query that will time out.
+      if (trail.totalDistance > MAX_KM_FOR_OSM_QUERIES) {
+        if (!cancelled && !cached) setWaterStatus('unavailable');
         return;
       }
 

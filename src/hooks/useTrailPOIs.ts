@@ -11,6 +11,10 @@ import {
 const MAX_SNAP_KM = 0.3;        // POI must be within 300m of the trail line
 const MIN_SPACING_KM = 0.25;    // min distance along trail between narrated POIs
 const MAX_DISCOVERED = 12;
+// A national trail loaded from the world overlay can run hundreds of km. An
+// Overpass "around" query over that is a request that times out for everyone;
+// past this length the trail keeps its own three points and we do not ask.
+export const MAX_KM_FOR_OSM_QUERIES = 100;
 
 // Where the list on screen came from. 'base' means the three synthetic
 // start/midway/end points and nothing else — which used to be reported the same
@@ -45,6 +49,8 @@ export function useTrailPOIs(trail: TrailData | null): TrailPOIsResult {
     setPois(trail.pois); // immediate fallback while discovery runs
     setSource('base');
     setDiscoveryFailed(false);
+
+    if (trail.totalDistance > MAX_KM_FOR_OSM_QUERIES) return;
 
     const cacheKey = trailCacheKey(trail.name, trail.coords);
 

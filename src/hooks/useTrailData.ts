@@ -34,7 +34,9 @@ export interface TrailData {
 // Where the current trail came from — needed to persist it to the personal area
 export type TrailSource =
   | { kind: 'url'; url: string }
-  | { kind: 'file'; content: string };
+  | { kind: 'file'; content: string }
+  // A marked route from OpenStreetMap via Waymarked Trails, by relation id.
+  | { kind: 'wmt'; id: number };
 
 export function useTrailData() {
   const [trail, setTrail] = useState<TrailData | null>(null);
@@ -245,5 +247,16 @@ export function useTrailData() {
     });
   };
 
-  return { trail, setTrail, trailSource, trailError, trailLoading, loadTrailFile, loadTrailFromUrl, loadTrailFromText, processCoordinates };
+  // Coordinates that already came from somewhere else (a routing API, an OSM
+  // route) — no file to parse, just the trail to build and its origin to keep.
+  const loadTrailFromCoords = (coords: Coordinate3D[], name: string, source: TrailSource) => {
+    if (coords.length < 2) {
+      setTrailError('למסלול אין מספיק נקודות.');
+      return;
+    }
+    processCoordinates(coords, name);
+    setTrailSource(source);
+  };
+
+  return { trail, setTrail, trailSource, trailError, trailLoading, loadTrailFile, loadTrailFromUrl, loadTrailFromText, loadTrailFromCoords, processCoordinates };
 }

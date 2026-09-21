@@ -79,6 +79,8 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
 
   const hasFittedBoundsRef = useRef(false);
 
+  const fitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Matches the zoom Map.tsx opens at. If the map is still there, nobody has
   // navigated yet and framing all the trails is helpful rather than intrusive.
   const INITIAL_ZOOM = 6;
@@ -224,7 +226,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
         hasFittedBoundsRef.current = true;
         const bounds = new mapboxgl.LngLatBounds();
         features.forEach(f => bounds.extend(f.geometry.coordinates as any));
-        setTimeout(() => {
+        fitTimerRef.current = setTimeout(() => {
           map.fitBounds(bounds, { padding: 60, duration: 1500, maxZoom: 12 });
         }, 300);
       }
@@ -246,12 +248,18 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
 
     return () => {
       map.off('style.load', tryAddLayers);
+      // A trail opened from a share link can arrive inside these 300 ms; its
+      // own fitBounds must not be overridden by a country-wide one.
+      if (fitTimerRef.current) { clearTimeout(fitTimerRef.current); fitTimerRef.current = null; }
       // Clean up lingering popups
       document.querySelectorAll('.trail-hover-popup').forEach(p => p.remove());
       
-      // Don't remove layers on unmount, just hide data
+      // Don't remove layers on unmount, just hide data. No isStyleLoaded()
+      // guard: it is false while tiles are still coming in, which is exactly
+      // when a trail opened from a share link unmounts this — and the markers
+      // were left standing on top of the route.
       try {
-        if (map && map.isStyleLoaded() && map.getSource(sourceId)) {
+        if (map && map.getSource(sourceId)) {
           (map.getSource(sourceId) as mapboxgl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
         }
       } catch(e) {}
