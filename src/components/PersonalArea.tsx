@@ -198,7 +198,10 @@ export default function PersonalArea({ user, onClose, onSignOut, onLoadSavedTrai
           )}
 
           {tab === "trails" && (
-            trails === null ? (
+            // A retry after a failed load also shows the spinner: with the
+            // error cleared and the list empty, the "no saved trails yet" text
+            // flashed for the length of the request before the error returned.
+            trails === null || (refreshing && trails.length === 0) ? (
               <Loader2 className="w-6 h-6 animate-spin text-orange-500 mx-auto mt-8" />
             ) : trails.length === 0 ? (
               // בלי התניה ב-error, כישלון טעינה היה נראה כמו "אין מסלולים"
@@ -248,7 +251,7 @@ export default function PersonalArea({ user, onClose, onSignOut, onLoadSavedTrai
           )}
 
           {tab === "history" && (
-            history === null ? (
+            history === null || (refreshing && history.length === 0) ? (
               <Loader2 className="w-6 h-6 animate-spin text-orange-500 mx-auto mt-8" />
             ) : history.length === 0 ? (
               error ? null : (

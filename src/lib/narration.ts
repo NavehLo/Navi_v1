@@ -100,7 +100,9 @@ async function generateTextOpenAI(system: string, user: string): Promise<string>
 }
 
 async function generateTextGemini(system: string, user: string): Promise<string> {
-  const model = process.env.GEMINI_TEXT_MODEL || 'gemini-2.5-flash';
+  // gemini-2.5-flash was retired for new users in September 2026 (the API
+  // answers "no longer available"); 3.6 is what Google points to instead.
+  const model = process.env.GEMINI_TEXT_MODEL || 'gemini-3.6-flash';
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
     {

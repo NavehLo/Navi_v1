@@ -75,7 +75,7 @@ export const AUDIO_MIME: Record<string, string> = {
 function geminiVoice(): TtsVoice {
   return {
     provider: 'gemini',
-    model: process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts',
+    model: process.env.GEMINI_TTS_MODEL || 'gemini-3.1-flash-tts-preview',
     voice: process.env.GEMINI_TTS_VOICE || 'Kore',
     format: 'wav',
   };

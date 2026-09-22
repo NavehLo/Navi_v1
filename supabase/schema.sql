@@ -59,6 +59,19 @@ drop policy if exists "own rows" on public.trail_notes;
 create policy "own rows" on public.trail_notes
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+-- ── הרשאות ברמת הטבלה ────────────────────────────────────────────────────────
+-- RLS מסנן שורות, אבל לפני שהוא בכלל מופעל PostgREST צריך הרשאת גישה לטבלה
+-- ברמת Postgres עבור ה-role של הבקשה (authenticated למשתמש מחובר). בפרויקטים
+-- שנוצרו דרך ה-Dashboard זה בדרך כלל מגיע מ-default privileges — אבל לא כאן:
+-- כל בקשה של משתמש מחובר ל-saved_trails נפלה ב-42501 "permission denied for
+-- table", ש-PostgREST מחזיר כ-401, ובאפליקציה זה נראה כמו "החיבור פג תוקף".
+-- ה-grant מפורש, ולכן לא תלוי בברירות מחדל; ה-RLS למעלה עדיין מבטיח שכל
+-- משתמש רואה ועורך רק את השורות שלו.
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on public.saved_trails to authenticated;
+grant select, insert, update, delete on public.tour_history to authenticated;
+grant select, insert, update, delete on public.trail_notes to authenticated;
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- מכסה יומית אמיתית לשימוש במדריך הקולי, לפי משתמש מחובר.
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -85,7 +98,7 @@ create policy "read own usage" on public.guide_usage
 -- על הרשאות לפני שהיא בכלל מגיעה ל-RLS. זה גם מה ש-/api/keepalive
 -- (pingSupabase ב-src/lib/supabaseServer.ts) מסתמך עליו: הוא צריך שהבקשה
 -- האנונימית באמת תגיע ל-Postgres, לא תיפסל בשער לפני כן.
-grant select on public.guide_usage to anon;
+grant select on public.guide_usage to anon, authenticated;
 
 -- מגדיל את המונה היומי של המשתמש המחובר (auth.uid()) ומחזיר האם הוא עדיין
 -- מתחת למכסה. p_daily_limit מגיע מהשרת (Next.js), לא מהלקוח.

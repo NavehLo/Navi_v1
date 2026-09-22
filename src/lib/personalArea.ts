@@ -33,7 +33,13 @@ function client() {
 // "לא זמין" ו"הסכמה לא הורצה" הן תקלות שונות לגמרי מבחינת המשתמש, ופרויקט
 // מושהה ב-Supabase מייצר את הראשונה. PostgREST מדווח על כשל תקשורת עם
 // status 0, על פרויקט מושהה/שירות למטה עם 5xx, ועל טבלה חסרה עם 42P01/PGRST205.
-export type SupabaseFailureKind = 'unavailable' | 'schema-missing' | 'auth' | 'unknown';
+//
+// 42501 ("permission denied for table") הוא מקרה משלו: הטבלה קיימת, ה-RLS
+// תקין, אבל ל-role של PostgREST אין grant עליה. PostgREST מחזיר אותו כ-401,
+// בדיוק כמו טוקן שפג, ולכן הוא הוצג במשך זמן כ"החיבור פג תוקף. התנתק והתחבר
+// מחדש" — עצה שאי אפשר לקיים, כי התחברות מחדש לא משנה כלום. התיקון הוא
+// להריץ את schema.sql, שמעניק את ההרשאות במפורש, וזה מה שההודעה אומרת.
+export type SupabaseFailureKind = 'unavailable' | 'schema-missing' | 'grants-missing' | 'auth' | 'unknown';
 
 export class PersonalAreaError extends Error {
   readonly kind: SupabaseFailureKind;
@@ -54,6 +60,7 @@ function toError(error: PostgrestFailure | null, status: number): PersonalAreaEr
   const message = error?.message || `Supabase request failed (HTTP ${status})`;
   if (status === 0 || status >= 500) return new PersonalAreaError('unavailable', message);
   if (code === '42P01' || code === 'PGRST205') return new PersonalAreaError('schema-missing', message);
+  if (code === '42501') return new PersonalAreaError('grants-missing', message);
   if (code === 'PGRST301' || status === 401 || status === 403) return new PersonalAreaError('auth', message);
   return new PersonalAreaError('unknown', message);
 }
@@ -78,6 +85,8 @@ export function describeSupabaseError(e: unknown): string {
       return 'השירות אינו זמין כרגע — ייתכן שבסיס הנתונים מושהה. נסה שוב מאוחר יותר.';
     case 'schema-missing':
       return 'טבלאות האזור האישי חסרות. הרץ את supabase/schema.sql ב-Supabase.';
+    case 'grants-missing':
+      return 'לבסיס הנתונים חסרות הרשאות לטבלאות האזור האישי. הרץ שוב את supabase/schema.sql ב-Supabase (SQL Editor) — הוא מעניק אותן.';
     case 'auth':
       return 'החיבור פג תוקף. התנתק והתחבר מחדש.';
     default:
