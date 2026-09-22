@@ -40,6 +40,9 @@ interface ControlsProps {
   onHideUI?: () => void;
   showWorldTrails?: boolean;
   onToggleWorldTrails?: () => void;
+  // With no reception, only the style the trail was downloaded in has tiles
+  // to show; the other two would be a blank screen. Set, it greys them out.
+  offlineStyleKey?: string | null;
 }
 
 // A 44px icon rail instead of the old 192px labelled column: the map is the
@@ -110,6 +113,7 @@ export default function Controls(props: ControlsProps) {
     onFitToTrail, hasTrail, onHome, onOpenSettings, authAvailable, isSignedIn,
     onAuthClick, onSaveTrail, saveTrailState, canShare, onShare, isGuideEnabled, onToggleGuide,
     onOpenGuidePoints, guidePointCount, onHideUI, showWorldTrails, onToggleWorldTrails,
+    offlineStyleKey,
   } = props;
 
   const [showLayers, setShowLayers] = useState(false);
@@ -264,9 +268,20 @@ export default function Controls(props: ControlsProps) {
       {/* Layers popover, anchored beside the rail */}
       {showLayers && (
         <div className="absolute top-3 left-16 z-[43] w-44 bg-zinc-900/95 rounded-2xl border border-white/10 backdrop-blur-md shadow-2xl p-2 flex flex-col gap-1" dir="rtl">
-          <button onClick={() => { onStyleChange('satellite'); setShowLayers(false); }} className="text-xs text-white p-2 hover:bg-white/10 rounded-lg text-right">לוויין</button>
-          <button onClick={() => { onStyleChange('terrain'); setShowLayers(false); }} className="text-xs text-white p-2 hover:bg-white/10 rounded-lg text-right">טופוגרפיה</button>
-          <button onClick={() => { onStyleChange('light'); setShowLayers(false); }} className="text-xs text-white p-2 hover:bg-white/10 rounded-lg text-right">מפה בהירה</button>
+          {([['satellite', 'לוויין'], ['terrain', 'טופוגרפיה'], ['light', 'מפה בהירה']] as const).map(([key, label]) => {
+            const locked = !!offlineStyleKey && offlineStyleKey !== key;
+            return (
+              <button
+                key={key}
+                onClick={() => { if (locked) return; onStyleChange(key); setShowLayers(false); }}
+                disabled={locked}
+                title={locked ? 'לא נשמר לשטח — זמין רק עם קליטה' : undefined}
+                className={`text-xs p-2 rounded-lg text-right ${locked ? 'text-zinc-600 cursor-not-allowed' : 'text-white hover:bg-white/10'}`}
+              >
+                {label}{locked ? ' · לא שמור' : ''}
+              </button>
+            );
+          })}
           <button
             onClick={onToggle3D}
             className={`text-xs p-2 rounded-lg font-bold border-t border-white/10 mt-1 pt-2 text-right ${is3D ? 'text-orange-400' : 'text-zinc-400'}`}

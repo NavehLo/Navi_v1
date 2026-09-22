@@ -37,10 +37,6 @@ export default function RootLayout({
       lang="he"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <head>
-        <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet" />
-        <link href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-rtl-text/v0.3.0/mapbox-gl-rtl-text.css" rel="stylesheet" />
-      </head>
       <body className="min-h-full flex flex-col">
         <ServiceWorkerRegistrar />
         {children}

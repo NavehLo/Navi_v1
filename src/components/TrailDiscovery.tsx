@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { MapPin, Loader2, ChevronUp, ChevronDown, Search, X, Droplets, Trees } from 'lucide-react';
+import type { MapPack } from '../lib/offlineMap';
+import { MapPin, Loader2, ChevronUp, ChevronDown, Search, X, Droplets, Trees, WifiOff } from 'lucide-react';
 import {
   matchesShade, matchesWater, SHADE_FILTER_LABELS, WATER_FILTER_LABELS,
   type ShadeFilter, type WaterFilter, type TrailSummer,
@@ -27,9 +28,19 @@ interface TrailDiscoveryProps {
   loading?: boolean;
   error?: string | null;
   styleRev?: number;
+  // Trails downloaded for the field (lib/offlineMap). They open from the
+  // device alone, which makes them the whole home screen when the index
+  // cannot be fetched.
+  offlinePacks?: MapPack[];
+  onSelectPack?: (pack: MapPack) => void;
+  online?: boolean;
 }
 
-export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading, error, styleRev }: TrailDiscoveryProps) {
+function packDaysLeft(pack: MapPack): number {
+  return Math.ceil((pack.expiresAt - Date.now()) / (24 * 60 * 60 * 1000));
+}
+
+export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading, error, styleRev, offlinePacks = [], onSelectPack, online = true }: TrailDiscoveryProps) {
   const [trails, setTrails] = useState<TrailInfo[]>([]);
   const [filterRegion, setFilterRegion] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<string | null>(null);
@@ -394,8 +405,34 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
         )}
 
         <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar flex flex-col gap-3 min-h-0">
+          {offlinePacks.length > 0 && onSelectPack && (
+            <div className="flex flex-col gap-2 pb-3 border-b border-white/5">
+              <div className="flex items-center gap-1.5 text-[11px] font-bold text-sky-300">
+                <WifiOff className="w-3.5 h-3.5" />
+                שמורים לשטח{!online ? ' · אין קליטה' : ''}
+              </div>
+              {offlinePacks.map(p => {
+                const days = packDaysLeft(p);
+                const expired = days <= 0;
+                return (
+                  <div key={p.trailSlug} onClick={() => onSelectPack(p)} className="bg-sky-500/5 border border-sky-500/20 p-3 rounded-2xl cursor-pointer hover:bg-sky-500/10 transition-all flex justify-between items-center group">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-white font-bold text-sm group-hover:text-sky-300 transition-colors">{p.trailName}</span>
+                      <span className={`text-[10px] font-bold ${expired ? 'text-amber-400' : days <= 5 ? 'text-amber-300' : 'text-zinc-400'}`}>
+                        {expired ? 'המפה פגה — הורד שוב עם קליטה' : `מפה שמורה · עוד ${days} ימים`}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {filteredTrails.length === 0 ? (
-            <div className="text-zinc-500 text-center py-10 text-sm font-medium">לא נמצאו מסלולים. נסה לשנות את הסינון.</div>
+            <div className="text-zinc-500 text-center py-10 text-sm font-medium">
+              {trails.length === 0 && !online
+                ? 'אין קליטה. רק מסלולים שהורדו לשטח זמינים עכשיו.'
+                : 'לא נמצאו מסלולים. נסה לשנות את הסינון.'}
+            </div>
           ) : (
             filteredTrails.map(t => (
               <div key={t.id} onClick={() => onSelectTrail(t.path, t.name)} className="bg-white/5 border border-white/5 p-4 rounded-2xl cursor-pointer hover:bg-white/10 hover:border-orange-500/40 transition-all flex justify-between items-center group shadow-sm">

@@ -23,6 +23,8 @@ import { pointAtDistance, projectOntoTrail } from "@/utils/trailUtils";
 import { useTrailPOIs } from "@/hooks/useTrailPOIs";
 import { useAuth } from "@/hooks/useAuth";
 import { useOfflineTrail } from "@/hooks/useOfflineTrail";
+import { useOnline } from "@/hooks/useOnline";
+import { listMapPacks, trimMapCache, type MapPack } from "@/lib/offlineMap";
 import { useSummerConditions } from "@/hooks/useSummerConditions";
 import { useWorldTrails } from "@/hooks/useWorldTrails";
 import { saveTrail, recordTour, SavedTrail, describeSupabaseError, clearPersonalCache } from "@/lib/personalArea";
@@ -133,6 +135,10 @@ export default function TrailApp() {
   const [is3D, setIs3D] = useState(true);
   const [mapBearing, setMapBearing] = useState(0);
   const [styleRev, setStyleRev] = useState(0);
+  // Which of the three map styles is showing. The offline pack is saved in
+  // one style and, with no reception, that is the one that has tiles.
+  const [styleKey, setStyleKey] = useState('satellite');
+  const online = useOnline();
   
   const { trail, setTrail, trailSource, loadTrailFile, loadTrailFromUrl, loadTrailFromText, loadTrailFromCoords, trailError, trailLoading } = useTrailData();
   // Marked hiking routes from OSM, worldwide, as an overlay anyone can tap.
@@ -211,6 +217,7 @@ export default function TrailApp() {
       await saveTrail({
         name: trail.name,
         sourceUrl: trailSource?.kind === 'url' ? trailSource.url
+          : trailSource?.kind === 'pack' ? trailSource.sourceUrl
           : trailSource?.kind === 'wmt' ? `wmt:${trailSource.id}`
           : trailSource?.kind === 'drive' ? encodeDrive(trailSource.from, trailSource.to) : null,
         sourceContent: trailSource?.kind === 'file' ? trailSource.content : null,
@@ -328,8 +335,41 @@ export default function TrailApp() {
     }
   );
 
-  // Narration audio kept on the device, so the guide works with no reception.
-  const offlineTrail = useOfflineTrail(trail?.name ?? null, enrichedPois);
+  // Narration audio and the map along the trail, kept on the device so the
+  // walk works with no reception.
+  const offlineTrail = useOfflineTrail(
+    trail,
+    enrichedPois,
+    map,
+    styleKey,
+    styleRev,
+    trailSource?.kind === 'url' ? trailSource.url : trailSource?.kind === 'pack' ? trailSource.sourceUrl : null
+  );
+
+  // Trails saved for the field, for the home screen — the only list there is
+  // when the index itself cannot be fetched.
+  const [mapPacks, setMapPacks] = useState<MapPack[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    listMapPacks().then((packs) => { if (!cancelled) setMapPacks(packs); });
+    return () => { cancelled = true; };
+  }, [trail, offlineTrail.mapPack]);
+
+  // Once per session, after the map has had its moment: drop map tiles past
+  // their thirty days and keep the passive cache within bounds.
+  useEffect(() => {
+    const t = setTimeout(() => { void trimMapCache(); }, 15000);
+    return () => clearTimeout(t);
+  }, []);
+
+  const openPack = useCallback((pack: MapPack) => {
+    loadTrailFromCoords(
+      pack.coords,
+      pack.trailName,
+      { kind: 'pack', slug: pack.trailSlug, sourceUrl: pack.sourceUrl },
+      { kind: pack.kind }
+    );
+  }, [loadTrailFromCoords]);
 
   // How shaded the trail is — read from a grid that ships with the app, so this
   // costs no request and works offline.
@@ -373,14 +413,25 @@ export default function TrailApp() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, [trail, setTrail]);
 
-  const handleStyleChange = useCallback((styleKey: string) => {
+  const handleStyleChange = useCallback((key: string) => {
     if (!map) return;
-    const styleUrl = styleKey === 'satellite' ? 'mapbox://styles/mapbox/satellite-streets-v12' :
-                     styleKey === 'terrain' ? 'mapbox://styles/mapbox/outdoors-v12' :
+    const styleUrl = key === 'satellite' ? 'mapbox://styles/mapbox/satellite-streets-v12' :
+                     key === 'terrain' ? 'mapbox://styles/mapbox/outdoors-v12' :
                      'mapbox://styles/mapbox/light-v11';
     map.setStyle(styleUrl);
-    map.once('style.load', () => setStyleRev(r => r + 1));
+    map.once('style.load', () => {
+      setStyleKey(key);
+      setStyleRev(r => r + 1);
+    });
   }, [map]);
+
+  // With no reception, a trail downloaded in another style is switched to
+  // that style: it is the one with tiles on the device.
+  const packStyleKey = offlineTrail.mapPack?.styleKey ?? null;
+  useEffect(() => {
+    if (online || !trail || !packStyleKey || packStyleKey === styleKey) return;
+    handleStyleChange(packStyleKey);
+  }, [online, trail, packStyleKey, styleKey, handleStyleChange]);
 
   const handleToggle3D = useCallback(() => {
     if (!map) return;
@@ -452,6 +503,29 @@ export default function TrailApp() {
     return () => navigator.geolocation.clearWatch(watchId);
   }, [isFieldMode, updateUserLocLayer]);
 
+  // Keep the screen on while walking with the map. The lock is lost when the
+  // app goes to the background and has to be asked for again on return.
+  useEffect(() => {
+    if (!isFieldMode || typeof navigator === 'undefined' || !('wakeLock' in navigator)) return;
+    let lock: WakeLockSentinel | null = null;
+    let active = true;
+    const acquire = async () => {
+      if (!active || document.visibilityState !== 'visible') return;
+      try {
+        lock = await navigator.wakeLock.request('screen');
+      } catch {
+        // Denied (low battery, say) — the walk goes on without it.
+      }
+    };
+    acquire();
+    document.addEventListener('visibilitychange', acquire);
+    return () => {
+      active = false;
+      document.removeEventListener('visibilitychange', acquire);
+      lock?.release().catch(() => {});
+    };
+  }, [isFieldMode]);
+
   const handleToggleFieldMode = useCallback(() => {
     setIsFieldMode(prev => {
       if (!prev) unlockAudio(); // toggle-on is a user gesture — unlock audio for TTS
@@ -484,11 +558,18 @@ export default function TrailApp() {
   // Share the current trail (only trails that can be re-opened from a link)
   const handleShare = useCallback(async () => {
     if (!trail || !trailSource || trailSource.kind === 'file') return;
-    const shareUrl = trailSource.kind === 'url'
-      ? `${window.location.origin}/?trail=${encodeURIComponent(trailSource.url)}`
+    // A pack shares as the URL it came from; one that came from a file
+    // cannot be shared, like the file itself.
+    const packUrl = trailSource.kind === 'pack' ? trailSource.sourceUrl : null;
+    if (trailSource.kind === 'pack' && !packUrl) return;
+    const shareUrl = trailSource.kind === 'url' || packUrl
+      ? `${window.location.origin}/?trail=${encodeURIComponent(trailSource.kind === 'url' ? trailSource.url : packUrl!)}`
       : trailSource.kind === 'wmt'
         ? `${window.location.origin}/?wmt=${trailSource.id}`
-        : `${window.location.origin}/?drive=${encodeURIComponent(encodeDrive(trailSource.from, trailSource.to))}`;
+        : trailSource.kind === 'drive'
+          ? `${window.location.origin}/?drive=${encodeURIComponent(encodeDrive(trailSource.from, trailSource.to))}`
+          : '';
+    if (!shareUrl) return;
     try {
       if (navigator.share) {
         await navigator.share({ title: `מסלול: ${trail.name}`, text: `בוא לטייל ב${trail.name} עם Navi`, url: shareUrl });
@@ -812,6 +893,9 @@ export default function TrailApp() {
           loading={trailLoading} 
           error={trailError} 
           styleRev={styleRev}
+          offlinePacks={mapPacks}
+          onSelectPack={openPack}
+          online={online}
         />
       )}
       {map && !trail && appMode === 'drive' && !uiHidden && (
@@ -837,6 +921,7 @@ export default function TrailApp() {
       {/* Map Controls */}
       {!uiHidden && <MemoizedControls 
         onStyleChange={handleStyleChange}
+        offlineStyleKey={!online && trail ? packStyleKey : null}
         onToggle3D={handleToggle3D}
         is3D={is3D}
         onToggleTour={() => {
@@ -868,7 +953,7 @@ export default function TrailApp() {
         onAuthClick={() => user ? setShowPersonalArea(true) : signInWithGoogle()}
         onSaveTrail={handleSaveTrail}
         saveTrailState={saveTrailState}
-        canShare={!!trailSource && trailSource.kind !== 'file'}
+        canShare={!!trailSource && trailSource.kind !== 'file' && !(trailSource.kind === 'pack' && !trailSource.sourceUrl)}
         onShare={handleShare}
         isGuideEnabled={isGuideEnabled}
         onToggleGuide={isDrive ? undefined : handleToggleGuide}
@@ -920,9 +1005,17 @@ export default function TrailApp() {
             savedCount: offlineTrail.savedCount,
             total: offlineTrail.total,
             status: offlineTrail.status,
+            phase: offlineTrail.phase,
             message: offlineTrail.message,
             progress: offlineTrail.progress,
+            mapPack: offlineTrail.mapPack,
+            mapProgress: offlineTrail.mapProgress,
+            estimate: offlineTrail.estimate,
+            mapDaysLeft: offlineTrail.mapDaysLeft,
+            mapExpired: offlineTrail.mapExpired,
+            online,
             onDownload: offlineTrail.download,
+            onCancel: offlineTrail.cancel,
             onDelete: offlineTrail.remove,
           }}
         />

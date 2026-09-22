@@ -1,6 +1,8 @@
-import { X, Play, Headphones, Download, Trash2, Loader2, CloudOff } from "lucide-react";
+import { X, Play, Headphones, Download, Trash2, Loader2, CloudOff, Map as MapIcon } from "lucide-react";
 import { TrailData, TrailPOI } from "../hooks/useTrailData";
 import { PoiSource } from "../hooks/useTrailPOIs";
+import type { OfflinePhase } from "../hooks/useOfflineTrail";
+import { isIOS, isStandaloneDisplay, type MapPack, type MapPackProgress, type PackEstimate } from "../lib/offlineMap";
 
 // Answers, directly, the question "how many narrations are there and where?".
 // Until now the only way to find out was to run the tour and count.
@@ -13,10 +15,26 @@ export interface OfflineControls {
   // complete download read as "6 of 8".
   total: number;
   status: "idle" | "downloading" | "done" | "error";
+  // Which half is downloading right now.
+  phase: OfflinePhase;
   message: string | null;
   progress: { done: number; total: number; bytes: number };
+  // The map along the trail, saved on the device (see lib/offlineMap).
+  mapPack: MapPack | null;
+  mapProgress: MapPackProgress;
+  estimate: PackEstimate | null;
+  mapDaysLeft: number | null;
+  mapExpired: boolean;
+  online: boolean;
   onDownload: () => void;
+  onCancel: () => void;
   onDelete: () => void;
+}
+
+const BIG_PACK_BYTES = 100 * 1024 * 1024;
+
+function formatDate(ms: number): string {
+  return new Date(ms).toLocaleDateString("he-IL", { day: "numeric", month: "numeric" });
 }
 
 interface GuidePointsPanelProps {
@@ -92,48 +110,104 @@ export default function GuidePointsPanel({
           </div>
         )}
 
-        {/* Download the whole trail for walking it with no reception */}
-        {offline && pois.length > 0 && (
-          <div className="px-6 pb-4 shrink-0">
-            <div className="flex gap-2">
-              <button
-                onClick={offline.onDownload}
-                disabled={offline.status === "downloading"}
-                className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-sky-500/40 bg-sky-500/10 text-sky-300 font-bold text-xs py-2.5 px-3 hover:bg-sky-500/20 transition-colors disabled:opacity-60"
-              >
-                {offline.status === "downloading" ? (
-                  <>
-                    <Loader2 size={14} className="animate-spin" />
-                    {offline.progress.done}/{offline.progress.total} · {formatBytes(offline.progress.bytes)}
-                  </>
-                ) : (
-                  <>
-                    <Download size={14} />
-                    {offline.savedCount >= offline.total ? "רענן הורדה" : "הורד מסלול לשימוש בשטח"}
-                  </>
-                )}
-              </button>
-              {offline.savedCount > 0 && offline.status !== "downloading" && (
+        {/* Download the whole trail — narrations and map — for walking it
+            with no reception. Shown for every trail: one with no guide points
+            still needs its map. */}
+        {offline && (() => {
+          const o = offline;
+          const downloading = o.status === "downloading";
+          const hasNarrations = o.total > 0;
+          const narrationsComplete = !hasNarrations || o.savedCount >= o.total;
+          const mapReady = !!o.mapPack && !o.mapExpired;
+          const allSaved = mapReady && narrationsComplete;
+          const savedBytes = (o.mapPack?.bytes ?? 0) + o.progress.bytes;
+          const iosHint = isIOS() && !isStandaloneDisplay();
+
+          const download = () => {
+            if (o.estimate && o.estimate.bytes > BIG_PACK_BYTES && !o.mapPack) {
+              const ok = window.confirm(
+                `המפה של המסלול הזה שוקלת בערך ${formatBytes(o.estimate.bytes)}. להוריד? עדיף דרך Wi-Fi.`
+              );
+              if (!ok) return;
+            }
+            o.onDownload();
+          };
+
+          const label = downloading
+            ? o.phase === "map"
+              ? `מפה ${o.mapProgress.done}/${o.mapProgress.total} · ${formatBytes(o.mapProgress.bytes)}`
+              : `קריינות ${o.progress.done}/${o.progress.total} · ${formatBytes(o.progress.bytes)}`
+            : o.mapExpired
+              ? "הורד שוב — פג תוקף"
+              : allSaved
+                ? "רענן הורדה"
+                : `הורד מסלול לשטח${o.estimate ? ` (~${formatBytes(o.estimate.bytes)})` : ""}`;
+
+          return (
+            <div className="px-6 pb-4 shrink-0">
+              <div className="flex gap-2">
                 <button
-                  onClick={offline.onDelete}
-                  title="מחק את ההורדה ופנה מקום"
-                  className="shrink-0 rounded-xl border border-white/10 text-zinc-400 hover:text-red-400 hover:bg-white/5 py-2.5 px-3 transition-colors"
+                  onClick={download}
+                  disabled={downloading || !o.online}
+                  title={!o.online ? "אין קליטה — ההורדה צריכה חיבור" : undefined}
+                  className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-sky-500/40 bg-sky-500/10 text-sky-300 font-bold text-xs py-2.5 px-3 hover:bg-sky-500/20 transition-colors disabled:opacity-60"
                 >
-                  <Trash2 size={14} />
+                  {downloading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                  {label}
                 </button>
+                {downloading && (
+                  <button
+                    onClick={o.onCancel}
+                    title="עצור את ההורדה"
+                    className="shrink-0 rounded-xl border border-white/10 text-zinc-400 hover:text-white hover:bg-white/5 py-2.5 px-3 transition-colors"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+                {!downloading && (o.savedCount > 0 || o.mapPack) && (
+                  <button
+                    onClick={o.onDelete}
+                    title="מחק את ההורדה ופנה מקום"
+                    className="shrink-0 rounded-xl border border-white/10 text-zinc-400 hover:text-red-400 hover:bg-white/5 py-2.5 px-3 transition-colors"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
+
+              {!downloading && o.mapPack && (
+                <div className={`text-[11px] mt-2 flex items-start gap-1.5 ${o.mapExpired || (o.mapDaysLeft !== null && o.mapDaysLeft <= 5) ? "text-amber-400" : "text-zinc-500"}`}>
+                  <MapIcon size={12} className="shrink-0 mt-0.5" />
+                  <span>
+                    {o.mapExpired
+                      ? "המפה פגה (30 יום) ולא תוצג בלי קליטה — הורד שוב לפני היציאה לשטח."
+                      : `מפה${hasNarrations ? ` ו-${o.savedCount} מתוך ${o.total} קריינויות` : ""} שמורות במכשיר · ${formatBytes(savedBytes)} · בתוקף עד ${formatDate(o.mapPack.expiresAt)} (עוד ${o.mapDaysLeft} ימים)`}
+                    {o.mapPack.trimmed && !o.mapExpired ? ` · מסלול ארוך — נשמר עד zoom ${o.mapPack.maxZoom}` : ""}
+                  </span>
+                </div>
+              )}
+              {!downloading && !o.mapPack && o.savedCount > 0 && (
+                <div className="text-zinc-500 text-[11px] mt-2">
+                  {o.savedCount} מתוך {o.total} קריינויות שמורות במכשיר
+                  {o.progress.bytes > 0 ? ` · ${formatBytes(o.progress.bytes)}` : ""} · המפה עדיין לא הורדה
+                </div>
+              )}
+              {!downloading && !o.mapPack && o.savedCount === 0 && (
+                <div className="text-zinc-500 text-[11px] mt-2">
+                  שומר במכשיר את המפה לאורך המסלול{hasNarrations ? " ואת הקריינות" : ""}, ל-30 יום. אחרי זה צריך להוריד שוב.
+                </div>
+              )}
+              {iosHint && (
+                <div className="text-zinc-500 text-[11px] mt-1">
+                  באייפון: כדי שההורדה תישאר, הוסף את Navi למסך הבית (שיתוף ← הוסף למסך הבית) ופתח משם.
+                </div>
+              )}
+              {o.message && (
+                <div className="text-amber-400 text-[11px] mt-2">{o.message}</div>
               )}
             </div>
-            {offline.savedCount > 0 && offline.status !== "downloading" && (
-              <div className="text-zinc-500 text-[11px] mt-2">
-                {offline.savedCount} מתוך {offline.total} נקודות שמורות במכשיר
-                {offline.progress.bytes > 0 ? ` · ${formatBytes(offline.progress.bytes)}` : ""}
-              </div>
-            )}
-            {offline.message && (
-              <div className="text-amber-400 text-[11px] mt-2">{offline.message}</div>
-            )}
-          </div>
-        )}
+          );
+        })()}
 
         <div className="overflow-y-auto px-6 pb-6 flex flex-col gap-2">
           {pois.length === 0 && (

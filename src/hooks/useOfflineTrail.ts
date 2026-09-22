@@ -1,7 +1,22 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { TrailPOI } from './useTrailData';
+import mapboxgl from 'mapbox-gl';
+import { TrailData, TrailPOI } from './useTrailData';
 import { supabase } from '../lib/supabase';
 import { poiKeyFor } from '../lib/poiKey';
+import {
+  MapPack,
+  MapPackError,
+  MapPackProgress,
+  PackEstimate,
+  daysLeft as packDaysLeft,
+  deleteMapPack,
+  downloadMapPack,
+  estimateMapPack,
+  getMapPack,
+  isOfflineMapSupported,
+  isPackExpired,
+  precacheShell,
+} from '../lib/offlineMap';
 import {
   NO_VOICE,
   deleteOtherVoices,
@@ -15,8 +30,12 @@ import { AI_PROVIDER_STORAGE_KEY } from './useAIGuide';
 import { readVoicePrefs } from '../lib/voicePrefs';
 import { useVoiceStatus } from './useVoiceStatus';
 
-// "Download this trail for use in the field": fetch every narration, store the
-// audio on the device, and report how far it got.
+// "Download this trail for use in the field": fetch every narration and the
+// map along the trail, store both on the device, and report how far it got.
+//
+// The two halves are independent — a trail with no guide points still gets
+// its map — and each reports its own failure, so a narration quota running
+// out never stops the map from downloading.
 
 export interface OfflineProgress {
   done: number;
@@ -25,6 +44,9 @@ export interface OfflineProgress {
 }
 
 export type OfflineStatus = 'idle' | 'downloading' | 'done' | 'error';
+export type OfflinePhase = 'narrations' | 'map' | null;
+
+const EMPTY_MAP_PROGRESS: MapPackProgress = { done: 0, total: 0, bytes: 0, failed: 0 };
 
 interface PrefetchResult {
   poiKey: string;
@@ -50,7 +72,19 @@ function base64ToBlob(base64: string, format: string): Blob {
   return new Blob([buf], { type: format === 'wav' ? 'audio/wav' : 'audio/mpeg' });
 }
 
-export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
+export function useOfflineTrail(
+  trail: TrailData | null,
+  pois: TrailPOI[],
+  map: mapboxgl.Map | null,
+  styleKey: string,
+  // Bumped when a style finishes loading; the estimate reads the style's
+  // sources, so it must not be taken while a new style is still arriving.
+  styleRev: number,
+  // Where the trail was loaded from, when it is a file the app serves itself
+  // — kept alongside the pack so the usual home-screen path works offline too.
+  trailUrl: string | null = null
+) {
+  const trailSlug = trail?.name ?? null;
   // A point counts as saved only if it was saved in the voice that is
   // configured now. After a voice change the badges go back to "to download"
   // and re-downloading replaces the old audio, instead of the old audio
@@ -63,7 +97,11 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
   const [status, setStatus] = useState<OfflineStatus>('idle');
   const [message, setMessage] = useState<string | null>(null);
   const [progress, setProgress] = useState<OfflineProgress>({ done: 0, total: 0, bytes: 0 });
+  const [phase, setPhase] = useState<OfflinePhase>(null);
+  const [mapPack, setMapPack] = useState<MapPack | null>(null);
+  const [mapProgress, setMapProgress] = useState<MapPackProgress>(EMPTY_MAP_PROGRESS);
   const cancelRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   const refresh = useCallback(async () => {
     if (!trailSlug) {
@@ -75,6 +113,7 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
     const bytes = await storedBytesFor(trailSlug);
     setSavedKeys(keys);
     setProgress((p) => ({ ...p, bytes }));
+    setMapPack(await getMapPack(trailSlug));
   }, [trailSlug, currentSignature]);
 
   // Switching trails starts from a clean slate. Done asynchronously and with a
@@ -85,16 +124,35 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
     (async () => {
       const keys = trailSlug ? await listStoredKeys(trailSlug, currentSignature) : new Set<string>();
       const bytes = trailSlug ? await storedBytesFor(trailSlug) : 0;
+      const pack = trailSlug ? await getMapPack(trailSlug) : null;
       if (cancelled) return;
       setSavedKeys(keys);
       setStatus('idle');
       setMessage(null);
+      setPhase(null);
       setProgress({ done: keys.size, total: 0, bytes });
+      setMapPack(pack);
+      setMapProgress(EMPTY_MAP_PROGRESS);
     })();
     return () => { cancelled = true; };
   }, [trailSlug, currentSignature]);
 
-  useEffect(() => () => { cancelRef.current = true; }, []);
+  useEffect(() => () => { cancelRef.current = true; abortRef.current?.abort(); }, []);
+
+  // How big the map along this trail would be, shown on the button before
+  // anything is downloaded. Needs the map for its list of sources; until
+  // then the button simply has no figure.
+  const estimate = useMemo<PackEstimate | null>(() => {
+    if (!trail || !map || !isOfflineMapSupported()) return null;
+    try {
+      return estimateMapPack(map, trail.coords);
+    } catch (e) {
+      console.error('Map pack estimate failed:', e);
+      return null;
+    }
+    // styleRev: a new style means a new set of sources.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trail, map, styleRev]);
 
   const keyFor = useCallback(
     (poi: TrailPOI) =>
@@ -114,19 +172,13 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
   // download read as "6 of 8" forever.
   const distinctCount = useMemo(() => new Set(pois.map(keyFor)).size, [pois, keyFor]);
 
-  const download = useCallback(async () => {
-    if (!trailSlug || pois.length === 0) return;
-    if (!isOfflineAudioSupported()) {
-      setStatus('error');
-      setMessage('הדפדפן הזה לא תומך בשמירה למצב אופליין.');
-      return;
-    }
+  // The narrations. Resolves to the reason it stopped short, or null when
+  // everything that can be stored is stored.
+  const downloadNarrations = useCallback(async (): Promise<string | null> => {
+    if (!trailSlug || pois.length === 0) return null;
+    if (!isOfflineAudioSupported()) return 'הדפדפן הזה לא תומך בשמירה למצב אופליין.';
 
     const total = distinctCount;
-
-    cancelRef.current = false;
-    setStatus('downloading');
-    setMessage(null);
     setProgress({ done: 0, total, bytes: 0 });
 
     const basePois = {
@@ -163,7 +215,7 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
       // The server fills a few gaps per request so it never runs out of time,
       // and tells us what is still pending. Keep asking until nothing is.
       for (let round = 0; round < pois.length + 2; round++) {
-        if (cancelRef.current) return;
+        if (cancelRef.current) return null;
 
         // What the device already holds goes with every round. The server then
         // spends its per-request budget on points that are still missing,
@@ -178,7 +230,7 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
 
         const before = stored.size;
         for (const result of (data.results ?? []) as PrefetchResult[]) {
-          if (cancelRef.current) return;
+          if (cancelRef.current) return null;
           if (stored.has(result.poiKey)) continue;
 
           const blob = result.audioUrl
@@ -230,29 +282,18 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
         const reasons = new Set(pending.map((p) => p.reason));
 
         if (reasons.has('no-provider')) {
-          setStatus('error');
-          setMessage(`${soFar} לא הוגדר ספק AI בשרת.`);
-          await refresh();
-          return;
+          return `${soFar} לא הוגדר ספק AI בשרת.`;
         }
 
         if (reasons.has('quota') || data.quotaReached) {
-          setStatus('error');
-          setMessage(
-            data.quotaScope === 'anon'
-              ? `${soFar} הגעת למכסה היומית לשימוש ללא התחברות. התחבר עם Google לקבלת מכסה גדולה יותר, או נסה שוב מחר.`
-              : `${soFar} הגעת למכסה היומית. נסה שוב מחר להשלמת השאר.`
-          );
-          await refresh();
-          return;
+          return data.quotaScope === 'anon'
+            ? `${soFar} הגעת למכסה היומית לשימוש ללא התחברות. התחבר עם Google לקבלת מכסה גדולה יותר, או נסה שוב מחר.`
+            : `${soFar} הגעת למכסה היומית. נסה שוב מחר להשלמת השאר.`;
         }
 
         const failed = pending.filter((p) => p.reason === 'error');
         if (failed.length > 0 && stored.size === before) {
-          setStatus('error');
-          setMessage(`${soFar} ייצור ${failed.length} נקודות נכשל: ${failed[0].detail ?? 'שגיאה לא ידועה'}`);
-          await refresh();
-          return;
+          return `${soFar} ייצור ${failed.length} נקודות נכשל: ${failed[0].detail ?? 'שגיאה לא ידועה'}`;
         }
 
         // Only 'batch-limit' left, which means "ask again" — so a round that
@@ -261,35 +302,97 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
         // between requests, and it is worth naming: on a serverless host it
         // also means the same point is generated, and paid for, more than once.
         if (stored.size === before) {
-          setStatus('error');
-          setMessage(
-            data.durableCache === false
-              ? `${soFar} השרת אינו שומר את הקריינויות בין בקשות — בדוק את SUPABASE_SERVICE_ROLE_KEY ואת טבלאות ה-cache.`
-              : `${soFar} השרת מחזיר נקודות שכבר קיימות במכשיר ולא מתקדם. נסה שוב בעוד רגע.`
-          );
-          await refresh();
-          return;
+          return data.durableCache === false
+            ? `${soFar} השרת אינו שומר את הקריינויות בין בקשות — בדוק את SUPABASE_SERVICE_ROLE_KEY ואת טבלאות ה-cache.`
+            : `${soFar} השרת מחזיר נקודות שכבר קיימות במכשיר ולא מתקדם. נסה שוב בעוד רגע.`;
         }
       }
-
-      setStatus('done');
-      setMessage(null);
-      await refresh();
+      return null;
     } catch (e: any) {
       console.error('Offline download failed:', e);
-      setStatus('error');
-      setMessage(e?.message || 'שגיאה בהורדת המסלול.');
-      await refresh();
+      return e?.message || 'שגיאה בהורדת הקריינות.';
     }
-  }, [trailSlug, pois, refresh, currentSignature, distinctCount]);
+  }, [trailSlug, pois, currentSignature, distinctCount]);
+
+  // The map along the trail. Same contract: a message, or null.
+  const downloadMap = useCallback(async (): Promise<string | null> => {
+    if (!trail || !map) return null;
+    if (!isOfflineMapSupported()) return 'הדפדפן הזה לא תומך בשמירת מפה למצב אופליין.';
+    const token = mapboxgl.accessToken;
+    if (!token) return 'אין טוקן Mapbox — המפה לא נשמרה.';
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setMapProgress(EMPTY_MAP_PROGRESS);
+    try {
+      const pack = await downloadMapPack({
+        map,
+        token,
+        trail,
+        styleKey,
+        sourceUrl: trailUrl,
+        signal: controller.signal,
+        onProgress: setMapProgress,
+      });
+      setMapPack(pack);
+      // The app's own files too, so the screen that shows the map is there
+      // when the map is.
+      await precacheShell(trailUrl ? [trailUrl] : []);
+      return pack.failed > 0
+        ? `${pack.failed} אריחי מפה לא הורדו — לחץ "רענן הורדה" כשיש קליטה טובה.`
+        : null;
+    } catch (e) {
+      if (e instanceof MapPackError && e.code === 'aborted') return null;
+      console.error('Map pack download failed:', e);
+      return e instanceof Error ? e.message : 'שגיאה בהורדת המפה.';
+    } finally {
+      abortRef.current = null;
+    }
+  }, [trail, map, styleKey, trailUrl]);
+
+  const download = useCallback(async () => {
+    if (!trailSlug) return;
+    cancelRef.current = false;
+    setStatus('downloading');
+    setMessage(null);
+    const messages: string[] = [];
+
+    if (pois.length > 0) {
+      setPhase('narrations');
+      const problem = await downloadNarrations();
+      if (problem) messages.push(problem);
+    }
+    if (cancelRef.current) return;
+
+    setPhase('map');
+    const problem = await downloadMap();
+    if (problem) messages.push(problem);
+    if (cancelRef.current) return;
+
+    setPhase(null);
+    setStatus(messages.length > 0 ? 'error' : 'done');
+    setMessage(messages.length > 0 ? messages.join(' ') : null);
+    await refresh();
+  }, [trailSlug, pois.length, downloadNarrations, downloadMap, refresh]);
+
+  const cancel = useCallback(() => {
+    cancelRef.current = true;
+    abortRef.current?.abort();
+    setPhase(null);
+    setStatus('idle');
+  }, []);
 
   const remove = useCallback(async () => {
     if (!trailSlug) return;
     cancelRef.current = true;
+    abortRef.current?.abort();
     await deleteTrailNarrations(trailSlug);
+    await deleteMapPack(trailSlug);
     setStatus('idle');
     setMessage(null);
+    setPhase(null);
     setProgress({ done: 0, total: distinctCount, bytes: 0 });
+    setMapProgress(EMPTY_MAP_PROGRESS);
+    setMapPack(null);
     await refresh();
   }, [trailSlug, distinctCount, refresh]);
 
@@ -308,6 +411,7 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
 
   return {
     download,
+    cancel,
     remove,
     isSaved,
     savedCount,
@@ -315,7 +419,14 @@ export function useOfflineTrail(trailSlug: string | null, pois: TrailPOI[]) {
     // many points it has.
     total: distinctCount,
     status,
+    phase,
     message,
     progress,
+    // The map half.
+    mapPack,
+    mapProgress,
+    estimate,
+    mapDaysLeft: mapPack ? packDaysLeft(mapPack) : null,
+    mapExpired: mapPack ? isPackExpired(mapPack) : false,
   };
 }

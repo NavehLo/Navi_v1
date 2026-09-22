@@ -15,10 +15,14 @@
 // silently was not, and the device copy is consulted first.
 
 const DB_NAME = 'navi-offline';
-const DB_VERSION = 2;
+// v3 adds the map-pack store (see lib/offlineMap). The narration store is
+// untouched by that upgrade: narrations must survive it.
+const DB_VERSION = 3;
 const STORE = 'narrations';
 const TRAIL_INDEX = 'trailSlug';
 const TRAIL_VOICE_INDEX = 'trailVoice';
+// One record per trail downloaded for the field, keyed by trail slug.
+export const MAP_PACK_STORE = 'mapPacks';
 
 // Records saved when no server-side voice existed at all (the browser reads the
 // text itself). A fixed string keeps the key shape uniform.
@@ -56,20 +60,28 @@ export function isOfflineAudioSupported(): boolean {
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
-function openDb(): Promise<IDBDatabase> {
+// Shared with lib/offlineMap, which keeps its records in the same database.
+export function openDb(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const db = request.result;
-      // v1 records carry no voice, so there is no way to tell which voice they
-      // hold. They are dropped rather than migrated: re-downloading them is a
-      // cache hit on the server and costs nothing, and keeping them would mean
-      // keeping exactly the bug this version fixes.
-      if (db.objectStoreNames.contains(STORE)) db.deleteObjectStore(STORE);
-      const store = db.createObjectStore(STORE, { keyPath: 'key' });
-      store.createIndex(TRAIL_INDEX, 'trailSlug', { unique: false });
-      store.createIndex(TRAIL_VOICE_INDEX, ['trailSlug', 'voiceSignature'], { unique: false });
+      if (event.oldVersion < 2) {
+        // v1 records carry no voice, so there is no way to tell which voice
+        // they hold. They are dropped rather than migrated: re-downloading
+        // them is a cache hit on the server and costs nothing, and keeping
+        // them would mean keeping exactly the bug this version fixes.
+        if (db.objectStoreNames.contains(STORE)) db.deleteObjectStore(STORE);
+        const store = db.createObjectStore(STORE, { keyPath: 'key' });
+        store.createIndex(TRAIL_INDEX, 'trailSlug', { unique: false });
+        store.createIndex(TRAIL_VOICE_INDEX, ['trailSlug', 'voiceSignature'], { unique: false });
+      }
+      if (event.oldVersion < 3) {
+        if (!db.objectStoreNames.contains(MAP_PACK_STORE)) {
+          db.createObjectStore(MAP_PACK_STORE, { keyPath: 'trailSlug' });
+        }
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
@@ -79,7 +91,7 @@ function openDb(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-function promisify<T>(request: IDBRequest<T>): Promise<T> {
+export function promisify<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);

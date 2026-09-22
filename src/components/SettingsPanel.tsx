@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { X, Sparkles, Volume2, Loader2, RotateCcw, AlertTriangle, Type } from "lucide-react";
+import { X, Sparkles, Volume2, Loader2, RotateCcw, AlertTriangle, Type, WifiOff } from "lucide-react";
 import { AI_PROVIDER_STORAGE_KEY } from "../hooks/useAIGuide";
 import { type VoicePrefs, readVoicePrefs, rememberVoiceNames, writeVoicePrefs } from "../lib/voicePrefs";
+import { readSimulateOffline, setSimulateOffline, storageEstimate } from "../lib/offlineMap";
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -93,6 +94,21 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [testHint, setTestHint] = useState<string | null>(null);
   const [spokenText, setSpokenText] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Rehearsing the field: the service worker and the page both act as if the
+  // network were gone, so a downloaded trail can be checked at home.
+  // Only ever rendered after a tap, so there is no server markup to agree
+  // with and the stored value can be read straight away.
+  const [simulateOffline, setSimulateOfflineState] = useState(readSimulateOffline);
+  const [storage, setStorage] = useState<{ usage: number; quota: number } | null>(null);
+  useEffect(() => {
+    storageEstimate().then(setStorage);
+  }, []);
+  const toggleSimulateOffline = async () => {
+    const next = !simulateOffline;
+    setSimulateOfflineState(next);
+    await setSimulateOffline(next);
+  };
 
   const [niqqudText, setNiqqudText] = useState(NIQQUD_SAMPLE);
   const [niqqudCheck, setNiqqudCheck] = useState<NiqqudCheck | null>(null);
@@ -587,6 +603,33 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
               )}
             </div>
           </div>
+        )}
+
+        {/* Field rehearsal: cut the network without leaving the house. */}
+        <h3 className="text-zinc-300 font-bold text-sm mt-6 mb-1 flex items-center gap-2">
+          <WifiOff size={15} className="text-sky-400" />
+          בדיקת מצב שטח
+        </h3>
+        <p className="text-zinc-500 text-xs mb-3">
+          מדמה אובדן קליטה: המפה, הקריינות והמסלולים יגיעו רק ממה שנשמר במכשיר. כך אפשר
+          לוודא בבית שהורדה של מסלול באמת מספיקה לשטח. לאחר ההפעלה צריך לרענן את הדף.
+        </p>
+        <button
+          onClick={toggleSimulateOffline}
+          aria-pressed={simulateOffline}
+          className={`w-full rounded-xl border py-2.5 text-xs font-bold transition-colors ${
+            simulateOffline
+              ? "border-amber-500/50 bg-amber-500/15 text-amber-300"
+              : "border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10"
+          }`}
+        >
+          {simulateOffline ? "מדמה אובדן קליטה — לחץ כדי לחזור לרשת" : "דמה אובדן קליטה"}
+        </button>
+        {storage && (
+          <p className="text-zinc-600 text-[10px] mt-2">
+            אחסון האפליקציה במכשיר: {(storage.usage / (1024 * 1024)).toFixed(0)} MB בשימוש מתוך{" "}
+            {(storage.quota / (1024 * 1024 * 1024)).toFixed(1)} GB זמינים.
+          </p>
         )}
       </div>
     </div>

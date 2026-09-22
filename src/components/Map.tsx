@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
+import { RTL_PLUGIN_URL, recordMapboxRequest } from "../lib/offlineMap";
 
 export default function MapComponent({ onMapLoad }: { onMapLoad?: (map: mapboxgl.Map) => void }) {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -29,11 +30,7 @@ export default function MapComponent({ onMapLoad }: { onMapLoad?: (map: mapboxgl
 
     try {
       if (mapboxgl.getRTLTextPluginStatus() === "unavailable") {
-        mapboxgl.setRTLTextPlugin(
-          "https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-rtl-text/v0.3.0/mapbox-gl-rtl-text.js",
-          () => {},
-          true
-        );
+        mapboxgl.setRTLTextPlugin(RTL_PLUGIN_URL, () => {}, true);
       }
     } catch (_) {}
 
@@ -52,6 +49,10 @@ export default function MapComponent({ onMapLoad }: { onMapLoad?: (map: mapboxgl
         attributionControl: false,
         // Disable heavy features upfront — added after load
         antialias: false,
+        // Watches what the map asks Mapbox for, so a trail's tiles can be
+        // downloaded for the field in exactly the shape the map will ask for
+        // them again. Returns every request untouched.
+        transformRequest: recordMapboxRequest,
       });
     } catch (e: any) {
       if (isSharedToken) {
