@@ -13,6 +13,7 @@ import PersonalArea from "@/components/PersonalArea";
 import GuidePointsPanel from "@/components/GuidePointsPanel";
 import WorldTrailCard from "@/components/WorldTrailCard";
 import DrivePlanner, { type DriveRequest } from "@/components/DrivePlanner";
+import PlaceSearchBox from "@/components/PlaceSearchBox";
 import { Car, Footprints } from "lucide-react";
 import { driveRoute } from "@/lib/mapboxDirections";
 import { useTrailData } from "@/hooks/useTrailData";
@@ -882,6 +883,17 @@ export default function TrailApp() {
             <Car className="w-4 h-4 sm:w-3.5 sm:h-3.5" /><span className="hidden sm:inline whitespace-nowrap">נסיעה בכביש</span>
           </button>
         </div>
+      )}
+
+      {/* Where in the world to look. Both home screens get it; a trail does
+          not — once one is open the map follows the trail, not a search. */}
+      {map && !trail && !uiHidden && (
+        <PlaceSearchBox
+          map={map}
+          // Clear of the left rail, which is at its widest with the button
+          // labels showing, and of the trail panel on a wide screen.
+          className="top-[60px] left-[124px] right-4 md:top-[68px] md:left-20 md:right-[412px]"
+        />
       )}
 
       {/* Trail Discovery overlay with markers & GPX upload fallback */}

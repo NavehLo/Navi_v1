@@ -5,7 +5,7 @@
 // Bump SW_VERSION whenever this file or the shell changes. The cache name is
 // derived from it, so activate() clears the old one — with a fixed name the
 // old cache lived on across deploys and nothing here could ever be retired.
-const SW_VERSION = 3;
+const SW_VERSION = 4;
 const CACHE = `navi-v${SW_VERSION}`;
 const SHELL = ['/', '/icon-192.png', '/icon-512.png'];
 
@@ -48,6 +48,15 @@ const SIMULATE_OFFLINE_KEY = 'https://navi-flags.local/simulate-offline';
 
 function isMapboxHost(hostname) {
   return hostname === 'api.mapbox.com' || hostname.endsWith('.tiles.mapbox.com');
+}
+
+// Search and geocoding are asked by query string, not by path, so the cache
+// key below cannot tell two of them apart — every suggestion list would be
+// answered with the first one this device ever asked for. They are also
+// worthless offline: a list of places is only useful while there is a network
+// to act on it. So they go straight out, cached by nobody.
+function isSearchPath(pathname) {
+  return pathname.startsWith('/search/') || pathname.startsWith('/geocoding/');
 }
 
 // The cache key is the path alone. The TileJSON names a.tiles.mapbox.com and
@@ -131,15 +140,31 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
+// Until SW_VERSION 4 the map cache also held search answers, all of them
+// under the one key their shared path produced. They are never read now, but
+// a device that has them is carrying a month of dead weight.
+async function dropCachedSearches() {
+  try {
+    const cache = await caches.open(MAP_CACHE);
+    const stale = (await cache.keys()).filter((req) => isSearchPath(new URL(req.url).pathname));
+    await Promise.all(stale.map((req) => cache.delete(req)));
+  } catch (_) {
+    // A cache that will not open has nothing to clean.
+  }
+}
+
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys
-          .filter((k) => k !== CACHE && k !== MAP_CACHE && k !== FLAGS_CACHE)
-          .map((k) => caches.delete(k))
-      )
-    )
+    Promise.all([
+      caches.keys().then((keys) =>
+        Promise.all(
+          keys
+            .filter((k) => k !== CACHE && k !== MAP_CACHE && k !== FLAGS_CACHE)
+            .map((k) => caches.delete(k))
+        )
+      ),
+      dropCachedSearches(),
+    ])
   );
   self.clients.claim();
 });
@@ -177,6 +202,13 @@ self.addEventListener('fetch', (event) => {
   // reach Mapbox or fail honestly, never be answered from here.
   if (isMapboxHost(url.hostname)) {
     if (url.pathname.startsWith('/map-sessions')) return;
+    if (isSearchPath(url.pathname)) {
+      // Intercepted only so the offline simulation cuts it like everything else.
+      event.respondWith(
+        netFetch(event.request).catch(() => new Response('', { status: 504, statusText: 'Offline' }))
+      );
+      return;
+    }
     event.respondWith(handleMapbox(event, event.request));
     return;
   }

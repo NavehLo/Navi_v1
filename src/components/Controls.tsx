@@ -267,7 +267,7 @@ export default function Controls(props: ControlsProps) {
 
       {/* Layers popover, anchored beside the rail */}
       {showLayers && (
-        <div className="absolute top-3 left-16 z-[43] w-44 bg-zinc-900/95 rounded-2xl border border-white/10 backdrop-blur-md shadow-2xl p-2 flex flex-col gap-1" dir="rtl">
+        <div className="absolute top-3 left-16 z-[47] w-44 bg-zinc-900/95 rounded-2xl border border-white/10 backdrop-blur-md shadow-2xl p-2 flex flex-col gap-1" dir="rtl">
           {([['satellite', 'לוויין'], ['terrain', 'טופוגרפיה'], ['light', 'מפה בהירה']] as const).map(([key, label]) => {
             const locked = !!offlineStyleKey && offlineStyleKey !== key;
             return (
