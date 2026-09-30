@@ -19,6 +19,33 @@ export function bearerToken(request: Request): string | null {
   return header?.startsWith('Bearer ') ? header.slice(7) : null;
 }
 
+// The site's own admin: whoever signs in with an address listed in
+// ADMIN_EMAILS (comma-separated, set in Vercel). Only they see — and may call —
+// the tuning tools behind "מתקדם" in the settings: the voice, the AI provider,
+// the niqqud check. Server-side on purpose: the repository is public, so the
+// address stays out of the code and out of the page, and the tools that spend
+// TTS credits are closed to everyone else, not merely hidden from them.
+export async function isAdminRequest(request: Request): Promise<boolean> {
+  const admins = (process.env.ADMIN_EMAILS ?? '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  if (admins.length === 0) return false;
+  const token = bearerToken(request);
+  if (!token) return false;
+  const client = userScopedClient(token);
+  if (!client) return false;
+  try {
+    // Asks Supabase who the token belongs to — a forged or expired token
+    // gets no answer, so the address cannot simply be claimed.
+    const { data, error } = await client.auth.getUser(token);
+    const email = data.user?.email?.toLowerCase();
+    return !error && !!email && admins.includes(email);
+  } catch {
+    return false;
+  }
+}
+
 export interface QuotaResult {
   // false when the quota could not be enforced — either Supabase isn't set up
   // at all, or it's unreachable (see `unavailable`). Either way the caller must

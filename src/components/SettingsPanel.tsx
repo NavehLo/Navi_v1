@@ -5,6 +5,17 @@ import { AI_PROVIDER_STORAGE_KEY } from "../hooks/useAIGuide";
 import { type VoicePrefs, readVoicePrefs, rememberVoiceNames, writeVoicePrefs } from "../lib/voicePrefs";
 import { readSimulateOffline, setSimulateOffline, storageEstimate } from "../lib/offlineMap";
 import OffRouteSetting from "./OffRouteSetting";
+import { supabase } from "../lib/supabase";
+
+// The signed-in user's token, for the admin-only tools below. The server
+// decides who the admin is (ADMIN_EMAILS in Vercel); the page only carries
+// the proof of who is asking.
+async function authHeaders(): Promise<Record<string, string>> {
+  if (!supabase) return {};
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -91,6 +102,9 @@ const VOICE_SLIDERS: Array<{ key: keyof VoicePrefs; label: string; hint: string;
 
 export default function SettingsPanel({ onClose, children, help }: SettingsPanelProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
+  // "מתקדם" is the site admin's alone. Unknown (no answer yet, no reception,
+  // not signed in) counts as no.
+  const [isAdmin, setIsAdmin] = useState(false);
   const [selected, setSelected] = useState<string>("auto");
   const [available, setAvailable] = useState<Record<string, boolean> | null>(null);
   const [tts, setTts] = useState<TtsInfo | null | undefined>(undefined);
@@ -135,11 +149,18 @@ export default function SettingsPanel({ onClose, children, help }: SettingsPanel
       .then((d) => { setAvailable(d.providers); setTts(d.tts ?? null); })
       .catch(() => { setAvailable(null); setTts(undefined); });
 
-    // What this account may actually drive over the API — the answer differs
-    // from what the ElevenLabs website will play.
-    fetch("/api/tour-guide/voices")
-      .then((r) => r.json())
-      .then((d) => {
+    // Only the admin gets "מתקדם", and with it the list of voices — what this
+    // account may actually drive over the API, which differs from what the
+    // ElevenLabs website will play.
+    let cancelled = false;
+    (async () => {
+      const headers = await authHeaders();
+      const { admin } = await fetch("/api/admin", { headers }).then((r) => r.json());
+      if (cancelled || !admin) return;
+      setIsAdmin(true);
+      try {
+        const d = await fetch("/api/tour-guide/voices", { headers }).then((r) => r.json());
+        if (cancelled) return;
         setVoices(d.voices ?? []);
         // So the guide overlay can name the voice it is playing instead of
         // showing a bare id — this panel is the only place the names arrive.
@@ -149,11 +170,13 @@ export default function SettingsPanel({ onClose, children, help }: SettingsPanel
             ? { hint: d.hint ?? null, detail: [d.error, d.detail].filter(Boolean).join(" ") }
             : null
         );
-      })
-      .catch(() => {
+      } catch {
+        if (cancelled) return;
         setVoices([]);
         setVoicesError({ hint: null, detail: "לא ניתן לטעון את רשימת הקולות." });
-      });
+      }
+    })().catch(() => {}); // no answer: not the admin, as far as this screen knows
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => () => { audioRef.current?.pause(); }, []);
@@ -186,7 +209,7 @@ export default function SettingsPanel({ onClose, children, help }: SettingsPanel
     try {
       const res = await fetch("/api/tour-guide/voice-test", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({ voice: Object.keys(voice).length > 0 ? voice : undefined }),
       });
       const data = await res.json();
@@ -246,7 +269,7 @@ export default function SettingsPanel({ onClose, children, help }: SettingsPanel
     try {
       const res = await fetch("/api/tour-guide/niqqud", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({ text: niqqudText }),
       });
       const data = await res.json();
@@ -300,6 +323,7 @@ export default function SettingsPanel({ onClose, children, help }: SettingsPanel
             for using it: the AI provider, the voice, the vowel points and the
             rehearsal without reception. Folded away so a first look at the
             settings is not a wall of API keys and sliders. */}
+        {isAdmin && (<>
         <button
           onClick={() => setShowAdvanced((v) => !v)}
           aria-expanded={showAdvanced}
@@ -669,6 +693,7 @@ export default function SettingsPanel({ onClose, children, help }: SettingsPanel
           )}
           </div>
         )}
+        </>)}
       </div>
     </div>
   );

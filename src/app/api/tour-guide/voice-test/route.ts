@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { isAdminRequest } from '../../../../lib/supabaseServer';
 import { rateLimit, clientIp } from '../../../../lib/rateLimit';
 import { resolveTtsVoice, audioKey, synthesize, voiceStamp } from '../../../../lib/tts';
 import { classifyElevenLabsError } from '../../../../lib/elevenlabsErrors';
@@ -18,6 +19,10 @@ const SAMPLE_TEXT =
   'שלום, אני המדריכה של נָבִי. לפנינו מעיין עין חמד, ומעליו מתנשאת חורבת סעדים מהתקופה הביזנטית.';
 
 export async function POST(request: Request) {
+  // One of the admin's tuning tools (settings → מתקדם); see isAdminRequest.
+  if (!(await isAdminRequest(request))) {
+    return NextResponse.json({ error: 'זמין למנהל האתר בלבד.' }, { status: 403 });
+  }
   try {
     // Each miss is a paid synthesis, so this is capped tighter than narration.
     if (!(await rateLimit(`voicetest:${clientIp(request)}`, 12, 60_000))) {

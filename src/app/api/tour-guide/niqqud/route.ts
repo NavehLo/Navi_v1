@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { isAdminRequest } from '../../../../lib/supabaseServer';
 import { rateLimit, clientIp } from '../../../../lib/rateLimit';
 import { applyLexicon, resolveNiqqudProvider } from '../../../../lib/niqqud';
 import { dictaEndpoint, vocalizeWithDicta } from '../../../../lib/dictaNakdan';
@@ -16,6 +17,10 @@ import { dictaEndpoint, vocalizeWithDicta } from '../../../../lib/dictaNakdan';
 const MAX_CHARS = 600;
 
 export async function POST(request: Request) {
+  // One of the admin's tuning tools (settings → מתקדם); see isAdminRequest.
+  if (!(await isAdminRequest(request))) {
+    return NextResponse.json({ error: 'זמין למנהל האתר בלבד.' }, { status: 403 });
+  }
   try {
     // DICTA is somebody else's free service; this must not become a way to
     // hammer it.

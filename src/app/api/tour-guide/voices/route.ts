@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { isAdminRequest } from '../../../../lib/supabaseServer';
 import { rateLimit, clientIp } from '../../../../lib/rateLimit';
 import { classifyElevenLabsError } from '../../../../lib/elevenlabsErrors';
 
@@ -28,6 +29,10 @@ let cache: { at: number; voices: VoiceChoice[] } | null = null;
 const CACHE_MS = 5 * 60_000;
 
 export async function GET(request: Request) {
+  // One of the admin's tuning tools (settings → מתקדם); see isAdminRequest.
+  if (!(await isAdminRequest(request))) {
+    return NextResponse.json({ error: 'זמין למנהל האתר בלבד.' }, { status: 403 });
+  }
   if (!(await rateLimit(`voices:${clientIp(request)}`, 20, 60_000))) {
     return NextResponse.json({ error: 'יותר מדי בקשות. נסה שוב בעוד רגע.' }, { status: 429 });
   }
