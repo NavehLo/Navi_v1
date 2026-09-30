@@ -106,9 +106,10 @@ export interface DaySummary {
 }
 
 export interface WaterAdvice {
-  liters: number;         // "at least" — the panel and the text say so
+  min: number;            // litres: what the walk itself is likely to take
+  max: number;            // min plus the reserve
   perHour: number;
-  reserve: number;        // litres on top of the hourly figure
+  reserve: number;        // litres between min and max
   electrolytes: boolean;
 }
 
@@ -189,28 +190,53 @@ function worstHeatOver(p: PointForecast, idx: number[]): HeatLoad {
 }
 
 // ── Water ─────────────────────────────────────────────────────────────────────
-// Litres an hour by heat load: from half a litre on a cool day up to one and a
-// quarter in heavy heat, in line with the common Israeli guidance of "a litre
-// an hour in the heat". On top of that a reserve — a full litre in summer (or
-// in real heat at any time of year), half a litre otherwise — rounded up to
-// the half litre, never under a litre and a half, and never under three for a
-// walk of three hours or more in real heat, which is the figure every hiking
-// body here repeats for a summer day out. It is a minimum: the panel says
-// "at least".
-const LITERS_PER_HOUR = [0.4, 0.5, 0.6, 0.75, 1.0, 1.25];
+// A range, not a single number: what the walk is likely to take, and that plus
+// a reserve. Litres an hour by heat load — from 0.3 on a cool day to 0.8 in
+// the worst heat — multiplied by the walking hours. These are what people
+// actually carry: the first version used the "litre an hour in the heat"
+// figure straight, and asked for 6 litres for נחל עזגד (9 km, 5 hours), which
+// nobody takes.
+//
+// The low end is rounded to the nearest litre (half litre under two), never
+// below one, and never below two for three hours or more in real heat. The
+// reserve on top is a full litre in summer or real heat, half a litre
+// otherwise.
+const LITERS_PER_HOUR = [0.3, 0.4, 0.5, 0.55, 0.65, 0.8];
 
 export function waterFor(hours: number, heatLevel: number, summer: boolean): WaterAdvice {
   const perHour = LITERS_PER_HOUR[Math.max(0, Math.min(5, heatLevel))];
+  const need = hours * perHour;
+  let min = need >= 2 ? Math.round(need) : Math.round(need * 2) / 2;
+  min = Math.max(1, min);
+  if (heatLevel >= 2 && hours >= 3) min = Math.max(2, min);
   const reserve = summer || heatLevel >= 2 ? 1 : 0.5;
-  let liters = Math.ceil((hours * perHour + reserve) * 2) / 2;
-  liters = Math.max(1.5, liters);
-  if (heatLevel >= 2 && hours >= 3) liters = Math.max(3, liters);
   return {
-    liters,
+    min,
+    max: min + reserve,
     perHour,
     reserve,
     electrolytes: (heatLevel >= 2 && hours >= 3) || hours >= 6,
   };
+}
+
+// ── Plain words for the numbers ───────────────────────────────────────────────
+// A gust in km/h or a UV index means little to most people. A fixed key by
+// range, the same words every time, so they can be learnt.
+export function windMeaning(gustKmh: number): string {
+  if (gustKmh < 20) return 'רוח חלשה — כמעט לא מורגשת.';
+  if (gustKmh < 35) return 'רוח נעימה — מורגשת בעיקר בקטעים פתוחים.';
+  if (gustKmh < 50) return 'רוח חזקה — כובע עלול לעוף, ובקטעים חשופים ירגיש קריר יותר.';
+  if (gustKmh < 65) return 'רוח חזקה מאוד — קשה ללכת בקטעים חשופים, וצריך זהירות ליד מצוקים.';
+  return 'רוח סוערת — מסוכן בקטעים חשופים ועל רכסים.';
+}
+
+export function uvMeaning(uv: number): string {
+  const u = Math.round(uv);
+  if (u <= 2) return 'קרינה נמוכה — אין צורך בהגנה מיוחדת.';
+  if (u <= 5) return 'קרינה בינונית — כדאי כובע ומשקפי שמש.';
+  if (u <= 7) return 'קרינה גבוהה — כדאי כובע, קרם הגנה ושרוולים.';
+  if (u <= 10) return 'קרינה גבוהה מאוד — כוויה אפשרית תוך כחצי שעה בשמש. כדאי צל וקרם הגנה שוב ושוב.';
+  return 'קרינה קיצונית — כוויה אפשרית תוך דקות. כדאי להימנע משמש ישירה בצהריים.';
 }
 
 // ── The day ───────────────────────────────────────────────────────────────────

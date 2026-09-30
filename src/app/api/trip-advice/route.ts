@@ -31,13 +31,14 @@ const SYSTEM_PROMPT = [
   'כללים:',
   '1. 4 עד 6 משפטים בעברית פשוטה וטבעית.',
   '2. ניסוח ממליץ וזהיר, לא ציווי: "ההמלצה היא לקחת לפחות…", "כדאי…", "מומלץ…". לא "קחו", "צאו", "לבשו".',
-  '3. כמות המים היא תמיד מינימום — "לפחות".',
+  '3. כמות המים היא טווח (למשל "3–4 ליטר") — ציין אותו בדיוק כך, בלי "לפחות".',
   '4. אם יש אזהרות שמתחילות ב"סכנה" — פתח בהן, בבירור ובלי לרכך.',
   '5. אל תשנה אף מספר — טמפרטורות, ליטרים, שעות, אחוזים — ואל תמציא נתון שלא קיבלת. אל תוסיף פריטי ציוד או אזהרות שאינם ברשימות.',
   '6. תאר את מהלך היום: איך יהיה ביציאה ואיך לקראת הסיום, שמש או עננים, רוח, וההבדל בנקודה הגבוהה אם יש.',
   '7. אם זו נסיעה ולא הליכה — דבר על מזג האוויר בדרך ובעצירות, בלי מים ובלי ביגוד להליכה.',
   '8. אם היום רחוק יותר מ־4 ימים, הזכר בחצי משפט שהתחזית עוד יכולה להשתנות.',
-  '9. בלי כותרות, בלי רשימות, בלי כוכביות ובלי אימוג׳י.',
+  '9. כשמזכירים רוח או קרינת UV — במילים פשוטות, לפי ההסבר שקיבלת, לא רק מספר.',
+  '10. עברית בלבד: בלי ניקוד ובלי מילים בשפות אחרות. בלי כותרות, בלי רשימות, בלי כוכביות ובלי אימוג׳י.',
 ].join('\n');
 
 function userPrompt(a: AdviceInput): string {
@@ -45,7 +46,9 @@ function userPrompt(a: AdviceInput): string {
     `מסלול: ${a.trailName} (${a.kind === 'drive' ? 'נסיעה' : 'הליכה'}), ${a.km} ק״מ, משך משוער ${a.hours}${a.effort ? `, רמת מאמץ ${a.effort}` : ''}.`,
     `יום: ${a.day} (בעוד ${a.daysAhead} ימים). יציאה ${a.start}, סיום משוער ${a.end}, שקיעה ${a.sunset}.`,
     `שמיים: ${a.sky}. טמפרטורה בשעות ${a.kind === 'drive' ? 'הנסיעה' : 'ההליכה'}: ${a.temp}, מרגיש כמו ${a.feels}. ${a.heat}.`,
-    `גשם: סיכוי עד ${a.rainChance}%, ${a.rainMm} מ״מ. משבי רוח עד ${a.gusts} קמ״ש. קרינת UV עד ${a.uv}.`,
+    `גשם: סיכוי עד ${a.rainChance}%, ${a.rainMm} מ״מ.`,
+    `רוח: משבים עד ${a.gusts} קמ״ש — ${a.windNote}`,
+    `קרינת UV עד ${a.uv} — ${a.uvNote}`,
   ];
   if (a.high) lines.push(a.high + '.');
   if (a.betterStart) lines.push(`שעת יציאה מוקדמת יותר שחוסכת חום: ${a.betterStart}.`);
@@ -53,6 +56,18 @@ function userPrompt(a: AdviceInput): string {
   if (a.clothing.length) lines.push(`ביגוד וציוד: ${a.clothing.join(', ')}.`);
   lines.push(a.warnings.length ? `אזהרות:\n${a.warnings.join('\n')}` : 'אזהרות: אין.');
   return lines.join('\n');
+}
+
+// The small model now and then slips a vowel mark or a word of Arabic into
+// the Hebrew ("המסלוּל", "على" in the first live test). Vowel marks are simply
+// removed; text with another script in it is asked for once more, and if it
+// comes back the same way the panel keeps the plain sentences.
+const NIQQUD = /[\u0591-\u05BD\u05BF\u05C1\u05C2\u05C4\u05C5\u05C7]/g;
+const FOREIGN_SCRIPT = /[\u0600-\u06FF\u0400-\u04FF]/;
+
+function clean(text: string): string | null {
+  const t = text.replace(NIQQUD, '').trim();
+  return t && !FOREIGN_SCRIPT.test(t) ? t : null;
 }
 
 async function generate(user: string): Promise<string> {
@@ -98,7 +113,7 @@ export async function POST(request: Request) {
     const hit = cache.get(key);
     if (hit) return NextResponse.json({ status: 'ok' satisfies Status, text: hit });
 
-    const text = await generate(prompt);
+    const text = clean(await generate(prompt)) ?? clean(await generate(prompt));
     if (!text) return NextResponse.json({ status: 'unavailable' satisfies Status });
 
     if (cache.size > 300) cache.delete(cache.keys().next().value!);

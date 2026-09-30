@@ -15,7 +15,7 @@
 import { register } from 'node:module';
 register('./tsResolve.mjs', import.meta.url);
 
-const { heatLoad, waterFor, adviseDay, adviseWeek, findTodayIndex } = await import('../src/lib/hikeAdvice.ts');
+const { heatLoad, waterFor, adviseDay, adviseWeek, findTodayIndex, windMeaning, uvMeaning } = await import('../src/lib/hikeAdvice.ts');
 const { estimateHike } = await import('../src/lib/hikeEffort.ts');
 const { weatherPointsFor, isDesertArea, parsePointForecast, parseRingRain, parseDust, PAST_DAYS, PICKABLE_DAYS } = await import('../src/lib/weather.ts');
 
@@ -76,13 +76,16 @@ check('12 km + 900 m → hard (21 equivalent km)', steep.level === 'hard', steep
 
 // ── Water ────────────────────────────────────────────────────────────────────
 console.log('water');
-check('2 h cool winter day → 1.5 L (the floor)', waterFor(2, 0, false).liters === 1.5, waterFor(2, 0, false));
-check('winter reserve is half a litre', waterFor(2, 0, false).reserve === 0.5, waterFor(2, 0, false));
+const range = (w) => `${w.min}–${w.max}`;
+check('נחל עזגד: 5 h, heavy heat + sun → 3–4 L, not 6', range(waterFor(5, 4, true)) === '3–4', waterFor(5, 4, true));
+check('Ramon 7 h, mild + sun → 3–4 L', range(waterFor(7, 1, true)) === '3–4', waterFor(7, 1, true));
+check('2 h cool winter day → 1–1.5 L', range(waterFor(2, 0, false)) === '1–1.5', waterFor(2, 0, false));
 check('summer reserve is a full litre', waterFor(2, 0, true).reserve === 1, waterFor(2, 0, true));
-check('4 h mild summer day → 4×0.5 + 1 = 3 L', waterFor(4, 1, true).liters === 3, waterFor(4, 1, true));
-check('5 h heavy heat → 5 + 1 = 6 L', waterFor(5, 4, true).liters === 6, waterFor(5, 4, true));
+check('winter reserve is half a litre', waterFor(2, 0, false).reserve === 0.5, waterFor(2, 0, false));
 check('real heat in winter still gets the full litre', waterFor(5, 4, false).reserve === 1, waterFor(5, 4, false));
-check('3 h moderate heat → at least 3 L', waterFor(3, 2, false).liters >= 3, waterFor(3, 2, false));
+check('5 h in the worst heat → 4–5 L', range(waterFor(5, 5, true)) === '4–5', waterFor(5, 5, true));
+check('3 h moderate heat → at least 2 L at the low end', waterFor(3, 2, false).min >= 2, waterFor(3, 2, false));
+check('never more than a litre an hour at the top for a 5 h walk', waterFor(5, 5, true).max <= 5, waterFor(5, 5, true));
 check('5 h heavy heat → electrolytes', waterFor(5, 4, true).electrolytes, waterFor(5, 4, true));
 check('2 h cool day → no electrolytes', !waterFor(2, 0, false).electrolytes, waterFor(2, 0, false));
 
@@ -93,7 +96,7 @@ console.log('hot day, Judean Desert, 5 hours');
   const day = adviseDay(hot, TODAY, TODAY, { kind: 'hike', hours: 5, isDesert: true });
   check('starts at 07:00 in July', day.startHour === 7, day.startHour);
   check('heat warning is a danger', has(day, 'heat', 'danger'), ids(day));
-  check('at least 1 L an hour', day.water.liters >= 5.5, day.water);
+  check('hot 5 h: 4–5 L', range(day.water) === '4–5', day.water);
   check('electrolytes', day.water.electrolytes, day.water);
   check('hat, sunscreen, sun sleeves', ['hat', 'sunscreen', 'sleeves'].every((c) => wear(day).includes(c)), wear(day));
   check('no rain gear', !wear(day).includes('rain'), wear(day));
@@ -106,9 +109,9 @@ console.log('hot day, Judean Desert, 5 hours');
   const late = adviseDay(hot, TODAY, TODAY, { kind: 'hike', hours: 5, isDesert: true, startHour: 11 });
   check('start chosen at 11:00 is used', late.startHour === 11 && late.startChosen && late.defaultStart === 7, late);
   check('leaving at 11 is hotter than at 7', late.summary.tMax > day.summary.tMax, [late.summary.tMax, day.summary.tMax]);
-  check('leaving at 11 needs at least as much water', late.water.liters >= day.water.liters, [late.water, day.water]);
+  check('leaving at 11 needs at least as much water', late.water.min >= day.water.min, [late.water, day.water]);
   const sunny = adviseDay(bundle([point('start', 800, () => ({ temp: 24, feels: 25, rh: 30, uv: 8 }))]), TODAY, TODAY, { kind: 'hike', hours: 7, isDesert: true });
-  check('strong sun, no heat load: one step more water (0.5 L/h, not 0.4)', sunny.summary.heat.level === 0 && sunny.water.perHour === 0.5, sunny.water);
+  check('strong sun, no heat load: one step more water (0.4 L/h, not 0.3)', sunny.summary.heat.level === 0 && sunny.water.perHour === 0.4, sunny.water);
   check('leaving at 11 still suggests an earlier start', late.suggestedStart != null && late.suggestedStart < 11, late.suggestedStart);
 }
 
@@ -127,7 +130,7 @@ console.log('cold wet day, Meron, 4 hours, after a rainy week');
   check('reports the top separately', day.summary.high?.ele === 1150, day.summary.high);
   check('warm layer, rain coat, boots, windbreaker', ['warm', 'rain', 'boots', 'windbreaker'].every((c) => wear(day).includes(c)), wear(day));
   check('no heat warning', !has(day, 'heat'), ids(day));
-  check('water stays low (4×0.4 + 1 → 3 L)', day.water.liters <= 3, day.water);
+  check('cold day: 4 h × 0.3 → 1–2 L', range(day.water) === '1–2', day.water);
   check('no hat when there is no sun', !wear(day).includes('hat'), wear(day));
 }
 
@@ -172,6 +175,16 @@ console.log('dark, dust, storm');
   const drive = adviseDay(b, TODAY, TODAY, { kind: 'drive', hours: 2, isDesert: false });
   check('a drive gets no water or clothing', drive.water === null && drive.clothing.length === 0, drive);
 }
+
+// ── Plain words ──────────────────────────────────────────────────────────────
+console.log('plain words');
+check('gust 15 → weak', windMeaning(15).startsWith('רוח חלשה'), windMeaning(15));
+check('gust 40 → strong', windMeaning(40).startsWith('רוח חזקה —'), windMeaning(40));
+check('gust 70 → stormy', windMeaning(70).startsWith('רוח סוערת'), windMeaning(70));
+check('UV 1 → low', uvMeaning(1).startsWith('קרינה נמוכה'), uvMeaning(1));
+check('UV 7 → high', uvMeaning(7).startsWith('קרינה גבוהה —'), uvMeaning(7));
+check('UV 9.6 → very high', uvMeaning(9.6).startsWith('קרינה גבוהה מאוד'), uvMeaning(9.6));
+check('UV 11 → extreme', uvMeaning(11).startsWith('קרינה קיצונית'), uvMeaning(11));
 
 // ── Weather points and the week ──────────────────────────────────────────────
 console.log('points and week');
@@ -223,7 +236,7 @@ if (process.argv.includes('--live')) {
     for (const d of week) {
       const s = d.summary;
       console.log(`  ${d.date} ${d.rating.padEnd(4)} ${s.tMin}–${s.tMax}° feels ${s.feelsMin}–${s.feelsMax}° rain ${s.popMax}% gust ${s.gustMax} ${s.heat.label} pm10 ${s.pm10Max}` +
-        ` | ${d.water.liters} L | ${d.clothing.map((c) => c.label).join(', ')}`);
+        ` | ${d.water.min}–${d.water.max} L | ${d.clothing.map((c) => c.label).join(', ')}`);
       for (const w of d.warnings) console.log(`      ${w.level}: ${w.text}`);
     }
   }

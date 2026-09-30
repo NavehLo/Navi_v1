@@ -8,7 +8,7 @@ import { adviceInput } from "../lib/tripAdvice";
 import type { HikeEffort } from "../lib/hikeEffort";
 import type { TripWeather } from "../hooks/useTripWeather";
 import { weatherCodeInfo, type CodeInfo } from "../lib/weather";
-import { formatHour, type DayAdvice, type Warning } from "../lib/hikeAdvice";
+import { formatHour, windMeaning, uvMeaning, type DayAdvice, type Warning } from "../lib/hikeAdvice";
 import { formatHours } from "../lib/hikeEffort";
 
 // The forecast for the day of the trip, and what to take for it.
@@ -198,6 +198,12 @@ function DayDetails({ day, isDrive, startHour, onStart }: { day: DayAdvice; isDr
         <Stat icon={<Sun className="w-3.5 h-3.5" />} label="קרינת UV" value={String(Math.round(s.uvMax))} tone="text-yellow-300" />
       </div>
 
+      {/* What the two less familiar numbers mean for somebody walking. */}
+      <div className="text-xs text-zinc-100 mb-2 flex flex-col gap-0.5 leading-relaxed">
+        <div><span className="text-white font-bold">רוח: </span>{windMeaning(s.gustMax)}</div>
+        <div><span className="text-white font-bold">UV: </span>{uvMeaning(s.uvMax)}</div>
+      </div>
+
       {s.high && (
         <div className="text-xs text-zinc-100 mb-2 flex items-center gap-1">
           <Mountain className="w-3.5 h-3.5 shrink-0" />
@@ -257,12 +263,12 @@ function DayDetails({ day, isDrive, startHour, onStart }: { day: DayAdvice; isDr
           <div className="text-xs text-white font-bold mb-1.5">מה כדאי לקחת</div>
           <div className="flex items-baseline gap-2 mb-1">
             <Droplets className="w-4 h-4 text-sky-300 self-center" />
-            <span className="text-sm text-white">לפחות</span>
-            <span className="text-xl font-bold text-sky-300 leading-none">{day.water.liters}</span>
+            <span className="text-sm text-white">מומלץ</span>
+            <span dir="ltr" className="text-xl font-bold text-sky-300 leading-none">{day.water.min}–{day.water.max}</span>
             <span className="text-sm text-white">ליטר מים לאדם</span>
           </div>
           <div className="text-xs text-zinc-100 mb-2">
-            בערך {day.water.perHour} ליטר לשעת הליכה, ועוד {day.water.reserve === 1 ? "ליטר" : "חצי ליטר"} רזרבה.
+            בערך {day.water.perHour} ליטר לשעת הליכה. הקצה העליון כולל {day.water.reserve === 1 ? "ליטר" : "חצי ליטר"} רזרבה.
             {day.water.electrolytes && <span className="text-amber-200"> כדאי גם חטיפים מלוחים או אבקת מלחים.</span>}
           </div>
           {day.clothing.length > 0 && (

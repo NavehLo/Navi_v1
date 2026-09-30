@@ -6,7 +6,7 @@
 // device cache, or from the plain sentences below that stand in with no signal.
 
 import type { DayAdvice } from './hikeAdvice';
-import { formatHour } from './hikeAdvice';
+import { formatHour, windMeaning, uvMeaning } from './hikeAdvice';
 import type { HikeEffort } from './hikeEffort';
 import { formatHours } from './hikeEffort';
 import { weatherCodeInfo } from './weather';
@@ -29,9 +29,11 @@ export interface AdviceInput {
   rainChance: number;
   rainMm: number;
   gusts: number;
+  windNote: string;         // the gusts in plain words
   uv: number;
+  uvNote: string;           // the UV index in plain words
   high: string | null;      // "בנקודה הגבוהה (1150 מ׳): 12–15°, מרגיש כמו 9°"
-  water: string | null;     // "לפחות 3.5 ליטר לאדם (…)", always a minimum
+  water: string | null;     // "3–4 ליטר לאדם (…)" — a range, the top including a reserve
   clothing: string[];
   warnings: string[];       // "סכנה: …", "זהירות: …"
   betterStart: string | null;
@@ -74,9 +76,11 @@ export function adviceInput(
     rainChance: Math.round(s.popMax),
     rainMm: s.precipSum,
     gusts: s.gustMax,
+    windNote: windMeaning(s.gustMax),
     uv: Math.round(s.uvMax),
+    uvNote: uvMeaning(s.uvMax),
     high: s.high ? `בנקודה הגבוהה (${s.high.ele} מ׳): ${range(s.high.tMin, s.high.tMax)}, מרגיש כמו ${Math.round(s.high.feelsMin)}°` : null,
-    water: w ? `לפחות ${w.liters} ליטר לאדם (בערך ${w.perHour} ליטר לשעת הליכה ועוד ${w.reserve === 1 ? 'ליטר' : 'חצי ליטר'} רזרבה)${w.electrolytes ? ', וכדאי גם חטיפים מלוחים או אבקת מלחים' : ''}` : null,
+    water: w ? `${w.min}–${w.max} ליטר מים לאדם (הקצה העליון כולל ${w.reserve === 1 ? 'ליטר' : 'חצי ליטר'} רזרבה)${w.electrolytes ? ', וכדאי גם חטיפים מלוחים או אבקת מלחים' : ''}` : null,
     clothing: day.clothing.map((c) => c.label),
     warnings: day.warnings.map((x) => `${x.level === 'danger' ? 'סכנה' : x.level === 'warn' ? 'זהירות' : 'לידיעה'}: ${x.text}`),
     betterStart: day.suggestedStart != null ? formatHour(day.suggestedStart) : null,
@@ -94,13 +98,14 @@ export function adviceKey(input: AdviceInput): string {
 
 // The same facts in plain sentences — what the panel shows by default, and
 // whenever the model is off or cannot be reached. Recommending, not ordering:
-// "ההמלצה היא לקחת לפחות…" rather than "קחו…".
+// "ההמלצה היא לקחת 3–4 ליטר…" rather than "קחו…".
 export function fallbackAdvice(a: AdviceInput): string {
   const parts: string[] = [];
   parts.push(`${a.day} צפוי ${a.sky}, ${a.temp} בשעות ${a.kind === 'drive' ? 'הנסיעה' : 'ההליכה'} (מרגיש כמו ${a.feels}).`);
   if (a.high) parts.push(`${a.high}.`);
   if (a.rainChance >= 30) parts.push(`סיכוי לגשם של עד ${a.rainChance}%.`);
-  if (a.gusts >= 35) parts.push(`רוח עם משבים של עד ${a.gusts} קמ״ש.`);
+  if (a.gusts >= 35) parts.push(a.windNote);
+  if (a.kind === 'hike' && a.uv >= 6) parts.push(a.uvNote);
   if (a.kind === 'hike') {
     if (a.heat !== 'ללא עומס חום') parts.push(`${a.heat} — כדאי לנוח בצל ולשתות לאורך כל הדרך.`);
     if (a.betterStart) parts.push(`כדי להימנע מהחום, כדאי לשקול לצאת כבר ב־${a.betterStart}.`);
