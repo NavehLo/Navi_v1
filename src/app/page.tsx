@@ -16,6 +16,10 @@ import WorldTrailCard from "@/components/WorldTrailCard";
 import DrivePlanner, { type DriveRequest, type DrivePlan } from "@/components/DrivePlanner";
 import PlaceSearchBox from "@/components/PlaceSearchBox";
 import MeasureTool, { type MeasureWaypoint } from "@/components/MeasureTool";
+import Coachmark from "@/components/help/Coachmark";
+import HelpSection from "@/components/help/HelpSection";
+import { WELCOME_STEPS, TRAIL_STEPS, DRIVE_STEPS, trackingSteps } from "@/components/help/tours";
+import { hasSeen, markSeen, resetOnboarding, type HelpKey } from "@/lib/onboarding";
 import { Car, Footprints } from "lucide-react";
 import { driveRoute, thinCoords } from "@/lib/mapboxDirections";
 import { encodeDrive, decodeDrive, type DriveLink } from "@/lib/driveLink";
@@ -607,6 +611,38 @@ export default function TrailApp() {
     trail
   );
 
+  // First-visit help: a short tour the first time the home screen and a trail
+  // are seen, and a one-off tip the first time the live location or the drive
+  // planner is switched on (components/help). Each is shown once and then
+  // remembered on the device; "איך זה עובד" in the settings brings them back.
+  // Never on top of something that needs the screen more: a running tour, the
+  // off-route alarm, an open window, a hidden UI, a measurement, a trail still
+  // loading.
+  const [helpTour, setHelpTour] = useState<HelpKey | null>(null);
+  const helpQuiet = isTourActive || !!offRoute.alert || showSettings || showPersonalArea
+    || showGuidePoints || uiHidden || isMeasuring || trailLoading || !!worldTrails.selection;
+  // Whether the screen still is the one the help was meant for — a shared
+  // link can open a trail under the welcome tour. One that no longer fits is
+  // simply not drawn, and gives way to whatever is due on the new screen.
+  const helpFits = helpTour === 'welcome' ? !trail && appMode === 'trails'
+    : helpTour === 'drive' ? !trail && appMode === 'drive'
+    : !!trail;
+  useEffect(() => {
+    if ((helpTour && helpFits) || helpQuiet || !map) return;
+    const due: HelpKey | null = trail
+      ? (!isDrive && !hasSeen('trail') ? 'trail' : isTracking && !hasSeen('tracking') ? 'tracking' : null)
+      : appMode === 'drive' ? (hasSeen('drive') ? null : 'drive')
+      : hasSeen('welcome') ? null : 'welcome';
+    if (!due) return;
+    // Let the screen settle first: a trail flies into view, the list loads.
+    const t = setTimeout(() => setHelpTour(due), due === 'tracking' ? 800 : 1500);
+    return () => clearTimeout(t);
+  }, [map, trail, isDrive, isTracking, appMode, helpQuiet, helpTour, helpFits]);
+  const finishHelp = useCallback(() => {
+    if (helpTour) markSeen(helpTour);
+    setHelpTour(null);
+  }, [helpTour]);
+
   // A measured stretch opened as a trail of its own, and walked: the live
   // location goes on with it. Kept as GPX so it can be saved to
   // the personal area like an uploaded file.
@@ -1054,7 +1090,7 @@ export default function TrailApp() {
 
       {/* Home screen: hiking trails, or a drive between two places */}
       {map && !trail && !uiHidden && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[44] flex bg-zinc-900/90 rounded-full border border-white/10 backdrop-blur-md shadow-xl p-1" dir="rtl" role="tablist">
+        <div data-tour="mode-toggle" className="absolute top-3 left-1/2 -translate-x-1/2 z-[44] flex bg-zinc-900/90 rounded-full border border-white/10 backdrop-blur-md shadow-xl p-1" dir="rtl" role="tablist">
           <button
             role="tab"
             aria-selected={appMode === 'trails'}
@@ -1114,10 +1150,12 @@ export default function TrailApp() {
       {uiHidden && (
         <button
           onClick={() => setUiHidden(false)}
-          className="absolute top-3 right-3 z-[60] w-10 h-10 flex items-center justify-center bg-zinc-900/90 text-amber-400 rounded-2xl border border-white/10 backdrop-blur-md shadow-xl"
+          className="absolute top-3 right-3 z-[60] h-10 px-3 gap-1.5 flex items-center justify-center bg-zinc-900/90 text-amber-400 rounded-2xl border border-white/10 backdrop-blur-md shadow-xl"
           title="הצג שוב את הנתונים על המפה"
+          dir="rtl"
         >
           <EyeOff className="w-[18px] h-[18px]" />
+          <span className="text-sm font-bold">הצג הכל</span>
         </button>
       )}
 
@@ -1224,7 +1262,19 @@ export default function TrailApp() {
 
       {/* Settings modal */}
       {showSettings && (
-        <SettingsPanel onClose={() => setShowSettings(false)}>
+        <SettingsPanel
+          onClose={() => setShowSettings(false)}
+          help={
+            <HelpSection
+              // An open drive has no tour of its own.
+              onReplay={isDrive ? undefined : () => {
+                setShowSettings(false);
+                setHelpTour(trail ? 'trail' : appMode === 'drive' ? 'drive' : 'welcome');
+              }}
+              onReset={resetOnboarding}
+            />
+          }
+        >
           <SettingsActions
             authAvailable={isAuthAvailable}
             isSignedIn={!!user}
@@ -1363,6 +1413,21 @@ export default function TrailApp() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* First-visit help, above everything else on the screen */}
+      {helpTour && helpFits && !helpQuiet && (
+        <Coachmark
+          key={helpTour}
+          steps={
+            helpTour === 'welcome' ? WELCOME_STEPS
+              : helpTour === 'trail' ? TRAIL_STEPS
+              : helpTour === 'drive' ? DRIVE_STEPS
+              : trackingSteps(isNativeApp())
+          }
+          dim={helpTour === 'welcome' || helpTour === 'trail'}
+          onDone={finishHelp}
+        />
       )}
     </div>
   );

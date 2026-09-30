@@ -10,6 +10,7 @@ import type { TripWeather } from "../hooks/useTripWeather";
 import { weatherCodeInfo, type CodeInfo } from "../lib/weather";
 import { formatHour, windMeaning, uvMeaning, type DayAdvice, type Warning } from "../lib/hikeAdvice";
 import { formatHours } from "../lib/hikeEffort";
+import InfoButton from "./help/InfoButton";
 
 // The forecast for the day of the trip, and what to take for it.
 //
@@ -73,7 +74,13 @@ export default function TripWeatherSection({ weather, isDrive, trail }: { weathe
 
   return (
     <div className="mt-3 border-t border-white/10 pt-3">
-      <div className="text-xs text-white uppercase tracking-widest mb-1 font-bold">מזג אוויר ליום הטיול</div>
+      <div className="text-xs text-white mb-1 font-bold flex items-center gap-1">
+        מזג אוויר ליום הטיול
+        <InfoButton label="מזג האוויר ליום הטיול">
+          בוחרים יום בשורת הימים ושעת יציאה, והתחזית, שעות ההליכה וההמלצות מתעדכנות לפיהם. הנקודה ליד כל יום:
+          ירוק מתאים, צהוב לשים לב, אדום לא מומלץ. כמות המים מחושבת לפי אורך המסלול, העליות והחום הצפוי.
+        </InfoButton>
+      </div>
 
       {effort && (
         <div className="text-xs text-zinc-100 mb-2">

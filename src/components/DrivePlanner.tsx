@@ -291,6 +291,7 @@ export default function DrivePlanner({
 
   return (
     <div
+      data-tour="drive-panel"
       className={`absolute left-4 right-4 z-40 flex flex-col md:w-[380px] md:bottom-auto md:right-6 md:left-auto md:top-6 bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl transition-all
         ${isExpanded ? 'bottom-16 rounded-3xl p-5 max-h-[70vh] md:max-h-[calc(100vh-3rem)]' : 'bottom-16 rounded-2xl p-3'}`}
       dir="rtl"

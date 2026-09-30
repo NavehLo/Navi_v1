@@ -12,6 +12,8 @@ interface SettingsPanelProps {
   // the settings button is now the one place for everything that is not a
   // map action, and these come first.
   children?: React.ReactNode;
+  // "איך זה עובד" — the explanations and the way back to the tour.
+  help?: React.ReactNode;
 }
 
 // These choose who *writes* the narration. The voice is a separate decision
@@ -87,7 +89,7 @@ const VOICE_SLIDERS: Array<{ key: keyof VoicePrefs; label: string; hint: string;
   { key: "speed", label: "קצב", hint: "1.0 הוא הקצב הטבעי", min: 0.7, max: 1.2, step: 0.05, fallback: 1 },
 ];
 
-export default function SettingsPanel({ onClose, children }: SettingsPanelProps) {
+export default function SettingsPanel({ onClose, children, help }: SettingsPanelProps) {
   const [selected, setSelected] = useState<string>("auto");
   const [available, setAvailable] = useState<Record<string, boolean> | null>(null);
   const [tts, setTts] = useState<TtsInfo | null | undefined>(undefined);
@@ -286,6 +288,8 @@ export default function SettingsPanel({ onClose, children }: SettingsPanelProps)
         </div>
 
         {children && <div className="flex flex-col gap-2 mb-6">{children}</div>}
+
+        {help}
 
         <div className="mb-6">
           <OffRouteSetting />

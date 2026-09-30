@@ -3,6 +3,7 @@ import { TrailData, TrailPOI } from "../hooks/useTrailData";
 import { PoiSource } from "../hooks/useTrailPOIs";
 import type { OfflinePhase } from "../hooks/useOfflineTrail";
 import { isIOS, isStandaloneDisplay, type MapPack, type MapPackProgress, type PackEstimate } from "../lib/offlineMap";
+import InfoButton from "./help/InfoButton";
 
 // Answers, directly, the question "how many narrations are there and where?".
 // Until now the only way to find out was to run the tour and count.
@@ -85,8 +86,14 @@ export default function GuidePointsPanel({
           <h2 className="text-white font-extrabold text-lg flex items-center gap-2">
             <Headphones className="text-emerald-400" size={20} />
             נקודות המדריכה
+            <InfoButton label="נקודות המדריכה והורדה לשטח">
+              <p>▶ משמיע את הקריינות של הנקודה.</p>
+              <p className="mt-1"><b>⬇ להורדה</b>: עוד לא שמורה במכשיר, ותושמע רק כשיש קליטה.</p>
+              <p className="mt-1"><b>✓ אופליין</b>: שמורה במכשיר ותושמע גם בלי קליטה.</p>
+              <p className="mt-2">״הורד מסלול לשטח״ שומר את המפה לאורך המסלול ואת כל הקריינות ל־30 יום. כדאי להוריד בבית, דרך Wi‑Fi.</p>
+            </InfoButton>
           </h2>
-          <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors p-1">
+          <button onClick={onClose} className="text-white hover:text-orange-300 transition-colors p-1" aria-label="סגור">
             <X size={20} />
           </button>
         </div>

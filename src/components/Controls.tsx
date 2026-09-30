@@ -79,7 +79,7 @@ const PILL =
 const LABELS_KEY = "navi:railLabels";
 
 function RailBtn({
-  label, labelsOn, onClick, className = "", title, children, ariaPressed,
+  label, labelsOn, onClick, className = "", title, children, ariaPressed, dataTour,
 }: {
   label: string;
   labelsOn: boolean;
@@ -88,10 +88,13 @@ function RailBtn({
   title?: string;
   children: React.ReactNode;
   ariaPressed?: boolean;
+  // What the first-visit tour points at (see components/help/tours.tsx).
+  dataTour?: string;
 }) {
   return (
     <button
       onClick={onClick}
+      data-tour={dataTour}
       title={title ?? label}
       aria-label={label}
       aria-pressed={ariaPressed}
@@ -167,7 +170,7 @@ export default function Controls(props: ControlsProps) {
       </div>
 
       {/* Left rail — map actions, one tap each */}
-      <div className="absolute top-3 left-3 z-[42] flex flex-col items-start gap-2" dir="rtl">
+      <div className="absolute top-3 left-3 z-[42] flex flex-col items-start gap-2" dir="rtl" data-tour="rail">
         <div className={PILL}>
           <RailBtn
             label="תצוגת מפה"
@@ -190,6 +193,7 @@ export default function Controls(props: ControlsProps) {
             labelsOn={labelsOn}
             onClick={onLocateUser}
             className={`border-t border-white/10 ${isTracking ? 'bg-sky-500/20 text-sky-300' : 'text-sky-400'}`}
+            dataTour="locate"
             title={isTracking ? 'מיקום חי פעיל — לחיצה ממרכזת את המפה עליי' : 'מיקום חי — הצג את המיקום שלי על המפה ועקוב אחריו'}
             ariaPressed={!!isTracking}
           >
@@ -210,7 +214,7 @@ export default function Controls(props: ControlsProps) {
         </div>
 
         {hasTrail && (
-          <div className={PILL}>
+          <div className={PILL} data-tour="trail-rail">
             <RailBtn label="כל המסלול" labelsOn={labelsOn} onClick={onFitToTrail} className="text-amber-400" title="מרכוז התצוגה על כל המסלול">
               <Maximize2 className="w-[18px] h-[18px]" />
             </RailBtn>
@@ -219,7 +223,7 @@ export default function Controls(props: ControlsProps) {
                 label={isGuideEnabled ? 'מדריכה פעילה' : 'מדריכה כבויה'}
                 labelsOn={labelsOn}
                 onClick={onToggleGuide}
-                className={`border-t border-white/10 ${isGuideEnabled ? 'text-emerald-400' : 'text-zinc-400'}`}
+                className={`border-t border-white/10 ${isGuideEnabled ? 'text-emerald-400' : 'text-white'}`}
                 title={isGuideEnabled ? 'המדריכה פעילה לסיור הזה — לחץ לכיבוי' : 'המדריכה כבויה ולא תקריין מעצמה — לחץ להפעלה לסיור הזה'}
                 ariaPressed={isGuideEnabled}
               >
@@ -248,6 +252,7 @@ export default function Controls(props: ControlsProps) {
             label="הגדרות"
             labelsOn={labelsOn}
             onClick={() => { setShowLayers(false); onOpenSettings?.(); }}
+            dataTour="settings"
             title="הגדרות, אזור אישי, שמירה ושיתוף"
           >
             <Settings className="w-[18px] h-[18px]" />
@@ -256,7 +261,7 @@ export default function Controls(props: ControlsProps) {
             label="הסתר שמות"
             labelsOn={labelsOn}
             onClick={toggleLabels}
-            className={`border-t border-white/10 ${labelsOn ? 'text-zinc-400' : 'text-zinc-500'}`}
+            className="border-t border-white/10 text-white"
             title={labelsOn ? 'הסתר את שמות הכפתורים' : 'הצג את שמות הכפתורים'}
             ariaPressed={labelsOn}
           >
@@ -269,7 +274,7 @@ export default function Controls(props: ControlsProps) {
 
       {/* Layers popover, anchored beside the rail */}
       {showLayers && (
-        <div className="absolute top-3 left-16 z-[47] w-44 bg-zinc-900/95 rounded-2xl border border-white/10 backdrop-blur-md shadow-2xl p-2 flex flex-col gap-1" dir="rtl">
+        <div className="absolute top-3 left-16 z-[47] w-56 bg-zinc-900/95 rounded-2xl border border-white/10 backdrop-blur-md shadow-2xl p-2 flex flex-col gap-1" dir="rtl">
           {([['satellite', 'לוויין'], ['terrain', 'טופוגרפיה'], ['light', 'מפה בהירה']] as const).map(([key, label]) => {
             const locked = !!offlineStyleKey && offlineStyleKey !== key;
             return (
@@ -278,7 +283,7 @@ export default function Controls(props: ControlsProps) {
                 onClick={() => { if (locked) return; onStyleChange(key); setShowLayers(false); }}
                 disabled={locked}
                 title={locked ? 'לא נשמר לשטח — זמין רק עם קליטה' : undefined}
-                className={`text-xs p-2 rounded-lg text-right ${locked ? 'text-zinc-600 cursor-not-allowed' : 'text-white hover:bg-white/10'}`}
+                className={`text-sm p-2 rounded-lg text-right ${locked ? 'text-white/60 cursor-not-allowed' : 'text-white hover:bg-white/10'}`}
               >
                 {label}{locked ? ' · לא שמור' : ''}
               </button>
@@ -286,7 +291,7 @@ export default function Controls(props: ControlsProps) {
           })}
           <button
             onClick={onToggle3D}
-            className={`text-xs p-2 rounded-lg font-bold border-t border-white/10 mt-1 pt-2 text-right ${is3D ? 'text-orange-400' : 'text-zinc-400'}`}
+            className={`text-sm p-2 rounded-lg font-bold border-t border-white/10 mt-1 pt-2 text-right ${is3D ? 'text-orange-400' : 'text-white'}`}
           >
             {is3D ? 'תלת מימד פעיל — כבה' : 'תלת מימד כבוי — הפעל'}
           </button>
@@ -294,16 +299,44 @@ export default function Controls(props: ControlsProps) {
             <button
               onClick={onToggleWorldTrails}
               aria-pressed={!!showWorldTrails}
-              className={`text-xs p-2 rounded-lg font-bold text-right ${showWorldTrails ? 'text-orange-400' : 'text-zinc-400'}`}
+              className={`text-sm p-2 rounded-lg font-bold text-right ${showWorldTrails ? 'text-orange-400' : 'text-white'}`}
               title="מסלולי טיול מסומנים מ-OpenStreetMap, בכל העולם. לחיצה על מסלול פותחת את פרטיו."
             >
               {showWorldTrails ? 'מסלולים בעולם — הסתר' : 'מסלולים בעולם — הצג'}
             </button>
           )}
+          <MapLegend />
         </div>
       )}
 
     </>
+  );
+}
+
+// What the marks drawn on the map mean. The colours are the ones page.tsx
+// paints the layers with; change one there, change it here.
+function MapLegend() {
+  const dot = (fill: string, stroke: string) => (
+    <span className="w-3 h-3 rounded-full shrink-0 border-2" style={{ background: fill, borderColor: stroke }} />
+  );
+  const line = (color: string) => <span className="w-4 h-1.5 rounded-full shrink-0" style={{ background: color }} />;
+  const items: Array<[React.ReactNode, string]> = [
+    [line('#f97316'), 'מסלול טיול'],
+    [line('#3b82f6'), 'מסלול נסיעה'],
+    [dot('#22d3ee', '#ffffff'), 'נקודת מדריכה — לחיצה משמיעה'],
+    [dot('#0ea5e9', '#e0f2fe'), 'מקור מים'],
+    [dot('#1e293b', '#7dd3fc'), 'מים לא מאומתים'],
+    [dot('#38bdf8', '#ffffff'), 'המיקום שלכם'],
+  ];
+  return (
+    <div className="border-t border-white/10 mt-1 pt-2 px-2 pb-1 flex flex-col gap-1.5">
+      <div className="text-white text-xs font-bold">מקרא</div>
+      {items.map(([mark, label]) => (
+        <div key={label} className="flex items-center gap-2 text-white text-xs">
+          <span className="w-4 flex justify-center">{mark}</span>{label}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -316,7 +349,7 @@ export function BottomBar({
   const speeds = tourSpeedsFor(trailKind);
 
   return (
-    <div className="pointer-events-auto flex items-center gap-2" dir="rtl">
+    <div className="pointer-events-auto flex items-center gap-2" dir="rtl" data-tour="tour-button">
       {isTourActive ? (
         <div className="flex items-center bg-zinc-900/90 rounded-2xl p-1.5 border border-white/10 backdrop-blur-md gap-1 shadow-2xl">
           <button
@@ -330,7 +363,7 @@ export function BottomBar({
               key={s}
               onClick={() => onTourSpeedChange(s)}
               aria-pressed={tourSpeed === s}
-              className={`${speeds.length > 3 ? 'px-1.5 text-[11px]' : 'px-2.5 text-xs'} py-2 rounded-xl font-bold ${tourSpeed === s ? 'bg-orange-500 text-white' : 'text-zinc-400 hover:bg-white/10'}`}
+              className={`${speeds.length > 3 ? 'px-1.5 text-[11px]' : 'px-2.5 text-xs'} py-2 rounded-xl font-bold ${tourSpeed === s ? 'bg-orange-500 text-white' : 'text-white hover:bg-white/10'}`}
             >x{s}</button>
           ))}
         </div>

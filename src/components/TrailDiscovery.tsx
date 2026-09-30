@@ -7,6 +7,7 @@ import {
   type ShadeFilter, type WaterFilter, type TrailSummer,
 } from '../lib/summerFilters';
 import GPXLoader from './GPXLoader';
+import InfoButton from './help/InfoButton';
 
 export interface TrailInfo {
   id: string;
@@ -294,7 +295,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
   const types = Array.from(new Set(trails.map(t => t.type)));
 
   return (
-    <div className={`absolute left-4 right-4 z-40 flex flex-col md:w-[380px] md:bottom-6 md:right-6 md:left-auto md:top-6 md:max-h-[calc(100vh-3rem)] bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl transition-all
+    <div data-tour="discovery" className={`absolute left-4 right-4 z-40 flex flex-col md:w-[380px] md:bottom-6 md:right-6 md:left-auto md:top-6 md:max-h-[calc(100vh-3rem)] bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl transition-all
       ${isExpanded ? 'bottom-16 top-[108px] md:top-6 rounded-3xl p-5 md:bottom-6' : 'bottom-16 rounded-2xl p-4 md:rounded-3xl md:p-5 md:bottom-6'} 
       `} dir="rtl">
       
@@ -401,6 +402,13 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
                 {WATER_FILTER_LABELS[level]}
               </button>
             ))}
+            <InfoButton label="סינון לפי צל ומים">
+              <b>צל:</b> כמה מהמסלול עובר בין עצים. ״קצת צל״ הוא רבע ממנו לפחות, ״מסלול מוצל״ חצי לפחות.
+              <br />
+              <b>מים:</b> ״יש מים בדרך״ אומר שיש לפחות בריכה או נחל איתן ליד השביל; ״מסלול מים״ אומר שרבע מהדרך ליד מים.
+              <br />
+              הערכה לפי מפות, לא בדיקה בשטח.
+            </InfoButton>
           </div>
         )}
 

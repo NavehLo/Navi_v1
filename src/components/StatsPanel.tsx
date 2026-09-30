@@ -7,6 +7,8 @@ import { computeElevationGain, sliceTrail } from "../utils/trailUtils";
 import { formatDuration } from "./DrivePlanner";
 import TripWeatherSection, { WeatherIcon } from "./TripWeatherSection";
 import type { TripWeather } from "../hooks/useTripWeather";
+import InfoButton from "./help/InfoButton";
+import { HELP_UI_ATTR } from "./help/Coachmark";
 
 // Sits above the bottom stack (narration card + tour bar) and starts collapsed
 // on phones — expanded, this card alone used to cover a third of the screen.
@@ -51,6 +53,9 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
   useEffect(() => {
     if (collapsed) return;
     const onPointerDown = (e: PointerEvent) => {
+      // A tap on an explanation opened from inside the card is still a tap on
+      // the card, even though the explanation is drawn outside it.
+      if ((e.target as Element).closest?.(`[${HELP_UI_ATTR}]`)) return;
       if (!cardRef.current?.contains(e.target as Node)) setCollapsed(true);
     };
     document.addEventListener("pointerdown", onPointerDown);
@@ -155,7 +160,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
 
   if (collapsed) {
     return (
-      <div ref={cardRef} className={`absolute ${bottomOffset} left-3 right-3 md:top-[104px] md:right-3 md:left-auto md:bottom-auto bg-zinc-900/90 py-2 px-3 rounded-2xl shadow-xl border border-white/10 z-[41] md:w-80 backdrop-blur-md flex justify-between items-center gap-2`} dir="rtl">
+      <div ref={cardRef} data-tour="stats" className={`absolute ${bottomOffset} left-3 right-3 md:top-[104px] md:right-3 md:left-auto md:bottom-auto bg-zinc-900/90 py-2 px-3 rounded-2xl shadow-xl border border-white/10 z-[41] md:w-80 backdrop-blur-md flex justify-between items-center gap-2`} dir="rtl">
         <div className="flex items-center gap-2 overflow-hidden min-w-0">
           {onClose && (
             <button onClick={onClose} className="p-1.5 bg-white/5 hover:bg-white/10 rounded-full transition-colors shrink-0" title="חזור למפה">
@@ -197,7 +202,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
   }
 
   return (
-    <div ref={cardRef} className={`absolute ${bottomOffset} left-3 right-3 md:top-[104px] md:right-3 md:left-auto md:bottom-auto bg-zinc-900/90 p-4 md:p-5 rounded-3xl shadow-xl border border-white/10 z-[45] max-h-[75vh] overflow-y-auto overscroll-contain md:w-80 backdrop-blur-md`} dir="rtl">
+    <div ref={cardRef} data-tour="stats" className={`absolute ${bottomOffset} left-3 right-3 md:top-[104px] md:right-3 md:left-auto md:bottom-auto bg-zinc-900/90 p-4 md:p-5 rounded-3xl shadow-xl border border-white/10 z-[45] max-h-[75vh] overflow-y-auto overscroll-contain md:w-80 backdrop-blur-md`} dir="rtl">
       <div className="flex justify-between items-center gap-3">
         {onClose && (
           <button 
@@ -244,32 +249,32 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
       )}
       <div className="flex justify-between border-t border-white/10 pt-3 mt-3">
         <div className="text-center flex-1 px-1">
-          <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-1 font-bold">אורך מסלול</div>
+          <div className="text-xs text-white mb-1 font-bold">אורך מסלול</div>
           <div className="text-xl font-bold text-sky-400">
             {trail.totalDistance.toFixed(1)}
-            <span className="text-xs font-normal text-zinc-500 mr-1">ק"מ</span>
+            <span className="text-xs font-normal text-white mr-1">ק״מ</span>
           </div>
         </div>
         {isDrive ? (
           <div className="text-center flex-1 border-r border-white/5 px-1">
-            <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-1 font-bold">זמן נסיעה</div>
+            <div className="text-xs text-white mb-1 font-bold">זמן נסיעה</div>
             <div className="text-xl font-bold text-emerald-400">
               {trail.driveDurationSec != null ? formatDuration(trail.driveDurationSec) : '—'}
             </div>
           </div>
         ) : (<>
         <div className="text-center flex-1 border-r border-white/5 px-1">
-          <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-1 font-bold">גובה מינימלי</div>
+          <div className="text-xs text-white mb-1 font-bold">גובה מינימלי</div>
           <div className="text-xl font-bold text-red-400">
             {Math.round(trail.minEle)}
-            <span className="text-xs font-normal text-zinc-500 mr-1">מ'</span>
+            <span className="text-xs font-normal text-white mr-1">מ׳</span>
           </div>
         </div>
         <div className="text-center flex-1 border-r border-white/5 px-1">
-          <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-1 font-bold">גובה מקסימלי</div>
+          <div className="text-xs text-white mb-1 font-bold">גובה מקסימלי</div>
           <div className="text-xl font-bold text-emerald-400">
             {Math.round(trail.maxEle)}
-            <span className="text-xs font-normal text-zinc-500 mr-1">מ'</span>
+            <span className="text-xs font-normal text-white mr-1">מ׳</span>
           </div>
         </div>
         </>)}
@@ -289,7 +294,12 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
       {isDrive && weather && <TripWeatherSection weather={weather} isDrive trail={trail} />}
       {!isDrive && (<>
       <div className="mt-3 border-t border-white/10 pt-3 relative" dir="ltr">
-        <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-2 text-right font-bold">פרופיל גובה</div>
+        <div className="text-xs text-white mb-2 font-bold flex items-center gap-1" dir="rtl">
+          פרופיל גובה
+          <InfoButton label="פרופיל הגובה">
+            הצד הימני הוא תחילת המסלול. הקו הכתום מראה איפה נמצא הסיור הווירטואלי, והנקודה הכחולה מראה איפה אתם, כשהמיקום החי דלוק.
+          </InfoButton>
+        </div>
         <div className="relative w-full h-14 bg-zinc-800 rounded-lg overflow-hidden">
           {/* scaleX(-1) flips graph so right = trail start (RTL) */}
           <svg viewBox="0 0 300 64" preserveAspectRatio="none" className="absolute inset-0 w-full h-full opacity-60" style={{ transform: 'scaleX(-1)' }}>
@@ -343,7 +353,19 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
 
       {/* ── קיץ ─────────────────────────────────────────────────────────── */}
       <div className="mt-3 border-t border-white/10 pt-3">
-        <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-2 font-bold">בקיץ</div>
+        <div className="text-xs text-white mb-2 font-bold flex items-center gap-1">
+          בקיץ
+          <InfoButton label="מים וצל בקיץ">
+            <p>
+              <b>מים:</b> הפס הכחול מסמן קטעים שיש בהם מקור מים עד 150 מ׳ מהשביל. עיגול מלא הוא בריכה או נחל איתן;
+              עיגול חלול הוא מעיין או מקור לא מאומת, שעלול להיות יבש. ״ק״מ ברצף בלי מים״ הוא הקטע הארוך ביותר בלי מקור כזה.
+            </p>
+            <p className="mt-2">
+              <b>צל:</b> כמה עצים יש לאורך השביל. כתום זה שמש, ירוק זה צל.
+            </p>
+            <p className="mt-2">הכול הערכה לפי מפות, לא בדיקה בשטח. הצד הימני הוא תחילת המסלול.</p>
+          </InfoButton>
+        </div>
 
         {/* מים */}
         <div className="text-xs text-white font-bold mb-1">אפשרות למים להתרעננות</div>
@@ -366,9 +388,9 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           <div className="mb-3">
             <div className="flex items-baseline gap-2 mb-2">
               <span className="text-lg font-bold text-sky-400 leading-none">{water.longestDryKm.toFixed(1)}</span>
-              <span className="text-[11px] text-zinc-300">ק״מ ברצף בלי מים</span>
-              <span className="text-zinc-600">·</span>
-              <span className="text-[11px] text-zinc-300">{Math.round(water.nearWaterPct)}% ליד מים</span>
+              <span className="text-xs text-white">ק״מ ברצף בלי מים</span>
+              <span className="text-white">·</span>
+              <span className="text-xs text-white">{Math.round(water.nearWaterPct)}% ליד מים</span>
             </div>
 
             {/* The water strip, drawn to line up column-for-column with the
@@ -393,7 +415,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
               ))}
             </div>
 
-            <div className="flex justify-between text-[10px] text-zinc-400 mt-1 mb-2">
+            <div className="flex justify-between text-xs text-white mt-1 mb-2">
               <span>סוף</span>
               <span className="text-sky-400">מים בטווח 150 מ׳</span>
               <span>התחלה</span>
@@ -458,7 +480,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
               </svg>
             </div>
 
-            <div className="flex justify-between text-[10px] text-zinc-400 mt-1">
+            <div className="flex justify-between text-xs text-white mt-1">
               <span>סוף</span>
               <span>
                 <span className="text-amber-400">שמש</span> ·{' '}
