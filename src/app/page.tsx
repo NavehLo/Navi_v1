@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, memo, useRef, useSyncExternalStore } from "react";
 import mapboxgl from "mapbox-gl";
-import { EyeOff } from "lucide-react";
+import { EyeOff, TriangleAlert, LocateFixed } from "lucide-react";
 import MapComponent from "@/components/Map";
 import StatsPanel from "@/components/StatsPanel";
 import TrailDiscovery from "@/components/TrailDiscovery";
@@ -14,13 +14,16 @@ import GuidePointsPanel from "@/components/GuidePointsPanel";
 import WorldTrailCard from "@/components/WorldTrailCard";
 import DrivePlanner, { type DriveRequest } from "@/components/DrivePlanner";
 import PlaceSearchBox from "@/components/PlaceSearchBox";
+import MeasureTool from "@/components/MeasureTool";
 import { Car, Footprints } from "lucide-react";
 import { driveRoute } from "@/lib/mapboxDirections";
 import { useTrailData } from "@/hooks/useTrailData";
 import { useTour } from "@/hooks/useTour";
 import { useAIGuide } from "@/hooks/useAIGuide";
 import { usePOIGeofence } from "@/hooks/usePOIGeofence";
-import { pointAtDistance, projectOntoTrail } from "@/utils/trailUtils";
+import { pointAtDistance, projectOntoTrail, snapToTrail, coordsToGpx, type Coordinate3D } from "@/utils/trailUtils";
+import { useOffRouteAlert } from "@/hooks/useOffRouteAlert";
+import { primeAlarm } from "@/lib/offRouteAlert";
 import { useTrailPOIs } from "@/hooks/useTrailPOIs";
 import { useAuth } from "@/hooks/useAuth";
 import { useOfflineTrail } from "@/hooks/useOfflineTrail";
@@ -198,7 +201,16 @@ export default function TrailApp() {
 
   // Real GPS "field mode": continuous tracking that feeds the POI geofence
   const [isFieldMode, setIsFieldMode] = useState(false);
-  const [gpsPos, setGpsPos] = useState<{ lat: number; lon: number } | null>(null);
+  // The live location: once switched on (the locate button, or field mode) the
+  // blue dot follows the phone, the trail card counts down the distance left,
+  // and the off-route alarm listens. Field mode adds the screen lock and the
+  // guide on top of it.
+  const [isTracking, setIsTracking] = useState(false);
+  const [gpsPos, setGpsPos] = useState<{ lat: number; lon: number; accuracy: number | null } | null>(null);
+  const centerOnNextFixRef = useRef(false);
+
+  // Measuring a distance between two points — along the trail if one is open.
+  const [isMeasuring, setIsMeasuring] = useState(false);
 
   // Auth + personal area + settings
   const { user, signInWithGoogle, signOut, isAuthAvailable } = useAuth();
@@ -448,6 +460,7 @@ export default function TrailApp() {
 
   const updateUserLocLayer = useCallback((longitude: number, latitude: number) => {
     if (!map) return;
+    if (!map.getStyle()) return;
     if (!map.getSource("user-loc")) {
       map.addSource("user-loc", {
         type: "geojson",
@@ -462,47 +475,82 @@ export default function TrailApp() {
         type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [longitude, latitude] }
       });
     }
+    // The walker sits on top of the route line, not under it.
+    if (map.getLayer("user-loc-dot")) map.moveLayer("user-loc-dot");
   }, [map]);
 
+  // First tap: switch the live location on and fly to it. After that, a tap
+  // brings the map back to it — the dot keeps following either way.
   const handleLocateUser = useCallback(() => {
     if (!navigator.geolocation || !map) {
       alert("הדפדפן שלך לא תומך באיתור מיקום");
       return;
     }
-    navigator.geolocation.getCurrentPosition((pos) => {
-      const { longitude, latitude } = pos.coords;
-      updateUserLocLayer(longitude, latitude);
-      map.easeTo({ center: [longitude, latitude], zoom: 14, duration: 1500 });
-    }, (err) => {
-      alert("שגיאה באיתור מיקום: " + err.message);
-    });
-  }, [map, updateUserLocLayer]);
+    primeAlarm(); // a tap — the one moment the off-route alarm may be given its sound
+    if (isTracking && gpsPos) {
+      map.easeTo({ center: [gpsPos.lon, gpsPos.lat], zoom: Math.max(map.getZoom(), 15), duration: 1000 });
+      return;
+    }
+    centerOnNextFixRef.current = true;
+    setIsTracking(true);
+  }, [map, isTracking, gpsPos]);
 
-  // Field mode: continuous GPS tracking via watchPosition
+  // Continuous GPS tracking via watchPosition, for as long as the live
+  // location is on.
   useEffect(() => {
-    if (!isFieldMode) {
+    if (!isTracking) {
       setGpsPos(null);
       return;
     }
     if (!navigator.geolocation) {
       alert("הדפדפן שלך לא תומך באיתור מיקום");
+      setIsTracking(false);
       setIsFieldMode(false);
       return;
     }
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
-        const { longitude, latitude } = pos.coords;
-        setGpsPos({ lat: latitude, lon: longitude });
+        const { longitude, latitude, accuracy } = pos.coords;
+        setGpsPos({ lat: latitude, lon: longitude, accuracy: Number.isFinite(accuracy) ? accuracy : null });
         updateUserLocLayer(longitude, latitude);
+        if (centerOnNextFixRef.current && map) {
+          centerOnNextFixRef.current = false;
+          map.easeTo({ center: [longitude, latitude], zoom: Math.max(map.getZoom(), 15), duration: 1500 });
+        }
       },
       (err) => {
         alert("שגיאה באיתור מיקום: " + err.message);
+        setIsTracking(false);
         setIsFieldMode(false);
       },
       { enableHighAccuracy: true }
     );
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [isFieldMode, updateUserLocLayer]);
+  }, [isTracking, updateUserLocLayer, map]);
+
+  // The dot is a layer on the map style; a style switch wipes it until the
+  // next fix. Put it straight back instead.
+  useEffect(() => {
+    if (gpsPos) updateUserLocLayer(gpsPos.lon, gpsPos.lat);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [styleRev]);
+
+  // The walker snapped onto the open trail: how far along, how far off it.
+  const lastUserKmRef = useRef<number | null>(null);
+  useEffect(() => { lastUserKmRef.current = null; }, [trail]);
+  const userOnTrail = useMemo(() => {
+    if (!trail || !gpsPos) return null;
+    const snap = snapToTrail(trail.coords, trail.accumulatedDistances, gpsPos.lat, gpsPos.lon, lastUserKmRef.current);
+    if (!snap) return null;
+    if (snap.offTrailKm <= 0.3) lastUserKmRef.current = snap.km;
+    return { km: snap.km, offTrailM: snap.offTrailKm * 1000, ele: snap.ele };
+  }, [trail, gpsPos]);
+
+  const offRoute = useOffRouteAlert(
+    userOnTrail ? userOnTrail.offTrailM : null,
+    gpsPos?.accuracy ?? null,
+    trail
+  );
 
   // Keep the screen on while walking with the map. The lock is lost when the
   // app goes to the background and has to be asked for again on return.
@@ -528,11 +576,30 @@ export default function TrailApp() {
   }, [isFieldMode]);
 
   const handleToggleFieldMode = useCallback(() => {
-    setIsFieldMode(prev => {
-      if (!prev) unlockAudio(); // toggle-on is a user gesture — unlock audio for TTS
-      return !prev;
-    });
-  }, [unlockAudio]);
+    if (!isFieldMode) {
+      unlockAudio(); // toggle-on is a user gesture — unlock audio for TTS
+      primeAlarm();
+      setIsTracking(true);
+    }
+    setIsFieldMode(!isFieldMode);
+  }, [isFieldMode, unlockAudio]);
+
+  // A measured stretch opened as a trail of its own, and walked: the live
+  // location and field mode go on together. Kept as GPX so it can be saved to
+  // the personal area like an uploaded file.
+  const handleMeasureNavigate = useCallback((coords: Coordinate3D[], name: string) => {
+    setIsMeasuring(false);
+    loadTrailFromCoords(coords, name, { kind: 'file', content: coordsToGpx(coords, name) }, { kind: 'hike' });
+    unlockAudio();
+    primeAlarm();
+    setIsTracking(true);
+    setIsFieldMode(true);
+  }, [loadTrailFromCoords, unlockAudio]);
+
+  const handleToggleMeasure = useCallback(() => {
+    if (!isMeasuring && isTourActive) stopTour();
+    setIsMeasuring(!isMeasuring);
+  }, [isMeasuring, isTourActive, stopTour]);
 
   // Open a shared trail link: /?trail=<encoded url> auto-loads that trail
   const didLoadFromUrlRef = useRef(false);
@@ -897,7 +964,7 @@ export default function TrailApp() {
       )}
 
       {/* Trail Discovery overlay with markers & GPX upload fallback */}
-      {map && !trail && appMode === 'trails' && (
+      {map && !trail && appMode === 'trails' && !isMeasuring && (
         <MemoizedTrailDiscovery 
           map={map} 
           onSelectTrail={loadTrailFromUrl} 
@@ -910,7 +977,7 @@ export default function TrailApp() {
           online={online}
         />
       )}
-      {map && !trail && appMode === 'drive' && !uiHidden && (
+      {map && !trail && appMode === 'drive' && !uiHidden && !isMeasuring && (
         <DrivePlanner map={map} onRoute={openDrive} onPreview={handleDrivePreview} />
       )}
 
@@ -926,8 +993,44 @@ export default function TrailApp() {
       )}
 
       {/* Stats UI Layer */}
-      {trail && !uiHidden && (
-        <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} water={water} waterStatus={waterStatus} />
+      {trail && !uiHidden && !isMeasuring && (
+        <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} water={water} waterStatus={waterStatus} userPos={userOnTrail} />
+      )}
+
+      {/* Measuring: the floating pin and its panel. Keyed by the trail so
+          opening or leaving one starts the measurement afresh. */}
+      {map && isMeasuring && !uiHidden && (
+        <MeasureTool
+          key={trail?.name ?? 'free'}
+          map={map}
+          trail={trail}
+          styleRev={styleRev}
+          onClose={() => setIsMeasuring(false)}
+          onNavigate={handleMeasureNavigate}
+        />
+      )}
+
+      {/* Strayed off the route: said once, loudly, until back on it */}
+      {offRoute.alert && (
+        <div className="absolute top-16 inset-x-3 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-[380px] z-[55] bg-red-600 text-white rounded-2xl shadow-2xl border border-red-300/40 p-3 flex items-center gap-3 animate-pulse" dir="rtl" role="alert">
+          <TriangleAlert className="w-7 h-7 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="font-bold text-sm">סטית מהמסלול</div>
+            <div className="text-xs text-red-100">
+              {offRoute.alert.distanceM >= 1000 ? `${(offRoute.alert.distanceM / 1000).toFixed(1)} ק״מ` : `${offRoute.alert.distanceM} מ׳`} מהתוואי
+            </div>
+          </div>
+          {gpsPos && map && (
+            <button
+              onClick={() => map.easeTo({ center: [gpsPos.lon, gpsPos.lat], zoom: Math.max(map.getZoom(), 15), duration: 800 })}
+              className="p-2 rounded-xl bg-white/15 hover:bg-white/25"
+              aria-label="הצג את המיקום שלי"
+            >
+              <LocateFixed className="w-4 h-4" />
+            </button>
+          )}
+          <button onClick={offRoute.dismiss} className="text-xs font-bold px-3 py-2 rounded-xl bg-white text-red-700">הבנתי</button>
+        </div>
       )}
 
       {/* Map Controls */}
@@ -949,6 +1052,10 @@ export default function TrailApp() {
         tourSpeed={tourSpeed}
         onTourSpeedChange={setTourSpeed}
         onLocateUser={handleLocateUser}
+        isTracking={isTracking}
+        onMeasure={handleToggleMeasure}
+        isMeasuring={isMeasuring}
+        map={map}
         isFieldMode={isFieldMode}
         onToggleFieldMode={isDrive ? undefined : handleToggleFieldMode}
         onZoomIn={handleZoomIn}
@@ -1035,7 +1142,7 @@ export default function TrailApp() {
 
       {/* Bottom stack — the narration card sits *above* the tour transport, so
           the transcript can never cover the speed buttons the way it used to. */}
-      {trail && !uiHidden && (
+      {trail && !uiHidden && !isMeasuring && (
         <div className="absolute bottom-0 inset-x-0 z-50 flex flex-col items-center gap-2 px-3 pb-3 pointer-events-none">
           {!isDrive && <AIAssistantUI
             isLoading={isLoading}
@@ -1070,7 +1177,7 @@ export default function TrailApp() {
       )}
 
       {/* Tour Progress Bar */}
-      {trail && !uiHidden && progress > 0 && Math.floor(progress * trail.coords.length) < trail.coords.length && (
+      {trail && !uiHidden && !isMeasuring && progress > 0 && Math.floor(progress * trail.coords.length) < trail.coords.length && (
         <div className="absolute bottom-[76px] left-3 right-3 md:bottom-auto md:top-3 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-[55%] md:max-w-md z-40 bg-black/80 px-3 py-2 rounded-2xl border border-white/10 backdrop-blur-md">
           <div className="flex justify-between text-[11px] font-bold mb-1.5" dir="rtl">
             <div className="text-emerald-400">הושלם: {(trail.totalDistance * progress).toFixed(1)} ק"מ <span className="text-emerald-300 font-bold">({Math.round(progress*100)}%)</span></div>

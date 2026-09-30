@@ -167,3 +167,100 @@ export function computeElevationGain(elevations: number[], threshold = 5): { gai
   else if (dir === -1) loss += anchor - extreme;
   return { gain: Math.round(gain), loss: Math.round(loss) };
 }
+
+// ── Snapping onto the line itself ────────────────────────────────────────────
+// projectOntoTrail above measures to the nearest *point*, which is fine for
+// dense GPS tracks but not for a route whose points are hundreds of metres
+// apart: standing on the path halfway between two of them reads as "far off
+// the trail". This measures to the nearest *segment*, so the distance off the
+// route is the real one and the position along it is interpolated.
+
+export interface TrailSnap {
+  km: number;         // how far along the trail the snapped point is
+  offTrailKm: number; // straight-line distance from the position to the trail
+  lat: number;
+  lon: number;
+  ele: number;
+}
+
+export function snapToTrail(
+  coords: Coordinate3D[],
+  acc: number[],
+  lat: number,
+  lon: number,
+  preferKm?: number | null
+): TrailSnap | null {
+  if (coords.length === 0) return null;
+  if (coords.length === 1) {
+    const [la, lo, e] = coords[0];
+    return { km: 0, offTrailKm: getDistance(lat, lon, la, lo), lat: la, lon: lo, ele: e || 0 };
+  }
+
+  // A local flat projection around the position: at trail scale the error is
+  // far below GPS noise, and it keeps each segment test to a few multiplies.
+  const kx = 111.32 * Math.cos(lat * Math.PI / 180);
+  const ky = 110.574;
+
+  type Hit = { i: number; t: number; d: number };
+  const hits: Hit[] = [];
+  let best: Hit = { i: 0, t: 0, d: Infinity };
+  for (let i = 0; i < coords.length - 1; i++) {
+    const ax = (coords[i][1] - lon) * kx, ay = (coords[i][0] - lat) * ky;
+    const bx = (coords[i + 1][1] - lon) * kx, by = (coords[i + 1][0] - lat) * ky;
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 > 0 ? Math.min(1, Math.max(0, -(ax * dx + ay * dy) / len2)) : 0;
+    const px = ax + dx * t, py = ay + dy * t;
+    const d = Math.sqrt(px * px + py * py);
+    const hit = { i, t, d };
+    if (preferKm != null) hits.push(hit);
+    if (d < best.d) best = hit;
+  }
+
+  const kmOf = (h: Hit) => acc[h.i] + (acc[h.i + 1] - acc[h.i]) * h.t;
+
+  // Out-and-back routes pass the same spot twice. Among the segments that are
+  // essentially as close as the best (within 30 m), take the one nearest to
+  // where the walker already was.
+  if (preferKm != null) {
+    const tolerance = best.d + 0.03;
+    let gap = Math.abs(kmOf(best) - preferKm);
+    for (const h of hits) {
+      if (h.d > tolerance) continue;
+      const g = Math.abs(kmOf(h) - preferKm);
+      if (g < gap) { gap = g; best = h; }
+    }
+  }
+
+  const a = coords[best.i], b = coords[best.i + 1];
+  return {
+    km: kmOf(best),
+    offTrailKm: best.d,
+    lat: a[0] + (b[0] - a[0]) * best.t,
+    lon: a[1] + (b[1] - a[1]) * best.t,
+    ele: (a[2] || 0) + ((b[2] || 0) - (a[2] || 0)) * best.t,
+  };
+}
+
+// The stretch of trail between two along-trail distances, in the order it
+// will be walked: from `fromKm` to `toKm`, backwards along the file if `toKm`
+// comes first. The ends are interpolated, not rounded to the nearest point.
+export function sliceTrail(coords: Coordinate3D[], acc: number[], fromKm: number, toKm: number): Coordinate3D[] {
+  const lo = Math.min(fromKm, toKm), hi = Math.max(fromKm, toKm);
+  const out: Coordinate3D[] = [pointAtDistance(coords, acc, lo)];
+  for (let i = 0; i < coords.length; i++) {
+    if (acc[i] > lo && acc[i] < hi) out.push(coords[i]);
+  }
+  out.push(pointAtDistance(coords, acc, hi));
+  return fromKm <= toKm ? out : out.reverse();
+}
+
+// A minimal GPX track, so a measured stretch can be kept in the personal area
+// the same way an uploaded file is.
+export function coordsToGpx(coords: Coordinate3D[], name: string): string {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const pts = coords
+    .map(([lat, lon, ele]) => `<trkpt lat="${lat.toFixed(6)}" lon="${lon.toFixed(6)}"><ele>${Math.round(ele || 0)}</ele></trkpt>`)
+    .join('');
+  return `<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Navi" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>${esc(name)}</name><trkseg>${pts}</trkseg></trk></gpx>`;
+}

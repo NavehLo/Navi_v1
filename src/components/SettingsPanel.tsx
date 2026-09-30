@@ -3,6 +3,7 @@ import { X, Sparkles, Volume2, Loader2, RotateCcw, AlertTriangle, Type, WifiOff 
 import { AI_PROVIDER_STORAGE_KEY } from "../hooks/useAIGuide";
 import { type VoicePrefs, readVoicePrefs, rememberVoiceNames, writeVoicePrefs } from "../lib/voicePrefs";
 import { readSimulateOffline, setSimulateOffline, storageEstimate } from "../lib/offlineMap";
+import OffRouteSetting from "./OffRouteSetting";
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -277,6 +278,10 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
           <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors p-1">
             <X size={20} />
           </button>
+        </div>
+
+        <div className="mb-6">
+          <OffRouteSetting />
         </div>
 
         <h3 className="text-zinc-300 font-bold text-sm mb-1">ספק הבינה המלאכותית של המדריך</h3>

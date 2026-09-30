@@ -68,12 +68,62 @@ export async function driveRoute(from: [number, number], to: [number, number]): 
   return { coords, distanceKm: route.distance / 1000, durationSec: route.duration };
 }
 
+// Walking routes between two points, for measuring a distance where there is
+// no trail loaded. The walking profile follows footways, paths and tracks as
+// well as streets, and never cuts across open ground — so the answer is a
+// distance someone could actually walk, not a line through a wadi wall.
+// `alternatives` asks for up to two more routes besides the best one; Mapbox
+// only returns them when they are genuinely different, so there may be fewer.
+export interface WalkRoute {
+  coords: Coordinate3D[]; // [lat, lon, 0] — elevation is filled in separately
+  distanceKm: number;
+  durationSec: number;
+}
+
+export async function walkRoutes(from: [number, number], to: [number, number]): Promise<WalkRoute[]> {
+  const token = mapboxgl.accessToken;
+  if (!token) throw new DirectionsError('no-token');
+
+  const path = `${from[0]},${from[1]};${to[0]},${to[1]}`;
+  const params = new URLSearchParams({
+    geometries: 'geojson',
+    overview: 'full',
+    alternatives: 'true',
+    language: 'he',
+    access_token: token,
+  });
+
+  let res: Response;
+  try {
+    res = await fetch(`https://api.mapbox.com/directions/v5/mapbox/walking/${path}?${params}`);
+  } catch {
+    throw new DirectionsError('unavailable');
+  }
+  if (res.status === 401 || res.status === 403) throw new DirectionsError('unauthorized');
+
+  const data = await res.json().catch(() => null) as
+    | { code?: string; routes?: Array<{ distance: number; duration: number; geometry: { coordinates: [number, number][] } }> }
+    | null;
+  if (!data) throw new DirectionsError('unavailable');
+  if (data.code === 'NoRoute' || data.code === 'NoSegment') throw new DirectionsError('no-route');
+  if (data.code !== 'Ok' || !data.routes?.length) throw new DirectionsError('unavailable');
+
+  return data.routes
+    .map((r) => ({
+      coords: thinCoords(r.geometry.coordinates.map(([lon, lat]) => [lat, lon, 0] as Coordinate3D)),
+      distanceKm: r.distance / 1000,
+      durationSec: r.duration,
+    }))
+    .sort((a, b) => a.distanceKm - b.distanceKm)
+    .slice(0, 3);
+}
+
 export function describeSearchOrDirectionsError(e: unknown): string {
   const kind = e instanceof SearchError || e instanceof DirectionsError ? e.kind : 'unavailable';
   switch (kind) {
     case 'no-token': return 'המפה עוד לא מוכנה — נסה שוב בעוד רגע.';
     case 'unauthorized': return 'הטוקן של Mapbox לא מאפשר חיפוש וניווט. בחשבון Mapbox יש להוסיף לטוקן את ההרשאות Search ו-Directions.';
-    case 'no-route': return 'לא נמצא מסלול נסיעה בין שתי הנקודות.';
+    case 'no-route': return 'לא נמצאה דרך בין שתי הנקודות.';
     default: return 'השירות לא ענה. בדוק את החיבור ונסה שוב.';
   }
 }

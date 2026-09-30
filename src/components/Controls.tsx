@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
+import type mapboxgl from "mapbox-gl";
+import ScaleBar from "./ScaleBar";
 import type { TrailKind } from "../hooks/useTrailData";
 import { tourSpeedsFor } from "../hooks/useTour";
 import {
   Home, Settings, UserCircle2, BookmarkPlus, Check, Share2, Headphones, HeadphoneOff,
-  ListMusic, Layers, Maximize2, LocateFixed, Footprints, Play, Square, Eye, MoreHorizontal, X, Tag,
+  ListMusic, Layers, Maximize2, LocateFixed, Footprints, Play, Square, Eye, MoreHorizontal, X, Tag, Ruler,
 } from "lucide-react";
 
 interface ControlsProps {
@@ -15,6 +17,11 @@ interface ControlsProps {
   tourSpeed?: number;
   onTourSpeedChange?: (speed: number) => void;
   onLocateUser: () => void;
+  // The live location is on: the dot follows the phone, and a tap recentres.
+  isTracking?: boolean;
+  onMeasure?: () => void;
+  isMeasuring?: boolean;
+  map?: mapboxgl.Map | null;
   isFieldMode?: boolean;
   onToggleFieldMode?: () => void;
   onZoomIn: () => void;
@@ -113,7 +120,7 @@ export default function Controls(props: ControlsProps) {
     onFitToTrail, hasTrail, onHome, onOpenSettings, authAvailable, isSignedIn,
     onAuthClick, onSaveTrail, saveTrailState, canShare, onShare, isGuideEnabled, onToggleGuide,
     onOpenGuidePoints, guidePointCount, onHideUI, showWorldTrails, onToggleWorldTrails,
-    offlineStyleKey,
+    offlineStyleKey, isTracking, onMeasure, isMeasuring, map,
   } = props;
 
   const [showLayers, setShowLayers] = useState(false);
@@ -189,15 +196,34 @@ export default function Controls(props: ControlsProps) {
           <RailBtn label="התרחק" labelsOn={labelsOn} onClick={onZoomOut} className="border-t border-white/10">
             <span className="text-lg font-bold leading-none w-[18px] text-center">&#8722;</span>
           </RailBtn>
+          <RailBtn
+            label="המיקום שלי"
+            labelsOn={labelsOn}
+            onClick={onLocateUser}
+            className={`border-t border-white/10 ${isTracking ? 'bg-sky-500/20 text-sky-300' : 'text-sky-400'}`}
+            title={isTracking ? 'מיקום חי פעיל — לחיצה ממרכזת את המפה עליי' : 'מיקום חי — הצג את המיקום שלי על המפה ועקוב אחריו'}
+            ariaPressed={!!isTracking}
+          >
+            <LocateFixed className="w-[18px] h-[18px]" />
+          </RailBtn>
+          {onMeasure && (
+            <RailBtn
+              label="מדידה"
+              labelsOn={labelsOn}
+              onClick={onMeasure}
+              className={`border-t border-white/10 ${isMeasuring ? 'bg-orange-500 text-white' : 'text-orange-300'}`}
+              title={hasTrail ? 'מדידת מרחק בין שתי נקודות לאורך המסלול' : 'מדידת מרחק הליכה בין שתי נקודות על המפה'}
+              ariaPressed={!!isMeasuring}
+            >
+              <Ruler className="w-[18px] h-[18px]" />
+            </RailBtn>
+          )}
         </div>
 
         {hasTrail && (
           <div className={PILL}>
             <RailBtn label="כל המסלול" labelsOn={labelsOn} onClick={onFitToTrail} className="text-amber-400" title="מרכוז התצוגה על כל המסלול">
               <Maximize2 className="w-[18px] h-[18px]" />
-            </RailBtn>
-            <RailBtn label="המיקום שלי" labelsOn={labelsOn} onClick={onLocateUser} className="text-sky-400 border-t border-white/10" title="מיקום חי — קפיצה חד-פעמית למיקום שלי על המפה">
-              <LocateFixed className="w-[18px] h-[18px]" />
             </RailBtn>
             {onToggleFieldMode && (
               <RailBtn
@@ -263,6 +289,8 @@ export default function Controls(props: ControlsProps) {
             <Tag className="w-[18px] h-[18px]" />
           </RailBtn>
         </div>
+
+        {map && <ScaleBar map={map} />}
       </div>
 
       {/* Layers popover, anchored beside the rail */}

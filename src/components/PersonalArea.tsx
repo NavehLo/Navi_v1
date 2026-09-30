@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { User } from "@supabase/supabase-js";
-import { X, MapPin, History, Star, Trash2, Loader2, LogOut, Route, WifiOff, RefreshCw } from "lucide-react";
+import { X, MapPin, History, Star, Trash2, Loader2, LogOut, Route, WifiOff, RefreshCw, SlidersHorizontal } from "lucide-react";
+import OffRouteSetting from "./OffRouteSetting";
 import {
   SavedTrail,
   TourHistoryEntry,
@@ -22,7 +23,7 @@ interface PersonalAreaProps {
   onLoadSavedTrail: (t: SavedTrail) => void;
 }
 
-type Tab = "trails" | "history";
+type Tab = "trails" | "history" | "settings";
 
 export default function PersonalArea({ user, onClose, onSignOut, onLoadSavedTrail }: PersonalAreaProps) {
   const [tab, setTab] = useState<Tab>("trails");
@@ -170,6 +171,14 @@ export default function PersonalArea({ user, onClose, onSignOut, onLoadSavedTrai
           >
             <History size={14} /> היסטוריית סיורים
           </button>
+          <button
+            onClick={() => setTab("settings")}
+            className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-bold py-2.5 rounded-xl transition-colors ${
+              tab === "settings" ? "bg-orange-500 text-white" : "bg-white/5 text-zinc-400 hover:bg-white/10"
+            }`}
+          >
+            <SlidersHorizontal size={14} /> הגדרות
+          </button>
         </div>
 
         {/* Content */}
@@ -196,6 +205,8 @@ export default function PersonalArea({ user, onClose, onSignOut, onLoadSavedTrai
               </span>
             </div>
           )}
+
+          {tab === "settings" && <OffRouteSetting />}
 
           {tab === "trails" && (
             // A retry after a failed load also shows the spinner: with the

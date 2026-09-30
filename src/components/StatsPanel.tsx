@@ -1,14 +1,25 @@
 import { TrailData } from "../hooks/useTrailData";
 import { SUN_MAX, SHADE_MIN, BAR_COLUMNS, type ShadeResult, type WaterResult } from "../lib/summerConditions";
 import type { WaterStatus } from "../hooks/useSummerConditions";
-import { ArrowRight, ChevronDown, ChevronUp, TrendingUp, TrendingDown } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Navigation } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { computeElevationGain } from "../utils/trailUtils";
 import { formatDuration } from "./DrivePlanner";
 
 // Sits above the bottom stack (narration card + tour bar) and starts collapsed
 // on phones — expanded, this card alone used to cover a third of the screen.
-export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus }) {
+// Where the walker is, from the live GPS, snapped onto the route.
+export interface UserOnTrail {
+  km: number;        // along the route
+  offTrailM: number; // straight-line distance to it
+  ele: number;       // elevation of the route at that point
+}
+
+// Past this the along-route figures stop meaning anything — the walker is
+// somewhere else, not partway along this trail.
+const ON_TRAIL_MAX_M = 300;
+
+export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus, userPos }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus, userPos?: UserOnTrail | null }) {
   const [collapsed, setCollapsed] = useState(true);
   const cardRef = useRef<HTMLDivElement>(null);
   // A drive has a road, a length and a time; none of the hiking readouts
@@ -51,6 +62,27 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
     [trail]
   );
 
+  const onTrail = !!userPos && userPos.offTrailM <= ON_TRAIL_MAX_M;
+  const remainingKm = userPos ? Math.max(0, trail.totalDistance - userPos.km) : null;
+  const userFrac = userPos && trail.totalDistance > 0 ? Math.min(1, Math.max(0, userPos.km / trail.totalDistance)) : 0;
+
+  // One line under the trail name: how far is left, or how far off it you are.
+  const userLine = userPos && (
+    onTrail ? (
+      <span className="text-sky-300 font-bold flex items-center gap-1">
+        <Navigation className="w-3 h-3" /> נותרו {remainingKm!.toFixed(1)} ק״מ
+      </span>
+    ) : (
+      <span className="text-amber-400 font-bold flex items-center gap-1">
+        <Navigation className="w-3 h-3" /> מחוץ למסלול · {userPos.offTrailM >= 1000 ? `${(userPos.offTrailM / 1000).toFixed(1)} ק״מ` : `${Math.round(userPos.offTrailM)} מ׳`}
+      </span>
+    )
+  );
+
+  // Drawn by distance along the trail, not by point number: GPS points are
+  // unevenly spaced, and both the tour marker and the "you are here" marker
+  // are placed by distance — drawn by index, the profile under them would be
+  // stretched and squeezed and they would sit over the wrong hill.
   const generateElevationPath = () => {
     if (!trail.elevations || trail.elevations.length === 0) return "";
     const w = 300;
@@ -58,10 +90,11 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
     const minE = trail.minEle;
     const maxE = trail.maxEle;
     const range = maxE - minE || 1;
+    const total = trail.totalDistance || 1;
     
     let path = `M 0,${h} `;
     for (let i = 0; i < trail.elevations.length; i++) {
-       const x = (i / (trail.elevations.length - 1)) * w;
+       const x = ((trail.accumulatedDistances[i] ?? 0) / total) * w;
        const y = h - ((trail.elevations[i] - minE) / range) * (h * 0.8) - 4; 
        path += `L ${x},${y} `;
     }
@@ -126,6 +159,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
                 </>
               )}
             </div>
+            {userLine && <div className="text-[11px]">{userLine}</div>}
           </div>
         </div>
         <button
@@ -156,6 +190,16 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           <ChevronDown className="w-4 h-4 text-zinc-300" />
         </button>
       </div>
+      {userPos && (
+        <div className="mt-3 flex items-center justify-between gap-2 rounded-xl bg-sky-500/10 border border-sky-500/20 px-3 py-2 text-xs">
+          {userLine}
+          {onTrail && (
+            <span className="text-zinc-300">
+              עברת {userPos.km.toFixed(1)} ק״מ{!isDrive && trail.maxEle > trail.minEle && <> · גובה {Math.round(userPos.ele)} מ׳</>}
+            </span>
+          )}
+        </div>
+      )}
       <div className="flex justify-between border-t border-white/10 pt-3 mt-3">
         <div className="text-center flex-1 px-1">
           <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-1 font-bold">אורך מסלול</div>
@@ -210,11 +254,35 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           </svg>
           {progress > 0 && (
             <div
-              className="absolute top-0 bottom-0 w-0.5 bg-sky-400 shadow-[0_0_8px_#38bdf8] z-10 transition-all duration-75"
+              className="absolute top-0 bottom-0 w-0.5 bg-orange-300 shadow-[0_0_8px_#fdba74] z-10 transition-all duration-75"
               style={{ right: `${progress * 100}%` }}
             />
           )}
+          {/* The walker, from the GPS: a line down the profile and a dot on
+              it at their height, so "how much more climbing" can be read off
+              at a glance. */}
+          {onTrail && (
+            <>
+              <div
+                className="absolute top-0 bottom-0 w-0.5 bg-sky-400 z-20"
+                style={{ right: `${userFrac * 100}%` }}
+              />
+              <div
+                className="absolute w-3 h-3 rounded-full bg-sky-400 border-2 border-white shadow-[0_0_8px_#38bdf8] z-20"
+                style={{
+                  right: `calc(${userFrac * 100}% - 5px)`,
+                  bottom: `calc(${((userPos!.ele - trail.minEle) / (trail.maxEle - trail.minEle || 1)) * 80 + 6}% - 6px)`,
+                }}
+              />
+            </>
+          )}
         </div>
+        {onTrail && (
+          <div className="flex justify-between text-[10px] mt-1" dir="rtl">
+            <span className="text-sky-300 font-bold">● אתה כאן · נותרו {remainingKm!.toFixed(1)} ק״מ</span>
+            {progress > 0 && <span className="text-orange-300">| סיור וירטואלי</span>}
+          </div>
+        )}
       </div>
 
       {/* ── קיץ ─────────────────────────────────────────────────────────── */}
