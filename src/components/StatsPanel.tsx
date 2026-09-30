@@ -3,7 +3,7 @@ import { SUN_MAX, SHADE_MIN, BAR_COLUMNS, type ShadeResult, type WaterResult } f
 import type { WaterStatus } from "../hooks/useSummerConditions";
 import { ArrowRight, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Navigation } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
-import { computeElevationGain } from "../utils/trailUtils";
+import { computeElevationGain, sliceTrail } from "../utils/trailUtils";
 import { formatDuration } from "./DrivePlanner";
 import TripWeatherSection, { WeatherIcon } from "./TripWeatherSection";
 import type { TripWeather } from "../hooks/useTripWeather";
@@ -21,7 +21,7 @@ export interface UserOnTrail {
 // somewhere else, not partway along this trail.
 const ON_TRAIL_MAX_M = 300;
 
-export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus, userPos, weather }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus, userPos?: UserOnTrail | null, weather?: TripWeather }) {
+export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus, userPos, weather, waypoints }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus, userPos?: UserOnTrail | null, weather?: TripWeather, waypoints?: { label: string; km: number }[] | null }) {
   const [collapsed, setCollapsed] = useState(true);
   const cardRef = useRef<HTMLDivElement>(null);
   // A drive has a road, a length and a time; none of the hiking readouts
@@ -65,6 +65,19 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
   );
 
   const onTrail = !!userPos && userPos.offTrailM <= ON_TRAIL_MAX_M;
+
+  // A measured walk's own points (א, ב, ג…): each leg as its own figures, and
+  // how far it is to the next one.
+  const legs = useMemo(() => {
+    if (!waypoints || waypoints.length < 2) return null;
+    return waypoints.slice(1).map((w, i) => {
+      const from = waypoints[i];
+      const eles = sliceTrail(trail.coords, trail.accumulatedDistances, from.km, w.km).map((c) => c[2] || 0);
+      const hasEle = trail.maxEle > trail.minEle;
+      return { from: from.label, to: w.label, km: w.km - from.km, climb: hasEle ? computeElevationGain(eles) : null };
+    });
+  }, [waypoints, trail]);
+  const nextWaypoint = onTrail && waypoints ? waypoints.find((w) => w.km > userPos!.km + 0.01) ?? null : null;
   const remainingKm = userPos ? Math.max(0, trail.totalDistance - userPos.km) : null;
   const userFrac = userPos && trail.totalDistance > 0 ? Math.min(1, Math.max(0, userPos.km / trail.totalDistance)) : 0;
 
@@ -204,10 +217,29 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
         <div className="mt-3 flex items-center justify-between gap-2 rounded-xl bg-sky-500/10 border border-sky-500/20 px-3 py-2 text-xs">
           {userLine}
           {onTrail && (
-            <span className="text-zinc-300">
+            <span className="text-white">
               עברת {userPos.km.toFixed(1)} ק״מ{!isDrive && trail.maxEle > trail.minEle && <> · גובה {Math.round(userPos.ele)} מ׳</>}
             </span>
           )}
+        </div>
+      )}
+      {legs && (
+        <div className="mt-3 rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-sm text-white">
+          <div className="font-bold mb-1 flex justify-between">
+            <span>מקטעים</span>
+            {nextWaypoint && (
+              <span className="text-sky-300">לנקודה {nextWaypoint.label}׳: {(nextWaypoint.km - userPos!.km).toFixed(1)} ק״מ</span>
+            )}
+          </div>
+          {legs.map((l, i) => (
+            <div key={i} className="flex justify-between gap-2 py-0.5">
+              <span>{l.from}׳ ← {l.to}׳</span>
+              <span>
+                <b className="text-yellow-300">{l.km.toFixed(2)} ק״מ</b>
+                {l.climb && <> · ↑{l.climb.gain} ↓{l.climb.loss} מ׳</>}
+              </span>
+            </div>
+          ))}
         </div>
       )}
       <div className="flex justify-between border-t border-white/10 pt-3 mt-3">
@@ -263,6 +295,17 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           <svg viewBox="0 0 300 64" preserveAspectRatio="none" className="absolute inset-0 w-full h-full opacity-60" style={{ transform: 'scaleX(-1)' }}>
             <path d={generateElevationPath()} fill="rgba(249,115,22,0.3)" stroke="#f97316" strokeWidth="2" vectorEffect="non-scaling-stroke" />
           </svg>
+          {/* The measured walk's points, lettered along the profile */}
+          {waypoints && waypoints.length > 1 && waypoints.map((w) => (
+            <div
+              key={w.label}
+              className="absolute top-0 bottom-0 z-[5] pointer-events-none"
+              style={{ right: `${(trail.totalDistance > 0 ? w.km / trail.totalDistance : 0) * 100}%` }}
+            >
+              <div className="absolute top-0 bottom-0 border-r border-dashed border-white/50" />
+              <span className="absolute top-0 -translate-x-1/2 text-[11px] font-bold text-white bg-zinc-950/80 rounded px-0.5 leading-tight">{w.label}</span>
+            </div>
+          ))}
           {progress > 0 && (
             <div
               className="absolute top-0 bottom-0 w-0.5 bg-orange-300 shadow-[0_0_8px_#fdba74] z-10 transition-all duration-75"

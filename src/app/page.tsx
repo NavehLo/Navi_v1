@@ -14,7 +14,7 @@ import GuidePointsPanel from "@/components/GuidePointsPanel";
 import WorldTrailCard from "@/components/WorldTrailCard";
 import DrivePlanner, { type DriveRequest, type DrivePlan } from "@/components/DrivePlanner";
 import PlaceSearchBox from "@/components/PlaceSearchBox";
-import MeasureTool from "@/components/MeasureTool";
+import MeasureTool, { type MeasureWaypoint } from "@/components/MeasureTool";
 import { Car, Footprints } from "lucide-react";
 import { driveRoute, thinCoords } from "@/lib/mapboxDirections";
 import { encodeDrive, decodeDrive, type DriveLink } from "@/lib/driveLink";
@@ -592,8 +592,15 @@ export default function TrailApp() {
   // A measured stretch opened as a trail of its own, and walked: the live
   // location goes on with it. Kept as GPX so it can be saved to
   // the personal area like an uploaded file.
-  const handleMeasureNavigate = useCallback((coords: Coordinate3D[], name: string) => {
+  // The points the walk was measured through, kept with it so they show on the
+  // map and in the trail card while it is walked. Tied to the trail by name:
+  // opening anything else leaves them behind.
+  const [routeWaypoints, setRouteWaypoints] = useState<{ trailName: string; points: MeasureWaypoint[] } | null>(null);
+  const activeWaypoints = routeWaypoints && trail && routeWaypoints.trailName === trail.name ? routeWaypoints.points : null;
+
+  const handleMeasureNavigate = useCallback((coords: Coordinate3D[], name: string, waypoints: MeasureWaypoint[]) => {
     setIsMeasuring(false);
+    setRouteWaypoints({ trailName: name, points: waypoints });
     loadTrailFromCoords(coords, name, { kind: 'file', content: coordsToGpx(coords, name) }, { kind: 'hike' });
     unlockAudio();
     primeAlarm();
@@ -864,6 +871,37 @@ export default function TrailApp() {
     };
   }, [map, enrichedPois, styleRev, playPoiNow]);
 
+  // The points a measured walk was made through, lettered as they were when
+  // it was measured.
+  useEffect(() => {
+    if (!map) return;
+    const pts = activeWaypoints ?? [];
+    const sync = () => {
+      if (!map.getStyle()) return;
+      const fc: GeoJSON.FeatureCollection<GeoJSON.Point> = {
+        type: 'FeatureCollection',
+        features: pts.map((p) => ({ type: 'Feature', properties: { label: p.label }, geometry: { type: 'Point', coordinates: [p.lon, p.lat] } })),
+      };
+      if (!map.getSource('route-waypoints')) {
+        map.addSource('route-waypoints', { type: 'geojson', data: fc });
+        map.addLayer({
+          id: 'route-waypoints-dot', type: 'circle', source: 'route-waypoints',
+          paint: { 'circle-radius': 11, 'circle-color': '#18181b', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
+        });
+        map.addLayer({
+          id: 'route-waypoints-label', type: 'symbol', source: 'route-waypoints',
+          layout: { 'text-field': ['get', 'label'], 'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'], 'text-size': 13, 'text-allow-overlap': true },
+          paint: { 'text-color': '#ffffff' },
+        });
+      } else {
+        (map.getSource('route-waypoints') as mapboxgl.GeoJSONSource).setData(fc);
+      }
+    };
+    try { sync(); } catch {}
+    map.on('style.load', sync);
+    return () => { map.off('style.load', sync); };
+  }, [map, activeWaypoints, styleRev]);
+
   // Water sources along the trail. Drawn in the same shape as the POI layer
   // above, but kept as its own source so the two do not fight over labels, and
   // coloured by whether we can stand behind it: a confirmed pool or perennial
@@ -980,7 +1018,7 @@ export default function TrailApp() {
   }, [map, water, styleRev]);
 
   return (
-    <div className="w-full h-screen relative bg-zinc-900 overflow-hidden m-0 p-0 select-none touch-none" dir="rtl">
+    <div className="w-full h-dvh relative bg-zinc-900 overflow-hidden m-0 p-0 select-none touch-none" dir="rtl">
       {/* Map Engine Layer */}
       <MemoizedMapComponent onMapLoad={handleMapLoad} />
 
@@ -1052,7 +1090,7 @@ export default function TrailApp() {
 
       {/* Stats UI Layer */}
       {trail && !uiHidden && !isMeasuring && (
-        <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} water={water} waterStatus={waterStatus} userPos={userOnTrail} weather={tripWeather} />
+        <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} water={water} waterStatus={waterStatus} userPos={userOnTrail} weather={tripWeather} waypoints={activeWaypoints} />
       )}
 
       {/* Measuring: the floating pin and its panel. Keyed by the trail so

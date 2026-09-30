@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import {
-  MapPin, X, Loader2, Navigation, RotateCcw, Ruler, Undo2, Check, Plus,
+  MapPin, X, Loader2, Navigation, RotateCcw, Ruler, Check, Plus, ChevronUp, ChevronDown, Trash2,
 } from 'lucide-react';
 import type { TrailData } from '../hooks/useTrailData';
 import {
-  snapToTrail, sliceTrail, computeElevationGain, type Coordinate3D,
+  snapToTrail, sliceTrail, computeElevationGain, getDistance, type Coordinate3D,
 } from '../utils/trailUtils';
 import { describeSearchOrDirectionsError, type WalkRoute } from '../lib/mapboxDirections';
 import { findWalkRoutes } from '../lib/routeAlternatives';
@@ -15,6 +15,8 @@ import { formatDuration } from './DrivePlanner';
 
 // Measuring a distance by walking, never as the crow flies — across as many
 // points as the walk needs, with every leg and the whole shown separately.
+// Points can be removed and moved up or down the list afterwards; the legs
+// follow the order of the list.
 //
 // With a trail open, every point is on the trail: the floating pin snaps to
 // the nearest spot on the line as the map moves under it, and each leg is the
@@ -26,27 +28,32 @@ import { formatDuration } from './DrivePlanner';
 // which is chosen for the total.
 //
 // Either way the result can be walked for real: "התחל ניווט" opens it as a
-// trail of its own, with the elevation profile, the distance left and the
-// off-route alarm, and switches on the live location.
+// trail of its own — with its points marked on it — and switches on the live
+// location.
 //
 // The pin is a crosshair fixed to the middle of the screen, with the map
 // moving under it; tapping to drop a marker fights with panning on a phone.
 // The point taken is the ground under that exact pixel. (Not map.getCenter():
-// on a tilted 3D map that is a different place from the one under the pin,
-// which is how points used to land beside it.)
+// on a tilted 3D map that is a different place from the one under the pin.)
 
-interface PickedPoint { lat: number; lon: number; km: number | null }
+interface PickedPoint { id: number; lat: number; lon: number; km: number | null; snapped?: boolean }
 interface ScoredRoute extends WalkRoute { gain: number | null; loss: number | null }
-interface FreeLeg { status: 'loading' | 'ok' | 'error'; routes: ScoredRoute[]; selected: number; error?: string }
+interface FreeLeg { status: 'ok' | 'error'; routes: ScoredRoute[]; selected: number; error?: string }
 interface LegSummary { km: number; gain: number | null; loss: number | null; durationSec: number | null; coords: Coordinate3D[] }
+
+// A point of a measured walk, carried into navigation: where it is, and how
+// far along the whole walk.
+export interface MeasureWaypoint { label: string; km: number; lat: number; lon: number }
 
 const LINE_SRC = 'measure-lines';
 const PT_SRC = 'measure-points';
 const LAYERS = ['measure-line-casing', 'measure-line', 'measure-pt', 'measure-pt-label'];
 const ROUTE_COLORS = ['#facc15', '#a78bfa', '#34d399'];
 const LETTERS = 'אבגדהוזחטיכלמנסעפצקרשת';
+// A pin this close to the last point is the same point, not a new one.
+const SAME_POINT_KM = 0.015;
 
-const letter = (i: number) => LETTERS[i] ?? String(i + 1);
+export const pointLetter = (i: number) => LETTERS[i] ?? String(i + 1);
 
 function fmtKm(km: number): string {
   return km < 1 ? `${Math.round(km * 1000)} מ׳` : `${km.toFixed(km < 10 ? 2 : 1)} ק״מ`;
@@ -60,6 +67,8 @@ function climbOf(coords: Coordinate3D[]): { gain: number; loss: number } | null 
   return computeElevationGain(coords.map((c) => c[2] || 0));
 }
 
+const legKey = (a: PickedPoint, b: PickedPoint) => `${a.id}>${b.id}`;
+
 export default function MeasureTool({
   map, trail, styleRev, onClose, onNavigate,
 }: {
@@ -67,16 +76,15 @@ export default function MeasureTool({
   trail: TrailData | null;
   styleRev: number;
   onClose: () => void;
-  onNavigate: (coords: Coordinate3D[], name: string) => void;
+  onNavigate: (coords: Coordinate3D[], name: string, waypoints: MeasureWaypoint[]) => void;
 }) {
   const onTrail = !!trail;
   const [points, setPoints] = useState<PickedPoint[]>([]);
   const [picking, setPicking] = useState(true);
-  const [legs, setLegs] = useState<FreeLeg[]>([]);
-  const [liveSnap, setLive] = useState<PickedPoint | null>(null);
+  const [liveSnap, setLive] = useState<Omit<PickedPoint, 'id'> | null>(null);
+  const nextIdRef = useRef(1);
 
-  // The ground under the pin, snapped to the trail or to a path, as the map
-  // moves. Recomputed at most once a frame.
+  // ── The ground under the pin, snapped to the trail or to a path ──
   const lastKmRef = useRef<number | null>(null);
   useEffect(() => {
     if (!picking) return;
@@ -103,14 +111,14 @@ export default function MeasureTool({
   }, [map, trail, picking]);
   const live = picking ? liveSnap : null;
 
-  // ── Free mode: the walking routes of one leg ──
-  // A generation per leg, so a leg that was undone and picked again does not
-  // take the answer that was on its way for the old one.
-  const legGenRef = useRef<number[]>([]);
-  const routeLeg = useCallback(async (i: number, from: PickedPoint, to: PickedPoint) => {
-    const gen = (legGenRef.current[i] ?? 0) + 1;
-    legGenRef.current[i] = gen;
-    setLegs((ls) => { const n = ls.slice(0, i); n[i] = { status: 'loading', routes: [], selected: 0 }; return n; });
+  // ── Free mode: walking routes, one leg per pair of neighbouring points ──
+  // Kept by the pair of points, not by position in the list, so moving a
+  // point up or down asks only for the legs that are new, and taking a move
+  // back finds its old answer still here.
+  const [legCache, setLegCache] = useState<Record<string, FreeLeg>>({});
+  const inflightRef = useRef(new Set<string>());
+
+  const routeLeg = useCallback(async (key: string, from: PickedPoint, to: PickedPoint) => {
     try {
       const found = await findWalkRoutes([from.lon, from.lat], [to.lon, to.lat]);
       // One elevation pass for all of them — they share most of their tiles.
@@ -122,72 +130,91 @@ export default function MeasureTool({
         const climb = climbOf(coords);
         return { ...r, coords, gain: climb?.gain ?? null, loss: climb?.loss ?? null };
       });
-      if (legGenRef.current[i] !== gen) return;
-      setLegs((ls) => { const n = ls.slice(); n[i] = { status: 'ok', routes, selected: 0 }; return n; });
-      // The walk really starts and ends on the way the router found: move
-      // the markers there. The new end is where the next leg starts from.
-      setPoints((ps) => ps.map((p, k) => {
-        if (k === i && i === 0 && found.start) return { ...p, lon: found.start[0], lat: found.start[1] };
-        if (k === i + 1 && found.end) return { ...p, lon: found.end[0], lat: found.end[1] };
+      setLegCache((c) => ({ ...c, [key]: { status: 'ok', routes, selected: 0 } }));
+      // The walk really starts and ends on the way the router found: move the
+      // markers there, once — a point shared by two legs is not moved twice.
+      setPoints((ps) => ps.map((p) => {
+        if (p.snapped) return p;
+        if (p.id === from.id && found.start) return { ...p, lon: found.start[0], lat: found.start[1], snapped: true };
+        if (p.id === to.id && found.end) return { ...p, lon: found.end[0], lat: found.end[1], snapped: true };
         return p;
       }));
     } catch (e) {
-      if (legGenRef.current[i] !== gen) return;
-      setLegs((ls) => { const n = ls.slice(); n[i] = { status: 'error', routes: [], selected: 0, error: describeSearchOrDirectionsError(e) }; return n; });
+      setLegCache((c) => ({ ...c, [key]: { status: 'error', routes: [], selected: 0, error: describeSearchOrDirectionsError(e) } }));
+    } finally {
+      inflightRef.current.delete(key);
     }
   }, []);
 
-  const addPoint = () => {
+  useEffect(() => {
+    if (trail) return;
+    for (let i = 0; i < points.length - 1; i++) {
+      const key = legKey(points[i], points[i + 1]);
+      if (legCache[key] || inflightRef.current.has(key)) continue;
+      inflightRef.current.add(key);
+      void routeLeg(key, points[i], points[i + 1]);
+    }
+  }, [points, legCache, trail, routeLeg]);
+
+  const selectRoute = useCallback((key: string, idx: number) =>
+    setLegCache((c) => (c[key] ? { ...c, [key]: { ...c[key], selected: idx } } : c)), []);
+
+  // ── Editing the list ──
+  const pinPoint = (): Omit<PickedPoint, 'id'> => {
+    if (live) return live;
     const el = map.getContainer();
     const c = map.unproject([el.clientWidth / 2, el.clientHeight / 2]);
-    const point: PickedPoint = live ?? { lat: c.lat, lon: c.lng, km: null };
-    const prev = points[points.length - 1];
-    setPoints([...points, point]);
-    if (!trail && prev) void routeLeg(points.length - 1, prev, point);
+    return { lat: c.lat, lon: c.lng, km: null };
   };
 
-  const undo = () => {
-    if (!points.length) return;
-    const n = points.length - 1;
-    setPoints(points.slice(0, n));
-    if (!trail && n >= 1) {
-      legGenRef.current[n - 1] = (legGenRef.current[n - 1] ?? 0) + 1; // drop anything in flight
-      setLegs(legs.slice(0, n - 1));
-    }
-    setPicking(true);
+  // Adds the point under the pin — unless it is where the last one already is.
+  const addPoint = (): PickedPoint[] => {
+    const p = pinPoint();
+    const last = points[points.length - 1];
+    if (last && getDistance(last.lat, last.lon, p.lat, p.lon) < SAME_POINT_KM) return points;
+    const next = [...points, { ...p, id: nextIdRef.current++ }];
+    setPoints(next);
+    return next;
   };
 
-  const reset = () => {
-    legGenRef.current = legGenRef.current.map((g) => g + 1);
-    setPoints([]); setLegs([]); setPicking(true);
+  const removePoint = (i: number) => setPoints(points.filter((_, k) => k !== i));
+  const movePoint = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= points.length) return;
+    const next = points.slice();
+    [next[i], next[j]] = [next[j], next[i]];
+    setPoints(next);
   };
 
-  const selectRoute = useCallback((leg: number, idx: number) =>
-    setLegs((ls) => ls.map((l, i) => (i === leg ? { ...l, selected: idx } : l))), []);
+  const reset = () => { setPoints([]); setPicking(true); };
 
   // ── Every leg as a number ──
-  const summaries: (LegSummary | null)[] = useMemo(() => {
-    const out: (LegSummary | null)[] = [];
+  const legs = useMemo(() => {
+    const out: { key: string; summary: LegSummary | null; free: FreeLeg | null; loading: boolean }[] = [];
     for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i], b = points[i + 1];
+      const key = legKey(a, b);
       if (trail) {
-        const a = points[i].km, b = points[i + 1].km;
-        if (a == null || b == null) { out.push(null); continue; }
-        const coords = sliceTrail(trail.coords, trail.accumulatedDistances, a, b);
+        if (a.km == null || b.km == null) { out.push({ key, summary: null, free: null, loading: false }); continue; }
+        const coords = sliceTrail(trail.coords, trail.accumulatedDistances, a.km, b.km);
         const climb = climbOf(coords);
-        out.push({ km: Math.abs(b - a), gain: climb?.gain ?? null, loss: climb?.loss ?? null, durationSec: null, coords });
+        out.push({ key, free: null, loading: false, summary: { km: Math.abs(b.km - a.km), gain: climb?.gain ?? null, loss: climb?.loss ?? null, durationSec: null, coords } });
       } else {
-        const leg = legs[i];
+        const leg = legCache[key] ?? null;
         const r = leg?.status === 'ok' ? leg.routes[leg.selected] : null;
-        out.push(r ? { km: r.distanceKm, gain: r.gain, loss: r.loss, durationSec: r.durationSec, coords: r.coords } : null);
+        out.push({
+          key, free: leg, loading: !leg,
+          summary: r ? { km: r.distanceKm, gain: r.gain, loss: r.loss, durationSec: r.durationSec, coords: r.coords } : null,
+        });
       }
     }
     return out;
-  }, [points, legs, trail]);
+  }, [points, legCache, trail]);
 
-  const complete = summaries.length > 0 && summaries.every(Boolean);
+  const complete = legs.length > 0 && legs.every((l) => l.summary);
   const total = useMemo(() => {
     if (!complete) return null;
-    const s = summaries as LegSummary[];
+    const s = legs.map((l) => l.summary!) ;
     const coords: Coordinate3D[] = [];
     s.forEach((l, i) => coords.push(...(i === 0 ? l.coords : l.coords.slice(1))));
     const hasClimb = s.some((l) => l.gain != null);
@@ -198,34 +225,29 @@ export default function MeasureTool({
       durationSec: trail ? null : s.reduce((a, l) => a + (l.durationSec ?? 0), 0),
       coords,
     };
-  }, [complete, summaries, trail]);
+  }, [complete, legs, trail]);
 
   // ── What is drawn on the map ──
   const drawn = useMemo(() => {
     const lines: GeoJSON.Feature<GeoJSON.LineString>[] = [];
     const line = (coords: Coordinate3D[], props: Record<string, unknown>) =>
       lines.push({ type: 'Feature', properties: props, geometry: { type: 'LineString', coordinates: coords.map((c) => [c[1], c[0]]) } });
-    if (trail) {
-      summaries.forEach((s, i) => s && line(s.coords, { leg: i, idx: 0, color: ROUTE_COLORS[0], sel: 1 }));
-    } else {
-      // Unchosen alternatives first, so the chosen routes are drawn on top.
-      legs.forEach((l, i) => l.routes.forEach((r, k) => {
-        if (k !== l.selected) line(r.coords, { leg: i, idx: k, color: ROUTE_COLORS[k], sel: 0 });
-      }));
-      legs.forEach((l, i) => {
-        const r = l.routes[l.selected];
-        if (r) line(r.coords, { leg: i, idx: l.selected, color: ROUTE_COLORS[l.selected], sel: 1 });
-      });
-    }
+    // Unchosen alternatives first, so the chosen routes are drawn on top.
+    legs.forEach((l) => l.free?.routes.forEach((r, k) => {
+      if (k !== l.free!.selected) line(r.coords, { key: l.key, idx: k, color: ROUTE_COLORS[k], sel: 0 });
+    }));
+    legs.forEach((l) => {
+      if (l.summary) line(l.summary.coords, { key: l.key, idx: l.free?.selected ?? 0, color: ROUTE_COLORS[l.free?.selected ?? 0], sel: 1 });
+    });
     const pts: GeoJSON.Feature<GeoJSON.Point>[] = points.map((p, i) => ({
-      type: 'Feature', properties: { label: letter(i), role: 'end' }, geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+      type: 'Feature', properties: { label: pointLetter(i), role: 'end' }, geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
     }));
     if (live) pts.push({ type: 'Feature', properties: { label: '', role: 'live' }, geometry: { type: 'Point', coordinates: [live.lon, live.lat] } });
     return {
       lines: { type: 'FeatureCollection', features: lines } as GeoJSON.FeatureCollection,
       pts: { type: 'FeatureCollection', features: pts } as GeoJSON.FeatureCollection,
     };
-  }, [trail, summaries, legs, points, live]);
+  }, [legs, points, live]);
 
   useEffect(() => {
     const sync = () => {
@@ -293,7 +315,7 @@ export default function MeasureTool({
   useEffect(() => {
     const onClick = (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) => {
       const p = e.features?.[0]?.properties;
-      if (typeof p?.leg === 'number' && typeof p?.idx === 'number') selectRoute(p.leg, p.idx);
+      if (typeof p?.key === 'string' && typeof p?.idx === 'number') selectRoute(p.key, p.idx);
     };
     map.on('click', 'measure-line', onClick);
     return () => { map.off('click', 'measure-line', onClick); };
@@ -301,31 +323,37 @@ export default function MeasureTool({
 
   // Done picking: frame the whole walk. Never while picking — that would move
   // the map out from under the pin.
-  const finish = () => {
+  const finish = (pts: PickedPoint[]) => {
     setPicking(false);
-    const coords = trail
-      ? summaries.flatMap((s) => s?.coords ?? [])
-      : legs.flatMap((l) => l.routes.flatMap((r) => r.coords));
-    const all = coords.length ? coords : points.map((p) => [p.lat, p.lon, 0] as Coordinate3D);
+    const coords = legs.flatMap((l) => l.summary?.coords ?? []);
+    const all = [...coords, ...pts.map((p) => [p.lat, p.lon, 0] as Coordinate3D)];
     if (all.length < 2) return;
     const bounds = new mapboxgl.LngLatBounds();
     all.forEach((c) => bounds.extend([c[1], c[0]]));
-    map.fitBounds(bounds, { padding: { top: 80, bottom: 340, left: 60, right: 60 }, duration: 900, maxZoom: 16 });
+    map.fitBounds(bounds, { padding: { top: 80, bottom: 360, left: 60, right: 60 }, duration: 900, maxZoom: 16 });
   };
 
   const startNavigation = () => {
     if (!total) return;
-    onNavigate(total.coords, trail ? `קטע מתוך ${trail.name} · ${fmtKm(total.km)}` : `הליכה · ${fmtKm(total.km)}`);
+    let km = 0;
+    const waypoints: MeasureWaypoint[] = points.map((p, i) => {
+      if (i > 0) km += legs[i - 1].summary!.km;
+      return { label: pointLetter(i), km, lat: p.lat, lon: p.lon };
+    });
+    onNavigate(total.coords, trail ? `קטע מתוך ${trail.name} · ${fmtKm(total.km)}` : `הליכה · ${fmtKm(total.km)}`, waypoints);
   };
 
   const n = points.length;
-  const liveFromLast = trail && n > 0 && points[n - 1].km != null && live?.km != null ? Math.abs(live.km - points[n - 1].km!) : null;
+  const lastKm = n > 0 ? points[n - 1].km : null;
+  const liveFromLast = trail && lastKm != null && live?.km != null ? Math.abs(live.km - lastKm) : null;
   const liveOffTrailFar = !!trail && !!live && (() => {
     const el = map.getContainer();
     const c = map.unproject([el.clientWidth / 2, el.clientHeight / 2]);
     return c.distanceTo(new mapboxgl.LngLat(live.lon, live.lat)) > 500;
   })();
-  const anyLoading = legs.some((l) => l.status === 'loading');
+  const anyLoading = legs.some((l) => l.loading);
+
+  const iconBtn = 'p-1.5 rounded-lg text-white hover:bg-white/15 disabled:opacity-25 disabled:hover:bg-transparent';
 
   return (
     <>
@@ -337,7 +365,13 @@ export default function MeasureTool({
         </div>
       )}
 
-      <div className="absolute bottom-3 inset-x-3 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-[420px] z-[50] bg-zinc-900/95 border border-white/15 rounded-3xl shadow-2xl backdrop-blur-md p-4 flex flex-col gap-3 text-white max-h-[55vh]" dir="rtl">
+      {/* Three parts: a header, a middle that scrolls, and the buttons — which
+          never scroll away, however long the list of points gets. */}
+      <div
+        className="absolute inset-x-3 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-[420px] z-[50] bg-zinc-900/95 border border-white/15 rounded-3xl shadow-2xl backdrop-blur-md p-4 flex flex-col gap-3 text-white max-h-[58dvh]"
+        style={{ bottom: 'max(12px, env(safe-area-inset-bottom))' }}
+        dir="rtl"
+      >
         <div className="flex items-center justify-between shrink-0">
           <div className="font-bold text-base flex items-center gap-2">
             <Ruler className="w-4 h-4 text-orange-400" />
@@ -346,80 +380,64 @@ export default function MeasureTool({
           <button onClick={onClose} className="text-white hover:text-orange-300 p-1" aria-label="סגור מדידה"><X size={20} /></button>
         </div>
 
-        {picking && (
-          <div className="flex flex-col gap-2 shrink-0">
-            <p className="text-sm leading-relaxed">
-              {n === 0
-                ? <>הזז את המפה כך שהנעץ יעמוד על <b>נקודת ההתחלה</b>.</>
-                : <>הזז את המפה אל <b>נקודה {letter(n)}׳</b>{n >= 2 && ', או לחץ ״סיום״'}.</>}
-              {' '}{onTrail
-                ? 'הנקודה נצמדת לתוואי המסלול (העיגול הכתום).'
-                : live ? 'הנקודה נצמדת לדרך הקרובה (העיגול הכתום).' : ''}
-            </p>
-            {!onTrail && !live && (
-              <p className="text-sm text-amber-200">אין דרך מסומנת ליד הנעץ בזום הזה — הנקודה תוצמד לדרך הקרובה ביותר כשהמסלול יחושב.</p>
-            )}
-            {onTrail && live?.km != null && (
-              <div className="text-sm flex justify-between">
-                <span>{fmtKm(live.km)} מתחילת המסלול</span>
-                {liveFromLast != null && <span className="text-orange-300 font-bold">{fmtKm(liveFromLast)} מנקודה {letter(n - 1)}׳</span>}
-              </div>
-            )}
-            {liveOffTrailFar && (
-              <div className="text-sm text-amber-200">הנעץ רחוק מהמסלול — הנקודה תוצמד למקום הקרוב ביותר עליו.</div>
-            )}
-            <div className="flex gap-2">
-              <button
-                onClick={addPoint}
-                className="flex-1 flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-400 text-white text-sm font-bold py-2.5 rounded-2xl transition-colors"
-              >
-                {n === 0 ? <MapPin className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                {n === 0 ? 'קבע נקודה א׳' : `הוסף נקודה ${letter(n)}׳`}
-              </button>
-              {n >= 2 && (
-                <button onClick={finish} className="flex items-center gap-1.5 px-4 bg-white text-zinc-900 text-sm font-bold rounded-2xl">
-                  <Check className="w-4 h-4" /> סיום
-                </button>
+        <div className="flex flex-col gap-2 overflow-y-auto overscroll-contain min-h-0 flex-1">
+          {picking && (
+            <>
+              <p className="text-sm leading-relaxed">
+                {n === 0
+                  ? <>הזז את המפה כך שהנעץ יעמוד על <b>נקודת ההתחלה</b>.</>
+                  : <>הזז את המפה אל <b>נקודה {pointLetter(n)}׳</b>.</>}
+                {' '}{onTrail
+                  ? 'הנקודה נצמדת לתוואי המסלול (העיגול הכתום).'
+                  : live ? 'הנקודה נצמדת לדרך הקרובה (העיגול הכתום).' : ''}
+              </p>
+              {!onTrail && !live && (
+                <p className="text-sm text-amber-200">אין דרך מסומנת ליד הנעץ בזום הזה — הנקודה תוצמד לדרך הקרובה ביותר כשהמסלול יחושב.</p>
               )}
-              {n >= 1 && (
-                <button onClick={undo} className="px-3 bg-zinc-800 text-white text-sm font-bold rounded-2xl border border-white/15" title="בטל את הנקודה האחרונה" aria-label="בטל את הנקודה האחרונה">
-                  <Undo2 className="w-4 h-4" />
-                </button>
+              {onTrail && live?.km != null && (
+                <div className="text-sm flex justify-between">
+                  <span>{fmtKm(live.km)} מתחילת המסלול</span>
+                  {liveFromLast != null && <span className="text-orange-300 font-bold">{fmtKm(liveFromLast)} מנקודה {pointLetter(n - 1)}׳</span>}
+                </div>
               )}
-            </div>
-          </div>
-        )}
+              {liveOffTrailFar && (
+                <div className="text-sm text-amber-200">הנעץ רחוק מהמסלול — הנקודה תוצמד למקום הקרוב ביותר עליו.</div>
+              )}
+            </>
+          )}
 
-        {/* Every leg, then the whole */}
-        {n >= 2 && (
-          <div className="flex flex-col gap-2 overflow-y-auto overscroll-contain min-h-0">
-            {summaries.map((s, i) => {
-              const leg = legs[i];
-              return (
-                <div key={i} className="rounded-2xl bg-white/5 border border-white/10 px-3 py-2">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-sm font-bold">{letter(i)}׳ ← {letter(i + 1)}׳</span>
-                    {s ? (
-                      <span className="text-sm">
-                        <b className="text-yellow-300">{fmtKm(s.km)}</b>
-                        {s.durationSec != null && <> · {formatDuration(s.durationSec)}</>}
-                        {s.gain != null && <> · ↑{s.gain} ↓{s.loss} מ׳</>}
-                      </span>
-                    ) : leg?.status === 'loading' ? (
-                      <span className="text-sm flex items-center gap-1.5"><Loader2 className="w-4 h-4 animate-spin" /> מחפש דרכים…</span>
-                    ) : null}
-                  </div>
-                  {leg?.status === 'error' && <div className="text-sm text-amber-200 mt-1">{leg.error}</div>}
+          {/* The points, in walking order, each with the leg that reaches it */}
+          {points.map((p, i) => {
+            const leg = i > 0 ? legs[i - 1] : null;
+            const s = leg?.summary;
+            return (
+              <div key={p.id} className="rounded-2xl bg-white/5 border border-white/10 px-2.5 py-2 flex items-start gap-2">
+                <span className="w-7 h-7 shrink-0 rounded-full bg-zinc-950 border-2 border-white flex items-center justify-center text-sm font-bold">
+                  {pointLetter(i)}
+                </span>
+                <div className="flex-1 min-w-0 pt-0.5">
+                  {i === 0 ? (
+                    <div className="text-sm font-bold">התחלה</div>
+                  ) : s ? (
+                    <div className="text-sm">
+                      <b className="text-yellow-300">{fmtKm(s.km)}</b> מנקודה {pointLetter(i - 1)}׳
+                      {s.durationSec != null && <> · {formatDuration(s.durationSec)}</>}
+                      {s.gain != null && <> · ↑{s.gain} ↓{s.loss} מ׳</>}
+                    </div>
+                  ) : leg?.loading ? (
+                    <div className="text-sm flex items-center gap-1.5"><Loader2 className="w-4 h-4 animate-spin" /> מחפש דרכים…</div>
+                  ) : null}
+                  {leg?.free?.status === 'error' && <div className="text-sm text-amber-200">{leg.free.error}</div>}
                   {/* The ways round, when there is more than one */}
-                  {!onTrail && leg?.status === 'ok' && leg.routes.length > 1 && (
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {leg.routes.map((r, k) => (
+                  {leg?.free?.status === 'ok' && leg.free.routes.length > 1 && (
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {leg.free.routes.map((r, k) => (
                         <button
                           key={k}
-                          onClick={() => selectRoute(i, k)}
-                          aria-pressed={leg.selected === k}
+                          onClick={() => selectRoute(leg.key, k)}
+                          aria-pressed={leg.free!.selected === k}
                           className={`flex items-center gap-1.5 text-sm rounded-xl px-2.5 py-1 border transition-colors ${
-                            leg.selected === k ? 'bg-white/15 border-white' : 'bg-transparent border-white/20 hover:bg-white/10'
+                            leg.free!.selected === k ? 'bg-white/15 border-white' : 'bg-transparent border-white/25 hover:bg-white/10'
                           }`}
                         >
                           <span className="w-2.5 h-2.5 rounded-full" style={{ background: ROUTE_COLORS[k] }} />
@@ -429,36 +447,73 @@ export default function MeasureTool({
                       ))}
                     </div>
                   )}
-                  {!onTrail && leg?.status === 'ok' && leg.routes.length === 1 && (
-                    <div className="text-xs text-white mt-1">דרך אחת בלבד — לא נמצאה בין הנקודות האלה דרך הליכה שונה באמת.</div>
+                  {leg?.free?.status === 'ok' && leg.free.routes.length === 1 && (
+                    <div className="text-xs text-white mt-1">דרך אחת בלבד — לא נמצאה כאן דרך הליכה שונה באמת.</div>
                   )}
                 </div>
-              );
-            })}
-
-            {n >= 3 && total && (
-              <div className="rounded-2xl bg-yellow-300/10 border border-yellow-300/40 px-3 py-2 flex items-baseline justify-between gap-2">
-                <span className="text-sm font-bold">סה״כ</span>
-                <span className="text-sm">
-                  <b className="text-yellow-300 text-base">{fmtKm(total.km)}</b>
-                  {total.durationSec != null && <> · {formatDuration(total.durationSec)}</>}
-                  {total.gain != null && <> · ↑{total.gain} ↓{total.loss} מ׳</>}
-                </span>
+                <div className="flex shrink-0">
+                  <button onClick={() => movePoint(i, -1)} disabled={i === 0} className={iconBtn} aria-label={`הקדם את נקודה ${pointLetter(i)}`} title="הקדם בסדר">
+                    <ChevronUp className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => movePoint(i, 1)} disabled={i === n - 1} className={iconBtn} aria-label={`דחה את נקודה ${pointLetter(i)}`} title="דחה בסדר">
+                    <ChevronDown className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => removePoint(i)} className={iconBtn} aria-label={`הסר את נקודה ${pointLetter(i)}`} title="הסר נקודה">
+                    <Trash2 className="w-4 h-4 text-red-300" />
+                  </button>
+                </div>
               </div>
-            )}
+            );
+          })}
 
-            {!onTrail && (
-              <p className="text-xs text-white leading-relaxed">
-                דרכי הליכה לפי Mapbox: שבילים, דרכי עפר ורחובות. הזמן הוא הערכה להליכה במישור. אפשר לבחור דרך גם בלחיצה על הקו במפה.
-              </p>
-            )}
-            {total?.gain == null && complete && onTrail && (
-              <p className="text-xs text-white">לקובץ המסלול אין נתוני גובה, לכן אין עלייה וירידה.</p>
+          {n >= 3 && total && (
+            <div className="rounded-2xl bg-yellow-300/10 border border-yellow-300/40 px-3 py-2 flex items-baseline justify-between gap-2">
+              <span className="text-sm font-bold">סה״כ</span>
+              <span className="text-sm">
+                <b className="text-yellow-300 text-base">{fmtKm(total.km)}</b>
+                {total.durationSec != null && <> · {formatDuration(total.durationSec)}</>}
+                {total.gain != null && <> · ↑{total.gain} ↓{total.loss} מ׳</>}
+              </span>
+            </div>
+          )}
+
+          {!onTrail && n >= 2 && (
+            <p className="text-xs text-white leading-relaxed">
+              דרכי הליכה לפי Mapbox: שבילים, דרכי עפר ורחובות. הזמן הוא הערכה להליכה במישור. אפשר לבחור דרך גם בלחיצה על הקו במפה.
+            </p>
+          )}
+          {onTrail && complete && total?.gain == null && (
+            <p className="text-xs text-white">לקובץ המסלול אין נתוני גובה, לכן אין עלייה וירידה.</p>
+          )}
+        </div>
+
+        {/* The buttons */}
+        {picking ? (
+          <div className="flex flex-col gap-2 shrink-0">
+            <div className="flex gap-2">
+              <button
+                onClick={addPoint}
+                className="flex-1 flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-400 text-white text-sm font-bold py-2.5 rounded-2xl transition-colors"
+              >
+                {n === 0 ? <MapPin className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                {n === 0 ? 'קבע נקודה א׳' : `הוסף נקודה ${pointLetter(n)}׳`}
+              </button>
+              {n >= 1 && (
+                <button
+                  onClick={() => finish(addPoint())}
+                  className="flex-1 flex items-center justify-center gap-2 bg-white text-zinc-900 text-sm font-bold py-2.5 rounded-2xl"
+                >
+                  <Check className="w-4 h-4" /> הוסף וסיים
+                </button>
+              )}
+            </div>
+            {n >= 2 && (
+              <button onClick={() => finish(points)} className="text-sm text-white underline underline-offset-4 py-1">
+                סיום בלי להוסיף את מיקום הנעץ
+              </button>
             )}
           </div>
-        )}
-
-        {!picking && (
+        ) : (
           <div className="flex gap-2 shrink-0">
             {total && (
               <button
