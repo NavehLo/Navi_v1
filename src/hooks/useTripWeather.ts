@@ -113,14 +113,12 @@ export function useTripWeather(trail: TrailData | null): TripWeather {
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
-  return {
-    status,
-    fetchedAt: bundle?.fetchedAt ?? null,
-    effort,
-    hours,
-    days,
-    selected,
-    selectDate,
-    retry,
-  };
+  // One object per real change: the stats panel is memoised, and a fresh
+  // object on every page render (the GPS alone re-renders it every second)
+  // would redraw it for nothing.
+  const fetchedAt = bundle?.fetchedAt ?? null;
+  return useMemo(
+    () => ({ status, fetchedAt, effort, hours, days, selected, selectDate, retry }),
+    [status, fetchedAt, effort, hours, days, selected, selectDate, retry],
+  );
 }

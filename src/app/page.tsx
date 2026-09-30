@@ -32,6 +32,7 @@ import { useOfflineTrail } from "@/hooks/useOfflineTrail";
 import { useOnline } from "@/hooks/useOnline";
 import { listMapPacks, trimMapCache, type MapPack } from "@/lib/offlineMap";
 import { useSummerConditions } from "@/hooks/useSummerConditions";
+import { useTripWeather } from "@/hooks/useTripWeather";
 import { useWorldTrails } from "@/hooks/useWorldTrails";
 import {
   saveTrail, recordTour, SavedTrail, describeSupabaseError, clearPersonalCache,
@@ -433,6 +434,9 @@ export default function TrailApp() {
   // How shaded the trail is — read from a grid that ships with the app, so this
   // costs no request and works offline.
   const { shade, shadeLoading, water, waterStatus } = useSummerConditions(isDrive ? null : trail);
+
+  // The forecast for the chosen trip day, and the water and layers it calls for.
+  const tripWeather = useTripWeather(trail);
 
   // Replaying a point someone asked for jumps the queue — they pressed a
   // button and expect to hear it now.
@@ -1048,7 +1052,7 @@ export default function TrailApp() {
 
       {/* Stats UI Layer */}
       {trail && !uiHidden && !isMeasuring && (
-        <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} water={water} waterStatus={waterStatus} userPos={userOnTrail} />
+        <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} water={water} waterStatus={waterStatus} userPos={userOnTrail} weather={tripWeather} />
       )}
 
       {/* Measuring: the floating pin and its panel. Keyed by the trail so

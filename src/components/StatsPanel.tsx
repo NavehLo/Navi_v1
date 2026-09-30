@@ -5,6 +5,8 @@ import { ArrowRight, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Navigatio
 import { useState, useEffect, useRef, useMemo } from "react";
 import { computeElevationGain } from "../utils/trailUtils";
 import { formatDuration } from "./DrivePlanner";
+import TripWeatherSection, { WeatherIcon } from "./TripWeatherSection";
+import type { TripWeather } from "../hooks/useTripWeather";
 
 // Sits above the bottom stack (narration card + tour bar) and starts collapsed
 // on phones — expanded, this card alone used to cover a third of the screen.
@@ -19,7 +21,7 @@ export interface UserOnTrail {
 // somewhere else, not partway along this trail.
 const ON_TRAIL_MAX_M = 300;
 
-export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus, userPos }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus, userPos?: UserOnTrail | null }) {
+export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus, userPos, weather }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus, userPos?: UserOnTrail | null, weather?: TripWeather }) {
   const [collapsed, setCollapsed] = useState(true);
   const cardRef = useRef<HTMLDivElement>(null);
   // A drive has a road, a length and a time; none of the hiking readouts
@@ -149,7 +151,15 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           )}
           <div className="min-w-0">
             <div className="text-white font-bold text-xs truncate" title={trail.name}>{trail.name}</div>
-            <div className="text-zinc-400 text-[10px]">
+            <div className="text-zinc-100 text-xs flex items-center gap-1 flex-wrap">
+              {weather?.selected && (
+                <span className="flex items-center gap-0.5 text-white font-bold">
+                  <WeatherIcon code={weather.selected.summary.code} className="w-3.5 h-3.5 text-yellow-300" />
+                  {Math.round(weather.selected.summary.tMax)}°
+                  {weather.selected.rating === "bad" && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
+                  <span className="text-zinc-300 font-normal">·</span>
+                </span>
+              )}
               {isDrive ? (
                 <>{trail.totalDistance.toFixed(0)} ק״מ{trail.driveDurationSec != null && <> · <span className="text-sky-400">{formatDuration(trail.driveDurationSec)}</span></>}</>
               ) : (
@@ -244,6 +254,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           הסיור הווירטואלי מתקדם ב־80 קמ״ש ב־x1.
         </p>
       )}
+      {isDrive && weather && <TripWeatherSection weather={weather} isDrive />}
       {!isDrive && (<>
       <div className="mt-3 border-t border-white/10 pt-3 relative" dir="ltr">
         <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-2 text-right font-bold">פרופיל גובה</div>
@@ -284,6 +295,8 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           </div>
         )}
       </div>
+
+      {weather && <TripWeatherSection weather={weather} isDrive={false} />}
 
       {/* ── קיץ ─────────────────────────────────────────────────────────── */}
       <div className="mt-3 border-t border-white/10 pt-3">
