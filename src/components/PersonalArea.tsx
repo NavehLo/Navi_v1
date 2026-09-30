@@ -18,6 +18,11 @@ import {
 
 interface PersonalAreaProps {
   user: User;
+  // False while the server will not take this account: no reception, or the
+  // sign-in ran out and needs doing again. The copy on the device is shown.
+  sessionLive: boolean;
+  online: boolean;
+  onSignIn: () => void;
   onClose: () => void;
   onSignOut: () => void;
   onLoadSavedTrail: (t: SavedTrail) => void;
@@ -25,7 +30,7 @@ interface PersonalAreaProps {
 
 type Tab = "trails" | "history" | "settings";
 
-export default function PersonalArea({ user, onClose, onSignOut, onLoadSavedTrail }: PersonalAreaProps) {
+export default function PersonalArea({ user, sessionLive, online, onSignIn, onClose, onSignOut, onLoadSavedTrail }: PersonalAreaProps) {
   const [tab, setTab] = useState<Tab>("trails");
   const [trails, setTrails] = useState<SavedTrail[] | null>(null);
   const [history, setHistory] = useState<TourHistoryEntry[] | null>(null);
@@ -39,8 +44,24 @@ export default function PersonalArea({ user, onClose, onSignOut, onLoadSavedTrai
 
   const readOnly = cachedAt !== null; // אין חיבור — אפשר לצפות ולטעון, לא לערוך
 
+  const showCached = useCallback(() => {
+    const cached = readCachedPersonalData(user.id);
+    setTrails(cached?.trails ?? []);
+    setHistory(cached?.history ?? []);
+    setNotes(new Map((cached?.notes ?? []).map((x) => [x.trail_name, x])));
+    // Read-only even with nothing cached: there is nothing to save to.
+    setCachedAt(cached?.cachedAt ?? new Date(0).toISOString());
+    return !!cached;
+  }, [user.id]);
+
   const refresh = useCallback(async () => {
     setError(null);
+    // No reception, or a sign-in the server will not take: asking would only
+    // fail. The copy on the device is the whole answer.
+    if (!online || !sessionLive) {
+      if (!showCached()) setError("אין במכשיר עותק של האזור האישי. הוא נשמר בפעם הבאה שהאזור האישי נפתח עם אינטרנט.");
+      return;
+    }
     setRefreshing(true);
     try {
       const [t, h, n] = await Promise.all([listSavedTrails(), listTourHistory(), listTrailNotes()]);
@@ -53,17 +74,16 @@ export default function PersonalArea({ user, onClose, onSignOut, onLoadSavedTrai
       console.error("Personal area load failed:", e);
       setError(describeSupabaseError(e));
       // נפילה חזרה לתמונת המצב האחרונה, כדי שהמסלולים השמורים יישארו זמינים
-      const cached = readCachedPersonalData(user.id);
-      setTrails(cached?.trails ?? []);
-      setHistory(cached?.history ?? []);
-      setNotes(new Map((cached?.notes ?? []).map((x) => [x.trail_name, x])));
-      setCachedAt(cached?.cachedAt ?? null);
+      showCached();
     } finally {
       setRefreshing(false);
     }
-  }, [user.id]);
+  }, [user.id, online, sessionLive, showCached]);
 
+  // Opening the panel, coming back into reception, or signing in again all
+  // load it afresh. With no network the device's copy is read on the spot.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh();
   }, [refresh]);
 
@@ -197,12 +217,27 @@ export default function PersonalArea({ user, onClose, onSignOut, onLoadSavedTrai
           )}
 
           {readOnly && (
-            <div className="bg-amber-950/50 border border-amber-500/30 rounded-xl p-3 text-amber-300 text-xs flex items-center gap-2">
-              <WifiOff size={14} className="shrink-0" />
-              <span>
-                מוצגים נתונים שמורים מהמכשיר (עודכנו {new Date(cachedAt!).toLocaleDateString("he-IL")}).
-                אפשר לטעון מסלולים, אבל שמירה ועריכה לא זמינות כרגע.
-              </span>
+            <div className="bg-amber-950/70 border border-amber-500/40 rounded-xl p-3 text-amber-100 text-sm flex flex-col gap-2">
+              <div className="flex items-start gap-2">
+                <WifiOff size={16} className="shrink-0 mt-0.5 text-amber-300" />
+                <span className="leading-relaxed">
+                  {!online
+                    ? "אין אינטרנט — מוצגים המסלולים ששמורים במכשיר."
+                    : !sessionLive
+                      ? "החיבור לחשבון Google פג — מוצגים המסלולים ששמורים במכשיר."
+                      : "השרת לא ענה — מוצגים המסלולים ששמורים במכשיר."}
+                  {new Date(cachedAt!).getTime() > 0 && <> (עודכנו {new Date(cachedAt!).toLocaleDateString("he-IL")})</>}
+                  {" "}אפשר לפתוח אותם, אבל שמירה ועריכה יחזרו רק עם חיבור.
+                </span>
+              </div>
+              {online && !sessionLive && (
+                <button
+                  onClick={onSignIn}
+                  className="self-start bg-white text-zinc-900 font-bold text-sm px-4 py-2 rounded-xl hover:bg-zinc-200 transition-colors"
+                >
+                  התחבר מחדש עם Google
+                </button>
+              )}
             </div>
           )}
 
@@ -230,7 +265,7 @@ export default function PersonalArea({ user, onClose, onSignOut, onLoadSavedTrai
                         <MapPin size={14} className="text-orange-500 shrink-0" />
                         {t.name}
                       </span>
-                      <span className="text-zinc-500 text-[11px] block mt-1">
+                      <span className="text-white/80 text-xs block mt-1">
                         {t.total_distance ? `${t.total_distance.toFixed(1)} ק"מ • ` : ""}
                         נשמר {new Date(t.created_at).toLocaleDateString("he-IL")}
                       </span>

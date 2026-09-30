@@ -8,7 +8,7 @@ import {
   snapToTrail, sliceTrail, computeElevationGain, type Coordinate3D,
 } from '../utils/trailUtils';
 import { describeSearchOrDirectionsError, type WalkRoute } from '../lib/mapboxDirections';
-import { findWalkRoutes } from '../lib/walkAlternatives';
+import { findWalkRoutes } from '../lib/routeAlternatives';
 import { withElevation } from '../lib/demElevation';
 import { snapToRenderedPath } from '../lib/pathSnap';
 import { formatDuration } from './DrivePlanner';

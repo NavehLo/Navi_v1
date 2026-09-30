@@ -216,14 +216,37 @@ interface CacheEntry extends PersonalSnapshot {
 export function cachePersonalData(userId: string, snapshot: PersonalSnapshot): void {
   if (typeof window === 'undefined') return;
   try {
-    const entry: CacheEntry = { userId, cachedAt: new Date().toISOString(), ...snapshot };
-    const json = JSON.stringify(entry);
-    // מסלול שהועלה כקובץ GPX נשמר במלואו ב-source_content, ולכן התמונה עלולה
-    // לתפוח. עדיף לוותר על המטמון מאשר להיתקל ב-QuotaExceededError.
-    if (json.length > MAX_CACHE_BYTES) return;
+    // מסלול שהועלה כקובץ, או נסיעה ומסלול OSM שנשמרו עם הנקודות עצמן, נושאים
+    // את כל התוואי ב-source_content, ולכן התמונה עלולה לתפוח. במקום לוותר על
+    // המטמון כולו (ואיתו על כל המסלולים השמורים בשטח), מוותרים על התוכן של
+    // הגדולים ביותר, אחד-אחד, עד שהשאר נכנס.
+    const trails = snapshot.trails.map((t) => ({ ...t }));
+    const bySize = trails
+      .filter((t) => t.source_content)
+      .sort((a, b) => b.source_content!.length - a.source_content!.length);
+    let json = '';
+    for (;;) {
+      const entry: CacheEntry = { userId, cachedAt: new Date().toISOString(), ...snapshot, trails };
+      json = JSON.stringify(entry);
+      if (json.length <= MAX_CACHE_BYTES) break;
+      const biggest = bySize.shift();
+      if (!biggest) return;
+      biggest.source_content = null;
+    }
     window.localStorage.setItem(CACHE_KEY, json);
   } catch {
     // מצב פרטי / מכסה מלאה — המטמון הוא נחמד-שיהיה, לא קריטי
+  }
+}
+
+// קובצי ה-GPX של המסלולים השמורים שנטענים מכתובת באתר עצמו (/trails/…):
+// בקשה אחת לכל אחד, כדי שה-Service Worker ישמור עותק ושהמסלול ייפתח גם בלי
+// קליטה. כתובות חיצוניות לא נוגעים בהן — ה-Service Worker לא שומר אותן בכל מקרה.
+export function warmSavedTrailFiles(trails: SavedTrail[]): void {
+  if (typeof window === 'undefined') return;
+  for (const t of trails) {
+    if (!t.source_url?.startsWith('/')) continue;
+    fetch(t.source_url).catch(() => {});
   }
 }
 

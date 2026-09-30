@@ -3,14 +3,8 @@ import type { Coordinate3D } from '../utils/trailUtils';
 import { getDistance } from '../utils/trailUtils';
 import { SearchError } from './mapboxSearch';
 
-// Mapbox Directions API, driving profile. Docs:
+// Mapbox Directions API, driving and walking profiles. Docs:
 // https://docs.mapbox.com/api/navigation/directions/
-
-export interface DriveRoute {
-  coords: Coordinate3D[]; // [lat, lon, 0] — the API carries no elevation
-  distanceKm: number;
-  durationSec: number;
-}
 
 export type DirectionsFailure = 'no-token' | 'unauthorized' | 'no-route' | 'unavailable';
 
@@ -36,59 +30,37 @@ export function thinCoords(coords: Coordinate3D[], minSpacingKm = MIN_POINT_SPAC
   return out;
 }
 
-export async function driveRoute(from: [number, number], to: [number, number]): Promise<DriveRoute> {
-  const token = mapboxgl.accessToken;
-  if (!token) throw new DirectionsError('no-token');
-
-  const path = `${from[0]},${from[1]};${to[0]},${to[1]}`;
-  const params = new URLSearchParams({
-    geometries: 'geojson',
-    overview: 'full',
-    language: 'he',
-    access_token: token,
-  });
-
-  let res: Response;
-  try {
-    res = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${path}?${params}`);
-  } catch {
-    throw new DirectionsError('unavailable');
-  }
-  if (res.status === 401 || res.status === 403) throw new DirectionsError('unauthorized');
-
-  const data = await res.json().catch(() => null) as
-    | { code?: string; routes?: Array<{ distance: number; duration: number; geometry: { coordinates: [number, number][] } }> }
-    | null;
-  if (!data) throw new DirectionsError('unavailable');
-  if (data.code === 'NoRoute' || data.code === 'NoSegment') throw new DirectionsError('no-route');
-  if (data.code !== 'Ok' || !data.routes?.length) throw new DirectionsError('unavailable');
-
-  const route = data.routes[0];
-  const coords = thinCoords(route.geometry.coordinates.map(([lon, lat]) => [lat, lon, 0] as Coordinate3D));
-  return { coords, distanceKm: route.distance / 1000, durationSec: route.duration };
-}
-
-// Walking routes, for measuring a distance where there is no trail loaded.
-// The walking profile follows footways, paths and tracks as well as streets,
-// and never cuts across open ground — so the answer is a distance someone
-// could actually walk. Choosing *which* routes to offer is walkAlternatives.ts;
-// this is the one request underneath it.
-export interface WalkRoute {
-  coords: Coordinate3D[]; // [lat, lon, 0] — elevation is filled in separately
+// Routes between two or more points, [lon, lat], on foot or by car. Choosing
+// *which* routes to offer is routeAlternatives.ts; this is the one request
+// underneath it.
+export interface RouteOption {
+  coords: Coordinate3D[]; // [lat, lon, 0] — the API carries no elevation
   distanceKm: number;
   durationSec: number;
 }
+export type WalkRoute = RouteOption;
+export type DriveRoute = RouteOption;
 
-export interface WalkResponse {
-  routes: WalkRoute[];
-  // Where Mapbox put the first and last point: on the nearest walkable way,
-  // which is where the route really starts and ends.
+export interface RouteResponse {
+  routes: RouteOption[];
+  // Where Mapbox put the first and last point: on the nearest walkable (or
+  // drivable) way, which is where the route really starts and ends.
   start: [number, number] | null; // [lon, lat]
   end: [number, number] | null;
 }
+export type WalkResponse = RouteResponse;
 
-// `points` are [lon, lat], two or more; any in between are passed through.
-export async function walkRequest(points: [number, number][], alternatives: boolean): Promise<WalkResponse> {
+export type RouteProfile = 'walking' | 'driving';
+
+// `points` are [lon, lat], two or more. `silent` are the indices of points to
+// pass through without stopping there — a nudge towards another way round,
+// not a place the traveller asked to go. Every other point is a real stop.
+export async function routeRequest(
+  profile: RouteProfile,
+  points: [number, number][],
+  alternatives: boolean,
+  silent: number[] = []
+): Promise<RouteResponse> {
   const token = mapboxgl.accessToken;
   if (!token) throw new DirectionsError('no-token');
 
@@ -100,12 +72,13 @@ export async function walkRequest(points: [number, number][], alternatives: bool
     language: 'he',
     access_token: token,
   });
-  // A point in between is a place to pass, not a stop to turn around at.
-  if (points.length > 2) params.set('waypoints', `0;${points.length - 1}`);
+  if (silent.length) {
+    params.set('waypoints', points.map((_, i) => i).filter((i) => !silent.includes(i)).join(';'));
+  }
 
   let res: Response;
   try {
-    res = await fetch(`https://api.mapbox.com/directions/v5/mapbox/walking/${path}?${params}`);
+    res = await fetch(`https://api.mapbox.com/directions/v5/mapbox/${profile}/${path}?${params}`);
   } catch {
     throw new DirectionsError('unavailable');
   }
@@ -132,6 +105,23 @@ export async function walkRequest(points: [number, number][], alternatives: bool
     start: wps[0]?.location ?? null,
     end: wps[wps.length - 1]?.location ?? null,
   };
+}
+
+// The fastest drive through the given points, in order — how a saved or
+// shared drive is routed again from its places alone.
+export async function driveRoute(points: [number, number][]): Promise<DriveRoute> {
+  const { routes } = await routeRequest('driving', points, false);
+  return routes[0];
+}
+
+// Walking routes, for measuring a distance where there is no trail loaded.
+// The walking profile follows footways, paths and tracks as well as streets,
+// and never cuts across open ground — so the answer is a distance someone
+// could actually walk. A point in between is a place to pass, not a stop to
+// turn around at.
+export async function walkRequest(points: [number, number][], alternatives: boolean): Promise<WalkResponse> {
+  const silent = points.map((_, i) => i).slice(1, -1);
+  return routeRequest('walking', points, alternatives, silent);
 }
 
 export function describeSearchOrDirectionsError(e: unknown): string {

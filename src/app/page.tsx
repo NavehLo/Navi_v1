@@ -12,16 +12,18 @@ import SettingsPanel from "@/components/SettingsPanel";
 import PersonalArea from "@/components/PersonalArea";
 import GuidePointsPanel from "@/components/GuidePointsPanel";
 import WorldTrailCard from "@/components/WorldTrailCard";
-import DrivePlanner, { type DriveRequest } from "@/components/DrivePlanner";
+import DrivePlanner, { type DriveRequest, type DrivePlan } from "@/components/DrivePlanner";
 import PlaceSearchBox from "@/components/PlaceSearchBox";
 import MeasureTool from "@/components/MeasureTool";
 import { Car, Footprints } from "lucide-react";
-import { driveRoute } from "@/lib/mapboxDirections";
+import { driveRoute, thinCoords } from "@/lib/mapboxDirections";
+import { encodeDrive, decodeDrive, type DriveLink } from "@/lib/driveLink";
+import { rememberOpenTrail, recallOpenTrail, forgetOpenTrail } from "@/lib/openTrailMemory";
 import { useTrailData } from "@/hooks/useTrailData";
 import { useTour } from "@/hooks/useTour";
 import { useAIGuide } from "@/hooks/useAIGuide";
 import { usePOIGeofence } from "@/hooks/usePOIGeofence";
-import { pointAtDistance, snapToTrail, coordsToGpx, type Coordinate3D } from "@/utils/trailUtils";
+import { pointAtDistance, snapToTrail, coordsToGpx, parseGPX, type Coordinate3D } from "@/utils/trailUtils";
 import { useOffRouteAlert } from "@/hooks/useOffRouteAlert";
 import { primeAlarm } from "@/lib/offRouteAlert";
 import { useTrailPOIs } from "@/hooks/useTrailPOIs";
@@ -31,8 +33,11 @@ import { useOnline } from "@/hooks/useOnline";
 import { listMapPacks, trimMapCache, type MapPack } from "@/lib/offlineMap";
 import { useSummerConditions } from "@/hooks/useSummerConditions";
 import { useWorldTrails } from "@/hooks/useWorldTrails";
-import { saveTrail, recordTour, SavedTrail, describeSupabaseError, clearPersonalCache } from "@/lib/personalArea";
-import type { TrailPOI, DrivePlace } from "@/hooks/useTrailData";
+import {
+  saveTrail, recordTour, SavedTrail, describeSupabaseError, clearPersonalCache,
+  listSavedTrails, listTourHistory, listTrailNotes, cachePersonalData, warmSavedTrailFiles,
+} from "@/lib/personalArea";
+import type { TrailPOI, DrivePlace, TrailSource } from "@/hooks/useTrailData";
 
 // Which of the two worlds the home screen is in: hiking trails, or a drive
 // between two places. Remembered per device, read through an external store
@@ -52,19 +57,18 @@ function subscribeAppMode(l: () => void) {
   return () => { modeListeners.delete(l); };
 }
 
-// A saved or shared drive is just its two endpoints; the road is asked for
-// again when it is opened. "drive:lon,lat;lon,lat|from name|to name".
-function encodeDrive(from: DrivePlace, to: DrivePlace): string {
-  return `drive:${from.lon},${from.lat};${to.lon},${to.lat}|${from.name}|${to.name}`;
-}
-function decodeDrive(raw: string | null | undefined): { from: DrivePlace; to: DrivePlace } | null {
-  const m = raw?.match(/^drive:(-?[\d.]+),(-?[\d.]+);(-?[\d.]+),(-?[\d.]+)(?:\|([^|]*)\|(.*))?$/);
-  if (!m) return null;
-  const [, flon, flat, tlon, tlat, fname, tname] = m;
-  const from = { lon: Number(flon), lat: Number(flat), name: fname || `${flat}, ${flon}` };
-  const to = { lon: Number(tlon), lat: Number(tlat), name: tname || `${tlat}, ${tlon}` };
-  if ([from.lon, from.lat, to.lon, to.lat].some((n) => !Number.isFinite(n))) return null;
-  return { from, to };
+// A trail kept as GPX text (a saved drive or OSM route carries its own
+// points) read back into points — no network needed.
+function coordsFromGpxText(text: string | null | undefined): Coordinate3D[] | null {
+  if (!text) return null;
+  try {
+    const doc = new DOMParser().parseFromString(text, "text/xml");
+    if (doc.querySelector("parsererror")) return null;
+    const coords = parseGPX(doc);
+    return coords.length >= 2 ? coords : null;
+  } catch {
+    return null;
+  }
 }
 
 // A narration runs about 40 seconds. Firing it 150 m out means it finishes
@@ -151,23 +155,37 @@ export default function TrailApp() {
   // Hiking trails or a road trip — the home screen's two faces.
   const appMode = useSyncExternalStore(subscribeAppMode, readAppMode, () => 'trails' as AppMode);
   const isDrive = trail?.kind === 'drive';
-  const [drivePreview, setDrivePreview] = useState<{ from: DrivePlace | null; to: DrivePlace | null }>({ from: null, to: null });
-  const handleDrivePreview = useCallback((from: DrivePlace | null, to: DrivePlace | null) => setDrivePreview({ from, to }), []);
+  const [drivePreview, setDrivePreview] = useState<DrivePlan>({ from: null, to: null, vias: [] });
+  const handleDrivePreview = useCallback((plan: DrivePlan) => setDrivePreview(plan), []);
+  // The places of the drive last opened: closing it goes back to the planner
+  // with them filled in, ready to add a stop or pick another road.
+  const [lastDrivePlan, setLastDrivePlan] = useState<DrivePlan | null>(null);
 
   const openDrive = useCallback((req: DriveRequest) => {
+    setLastDrivePlan({ from: req.from, to: req.to, vias: req.vias });
     loadTrailFromCoords(
       req.coords,
       `${req.from.name} ← ${req.to.name}`,
-      { kind: 'drive', from: req.from, to: req.to },
+      { kind: 'drive', from: req.from, to: req.to, vias: req.vias },
       { kind: 'drive', driveDurationSec: req.durationSec }
     );
   }, [loadTrailFromCoords]);
 
-  // A saved or shared drive: route it again from its endpoints.
-  const openDriveFromEndpoints = useCallback(async (from: DrivePlace, to: DrivePlace): Promise<boolean> => {
+  // A saved or shared drive. With its road on hand it opens as it was;
+  // otherwise the quickest road through its places is asked for again.
+  const openDriveFromLink = useCallback(async (link: DriveLink, coords?: Coordinate3D[] | null): Promise<boolean> => {
+    if (coords) {
+      openDrive({
+        from: link.from, to: link.to, vias: link.vias, coords,
+        distanceKm: 0, // worked out from the points by the trail itself
+        durationSec: link.durationSec ?? 0,
+      });
+      return true;
+    }
     try {
-      const route = await driveRoute([from.lon, from.lat], [to.lon, to.lat]);
-      openDrive({ from, to, ...route });
+      const points = [link.from, ...link.vias, link.to].map((p) => [p.lon, p.lat] as [number, number]);
+      const route = await driveRoute(points);
+      openDrive({ from: link.from, to: link.to, vias: link.vias, ...route });
       return true;
     } catch (e) {
       console.error('Drive re-route failed:', e);
@@ -217,7 +235,7 @@ export default function TrailApp() {
   const [isMeasuring, setIsMeasuring] = useState(false);
 
   // Auth + personal area + settings
-  const { user, signInWithGoogle, signOut, isAuthAvailable } = useAuth();
+  const { user, sessionLive, signInWithGoogle, signOut, isAuthAvailable } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
   const [showPersonalArea, setShowPersonalArea] = useState(false);
   const [saveTrailState, setSaveTrailState] = useState<'idle' | 'saving' | 'saved'>('idle');
@@ -229,6 +247,17 @@ export default function TrailApp() {
 
   const handleSaveTrail = useCallback(async () => {
     if (!trail || !user) return;
+    if (!online) {
+      alert('אין אינטרנט כרגע. אפשר לשמור את המסלול כשיחזור החיבור.');
+      return;
+    }
+    // The account is remembered on the device but the server no longer takes
+    // its sign-in. Signing in again leaves the page — the open trail is kept
+    // and comes back with it.
+    if (!sessionLive) {
+      if (window.confirm('החיבור לחשבון Google פג. להתחבר מחדש כדי לשמור את המסלול?')) signInWithGoogle();
+      return;
+    }
     setSaveTrailState('saving');
     try {
       await saveTrail({
@@ -236,8 +265,16 @@ export default function TrailApp() {
         sourceUrl: trailSource?.kind === 'url' ? trailSource.url
           : trailSource?.kind === 'pack' ? trailSource.sourceUrl
           : trailSource?.kind === 'wmt' ? `wmt:${trailSource.id}`
-          : trailSource?.kind === 'drive' ? encodeDrive(trailSource.from, trailSource.to) : null,
-        sourceContent: trailSource?.kind === 'file' ? trailSource.content : null,
+          : trailSource?.kind === 'drive'
+            ? encodeDrive({ from: trailSource.from, to: trailSource.to, vias: trailSource.vias ?? [], durationSec: trail.driveDurationSec })
+            : null,
+        // A drive and an OSM route keep their points too: the road chosen
+        // (not necessarily the quickest), and a trail that opens with no
+        // reception, when the services that made them cannot be reached.
+        sourceContent: trailSource?.kind === 'file' ? trailSource.content
+          : trailSource?.kind === 'drive' ? coordsToGpx(thinCoords(trail.coords, 0.02), trail.name)
+          : trailSource?.kind === 'wmt' ? coordsToGpx(trail.coords, trail.name)
+          : null,
         totalDistance: trail.totalDistance,
       });
       setSaveTrailState('saved');
@@ -246,16 +283,20 @@ export default function TrailApp() {
       alert(describeSupabaseError(e));
       setSaveTrailState('idle');
     }
-  }, [trail, user, trailSource]);
+  }, [trail, user, trailSource, online, sessionLive, signInWithGoogle]);
 
   const handleLoadSavedTrail = useCallback((saved: SavedTrail) => {
     setShowPersonalArea(false);
     const wmtId = saved.source_url?.match(/^wmt:(\d+)$/)?.[1];
     const drive = decodeDrive(saved.source_url);
+    const savedCoords = coordsFromGpxText(saved.source_content);
     if (drive) {
-      openDriveFromEndpoints(drive.from, drive.to).then((ok) => {
+      writeAppMode('drive');
+      openDriveFromLink(drive, savedCoords).then((ok) => {
         if (!ok) alert('לא הצלחנו לחשב מחדש את מסלול הנסיעה.');
       });
+    } else if (wmtId && savedCoords) {
+      loadTrailFromCoords(savedCoords, saved.name, { kind: 'wmt', id: Number(wmtId) });
     } else if (wmtId) {
       worldTrails.loadById(Number(wmtId)).then((ok) => {
         if (!ok) alert('המסלול לא זמין כרגע משירות Waymarked Trails.');
@@ -267,7 +308,7 @@ export default function TrailApp() {
     } else {
       alert('למסלול השמור אין מקור לטעינה.');
     }
-  }, [loadTrailFromUrl, loadTrailFromText, worldTrails, openDriveFromEndpoints]);
+  }, [loadTrailFromUrl, loadTrailFromText, loadTrailFromCoords, worldTrails, openDriveFromLink]);
 
   // Record a completed virtual tour in the personal history (once per trail load)
   const tourRecordedRef = useRef(false);
@@ -275,7 +316,7 @@ export default function TrailApp() {
     tourRecordedRef.current = false;
   }, [trail?.name]);
   useEffect(() => {
-    if (!user || !trail || tourRecordedRef.current) return;
+    if (!user || !sessionLive || !trail || tourRecordedRef.current) return;
     if (progress >= 0.995) {
       tourRecordedRef.current = true;
       recordTour({
@@ -285,7 +326,7 @@ export default function TrailApp() {
         mode: 'virtual',
       }).catch((e) => console.error('Tour history record failed:', e));
     }
-  }, [progress, user, trail]);
+  }, [progress, user, sessionLive, trail]);
 
   // Virtual position of the tour camera. The camera advances by *distance*
   // along the route, so this has to as well — interpolating by point index
@@ -560,6 +601,54 @@ export default function TrailApp() {
     setIsMeasuring(!isMeasuring);
   }, [isMeasuring, isTourActive, stopTour]);
 
+  // The trail on screen is kept on the device, so that when Android drops the
+  // page while another app is in front, coming back reopens it — points and
+  // all, no network needed — instead of landing on the home screen. Closing
+  // the trail forgets it. (Not on the very first render: there is no trail
+  // yet then, and forgetting would wipe the one about to be brought back.)
+  const hadTrailRef = useRef(false);
+  useEffect(() => {
+    if (trail) {
+      hadTrailRef.current = true;
+      rememberOpenTrail(trail, trailSource, isTracking);
+    } else if (hadTrailRef.current) {
+      forgetOpenTrail();
+    }
+  }, [trail, trailSource, isTracking]);
+
+  const restoreOpenTrail = useCallback(() => {
+    const kept = recallOpenTrail();
+    if (!kept) return;
+    // A file's text was not kept; the points are the same trail written out.
+    const source: TrailSource = kept.source && kept.source.kind !== 'file'
+      ? kept.source
+      : { kind: 'file', content: coordsToGpx(kept.coords, kept.name) };
+    if (source.kind === 'drive') setLastDrivePlan({ from: source.from, to: source.to, vias: source.vias ?? [] });
+    loadTrailFromCoords(kept.coords, kept.name, source, { kind: kept.kind, driveDurationSec: kept.driveDurationSec });
+    // The live location was on: it goes back on. The permission was given
+    // already, so no tap is needed for it.
+    if (kept.tracking) setIsTracking(true);
+  }, [loadTrailFromCoords, setIsTracking]);
+
+  // A copy of the personal area on the device, refreshed whenever there is a
+  // live sign-in and reception — so the saved trails are there in the field
+  // even if the personal area was never opened since they were saved. Their
+  // GPX files are fetched once too, for the service worker to keep.
+  const userId = user?.id ?? null;
+  const justSaved = saveTrailState === 'saved';
+  useEffect(() => {
+    if (!userId || !sessionLive || !online) return;
+    let cancelled = false;
+    Promise.all([listSavedTrails(), listTourHistory(), listTrailNotes()])
+      .then(([trails, history, notes]) => {
+        if (cancelled) return;
+        cachePersonalData(userId, { trails, history, notes });
+        warmSavedTrailFiles(trails);
+      })
+      .catch(() => {}); // the copy from last time stands
+    return () => { cancelled = true; };
+  }, [userId, sessionLive, online, justSaved]);
+
   // Open a shared trail link: /?trail=<encoded url> auto-loads that trail
   const didLoadFromUrlRef = useRef(false);
   useEffect(() => {
@@ -577,10 +666,15 @@ export default function TrailApp() {
       window.history.replaceState({}, '', window.location.pathname);
     } else if (sharedDrive) {
       writeAppMode('drive');
-      openDriveFromEndpoints(sharedDrive.from, sharedDrive.to);
+      // Once, on arrival: what the address and the device hold decide the
+      // first screen.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      openDriveFromLink(sharedDrive);
       window.history.replaceState({}, '', window.location.pathname);
+    } else {
+      restoreOpenTrail();
     }
-  }, [loadTrailFromUrl, worldTrails, openDriveFromEndpoints]);
+  }, [loadTrailFromUrl, worldTrails, openDriveFromLink, restoreOpenTrail]);
 
   // Share the current trail (only trails that can be re-opened from a link)
   const handleShare = useCallback(async () => {
@@ -594,7 +688,7 @@ export default function TrailApp() {
       : trailSource.kind === 'wmt'
         ? `${window.location.origin}/?wmt=${trailSource.id}`
         : trailSource.kind === 'drive'
-          ? `${window.location.origin}/?drive=${encodeURIComponent(encodeDrive(trailSource.from, trailSource.to))}`
+          ? `${window.location.origin}/?drive=${encodeURIComponent(encodeDrive({ from: trailSource.from, to: trailSource.to, vias: trailSource.vias ?? [] }))}`
           : '';
     if (!shareUrl) return;
     try {
@@ -778,6 +872,7 @@ export default function TrailApp() {
     if (!map) return;
     const ends = trail ? [] : [
       drivePreview.from && { ...drivePreview.from, role: 'מוצא' },
+      ...drivePreview.vias.map((v, i) => v && { ...v, role: `עצירה ${i + 1}` }),
       drivePreview.to && { ...drivePreview.to, role: 'יעד' },
     ].filter((p): p is DrivePlace & { role: string } => !!p);
 
@@ -811,7 +906,7 @@ export default function TrailApp() {
       } else {
         (map.getSource('drive-ends') as mapboxgl.GeoJSONSource).setData(fc);
       }
-      if (ends.length === 2) {
+      if (ends.length >= 2) {
         const bounds = new mapboxgl.LngLatBounds();
         ends.forEach((p) => bounds.extend([p.lon, p.lat]));
         map.fitBounds(bounds, { padding: 100, duration: 1000, maxZoom: 12 });
@@ -937,7 +1032,7 @@ export default function TrailApp() {
         />
       )}
       {map && !trail && appMode === 'drive' && !uiHidden && !isMeasuring && (
-        <DrivePlanner map={map} onRoute={openDrive} onPreview={handleDrivePreview} />
+        <DrivePlanner map={map} onRoute={openDrive} onPreview={handleDrivePreview} initial={lastDrivePlan} />
       )}
 
       {/* Restore button — the only chrome that survives "map only" mode */}
@@ -1066,6 +1161,9 @@ export default function TrailApp() {
       {showPersonalArea && user && (
         <PersonalArea
           user={user}
+          sessionLive={sessionLive}
+          online={online}
+          onSignIn={signInWithGoogle}
           onClose={() => setShowPersonalArea(false)}
           onSignOut={() => { clearPersonalCache(); signOut(); setShowPersonalArea(false); }}
           onLoadSavedTrail={handleLoadSavedTrail}

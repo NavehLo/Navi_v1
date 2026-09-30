@@ -44,8 +44,9 @@ export type TrailSource =
   | { kind: 'file'; content: string }
   // A marked route from OpenStreetMap via Waymarked Trails, by relation id.
   | { kind: 'wmt'; id: number }
-  // A drive between two places, re-routable from the endpoints alone.
-  | { kind: 'drive'; from: DrivePlace; to: DrivePlace }
+  // A drive between two places, through any stops, re-routable from the
+  // places alone.
+  | { kind: 'drive'; from: DrivePlace; to: DrivePlace; vias?: DrivePlace[] }
   // Opened from a pack saved for the field (lib/offlineMap), with nothing
   // but the device. `sourceUrl` is where it originally came from, if that
   // was a URL, so it can still be saved to the personal area.
