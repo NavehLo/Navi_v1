@@ -4,8 +4,8 @@ import ScaleBar from "./ScaleBar";
 import type { TrailKind } from "../hooks/useTrailData";
 import { tourSpeedsFor } from "../hooks/useTour";
 import {
-  Home, Settings, UserCircle2, BookmarkPlus, Check, Share2, Headphones, HeadphoneOff,
-  ListMusic, Layers, LocateOff, Maximize2, LocateFixed, Play, Square, Eye, MoreHorizontal, X, Tag, Ruler,
+  Home, Settings, Headphones, HeadphoneOff,
+  ListMusic, Layers, Maximize2, LocateFixed, Play, Square, Eye, Tag, Ruler,
 } from "lucide-react";
 
 interface ControlsProps {
@@ -19,7 +19,6 @@ interface ControlsProps {
   onLocateUser: () => void;
   // The live location is on: the dot follows the phone, and a tap recentres.
   isTracking?: boolean;
-  onStopTracking?: () => void;
   onMeasure?: () => void;
   isMeasuring?: boolean;
   map?: mapboxgl.Map | null;
@@ -32,13 +31,6 @@ interface ControlsProps {
   onHome?: () => void;
   tourProgress?: number;
   onOpenSettings?: () => void;
-  authAvailable?: boolean;
-  isSignedIn?: boolean;
-  onAuthClick?: () => void;
-  onSaveTrail?: () => void;
-  saveTrailState?: 'idle' | 'saving' | 'saved';
-  canShare?: boolean;
-  onShare?: () => void;
   isGuideEnabled?: boolean;
   onToggleGuide?: () => void;
   onOpenGuidePoints?: () => void;
@@ -53,7 +45,7 @@ interface ControlsProps {
 
 // A 44px icon rail instead of the old 192px labelled column: the map is the
 // point of the app, and on a phone the chrome was eating most of it. Anything
-// that is not a one-tap map action lives behind the "עוד" sheet.
+// that is not a one-tap map action lives behind the settings button.
 // One stacking order for the whole map UI, written down because it was drifting
 // apart: every overlay had picked its own number and two of them had picked the
 // same spot on the screen as well.
@@ -64,7 +56,7 @@ interface ControlsProps {
 //   43  the layers popover, which hangs off its rail
 //   45  expanded stats card: it covers the rails on purpose, and a tap outside
 //       puts it away again
-//   46  the "עוד" sheet
+//   46  (was the "עוד" sheet — now the settings window, at 70)
 //   50  bottom stack (narration card + tour transport), toasts
 //   60  map attribution, and the button that brings a hidden UI back
 //   70  full-screen modals
@@ -116,14 +108,12 @@ export default function Controls(props: ControlsProps) {
   const {
     onStyleChange, onToggle3D, is3D,
     onLocateUser, onZoomIn, onZoomOut, onCompass, mapBearing,
-    onFitToTrail, hasTrail, onHome, onOpenSettings, authAvailable, isSignedIn,
-    onAuthClick, onSaveTrail, saveTrailState, canShare, onShare, isGuideEnabled, onToggleGuide,
+    onFitToTrail, hasTrail, onHome, onOpenSettings, isGuideEnabled, onToggleGuide,
     onOpenGuidePoints, guidePointCount, onHideUI, showWorldTrails, onToggleWorldTrails,
-    offlineStyleKey, isTracking, onStopTracking, onMeasure, isMeasuring, map,
+    offlineStyleKey, isTracking, onMeasure, isMeasuring, map,
   } = props;
 
   const [showLayers, setShowLayers] = useState(false);
-  const [showMore, setShowMore] = useState(false);
   const [labelsOn, setLabelsOn] = useState(true);
 
   // Read the stored preference after mount rather than in the initial state, so
@@ -182,7 +172,7 @@ export default function Controls(props: ControlsProps) {
           <RailBtn
             label="תצוגת מפה"
             labelsOn={labelsOn}
-            onClick={() => { setShowLayers(v => !v); setShowMore(false); }}
+            onClick={() => setShowLayers(v => !v)}
             className={showLayers ? 'bg-white/10 text-orange-400' : ''}
             title="סוג מפה ותלת מימד"
           >
@@ -255,13 +245,12 @@ export default function Controls(props: ControlsProps) {
 
         <div className={PILL}>
           <RailBtn
-            label="עוד"
+            label="הגדרות"
             labelsOn={labelsOn}
-            onClick={() => { setShowMore(v => !v); setShowLayers(false); }}
-            className={showMore ? 'bg-white/10 text-orange-400' : ''}
-            title="עוד — הגדרות, אזור אישי, שמירה ושיתוף"
+            onClick={() => { setShowLayers(false); onOpenSettings?.(); }}
+            title="הגדרות, אזור אישי, שמירה ושיתוף"
           >
-            <MoreHorizontal className="w-[18px] h-[18px]" />
+            <Settings className="w-[18px] h-[18px]" />
           </RailBtn>
           <RailBtn
             label="הסתר שמות"
@@ -314,54 +303,6 @@ export default function Controls(props: ControlsProps) {
         </div>
       )}
 
-      {/* "More" sheet — everything that is not a map action */}
-      {showMore && (
-        <div className="absolute inset-0 z-[46] bg-black/50 backdrop-blur-sm flex items-end md:items-center justify-center p-4" onClick={() => setShowMore(false)}>
-          <div className="bg-zinc-900/95 border border-white/10 rounded-3xl w-full max-w-sm shadow-2xl p-4 flex flex-col gap-2" dir="rtl" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-1">
-              <h3 className="text-white font-bold text-sm">עוד</h3>
-              <button onClick={() => setShowMore(false)} className="text-zinc-500 hover:text-white p-1"><X size={18} /></button>
-            </div>
-
-            {isTracking && onStopTracking && (
-              <button onClick={() => { setShowMore(false); onStopTracking(); }} className="flex items-center gap-2.5 text-sm text-sky-300 font-bold p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
-                <LocateOff size={16} /> כבה מיקום חי
-              </button>
-            )}
-            {onOpenSettings && (
-              <button onClick={() => { setShowMore(false); onOpenSettings(); }} className="flex items-center gap-2.5 text-sm text-zinc-200 font-bold p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
-                <Settings size={16} /> הגדרות
-              </button>
-            )}
-            {authAvailable && onAuthClick && (
-              <button
-                onClick={() => { setShowMore(false); onAuthClick(); }}
-                className={`flex items-center gap-2.5 text-sm font-bold p-3 rounded-xl transition-colors ${isSignedIn ? 'bg-orange-500/10 text-orange-400 hover:bg-orange-500/20' : 'bg-white/5 text-zinc-200 hover:bg-white/10'}`}
-              >
-                <UserCircle2 size={16} /> {isSignedIn ? 'אזור אישי' : 'התחבר עם Google'}
-              </button>
-            )}
-            {hasTrail && isSignedIn && onSaveTrail && (
-              <button
-                onClick={onSaveTrail}
-                disabled={saveTrailState !== 'idle'}
-                className={`flex items-center gap-2.5 text-sm font-bold p-3 rounded-xl transition-colors disabled:opacity-60 ${
-                  saveTrailState === 'saved' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-white/5 text-sky-400 hover:bg-white/10'
-                }`}
-              >
-                {saveTrailState === 'saved' ? <><Check size={16} /> נשמר באזור האישי</>
-                  : saveTrailState === 'saving' ? <><BookmarkPlus size={16} /> שומר...</>
-                  : <><BookmarkPlus size={16} /> שמור מסלול</>}
-              </button>
-            )}
-            {hasTrail && canShare && onShare && (
-              <button onClick={() => { setShowMore(false); onShare(); }} className="flex items-center gap-2.5 text-sm text-emerald-400 font-bold p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
-                <Share2 size={16} /> שתף מסלול
-              </button>
-            )}
-          </div>
-        </div>
-      )}
     </>
   );
 }

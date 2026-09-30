@@ -9,6 +9,7 @@ import TrailDiscovery from "@/components/TrailDiscovery";
 import Controls, { BottomBar } from "@/components/Controls";
 import AIAssistantUI, { NoGuidePointsHint } from "@/components/AIAssistantUI";
 import SettingsPanel from "@/components/SettingsPanel";
+import SettingsActions from "@/components/SettingsActions";
 import PersonalArea from "@/components/PersonalArea";
 import GuidePointsPanel from "@/components/GuidePointsPanel";
 import WorldTrailCard from "@/components/WorldTrailCard";
@@ -1169,7 +1170,6 @@ export default function TrailApp() {
         onTourSpeedChange={setTourSpeed}
         onLocateUser={handleLocateUser}
         isTracking={isTracking}
-        onStopTracking={() => setIsTracking(false)}
         onMeasure={handleToggleMeasure}
         isMeasuring={isMeasuring}
         map={map}
@@ -1182,13 +1182,6 @@ export default function TrailApp() {
         onHome={() => setTrail(null)}
         tourProgress={progress}
         onOpenSettings={() => setShowSettings(true)}
-        authAvailable={isAuthAvailable}
-        isSignedIn={!!user}
-        onAuthClick={() => user ? setShowPersonalArea(true) : signInWithGoogle()}
-        onSaveTrail={handleSaveTrail}
-        saveTrailState={saveTrailState}
-        canShare={!!trailSource && trailSource.kind !== 'file' && !(trailSource.kind === 'pack' && !trailSource.sourceUrl)}
-        onShare={handleShare}
         isGuideEnabled={isGuideEnabled}
         onToggleGuide={isDrive ? undefined : handleToggleGuide}
         onOpenGuidePoints={isDrive ? undefined : () => setShowGuidePoints(true)}
@@ -1213,7 +1206,22 @@ export default function TrailApp() {
       )}
 
       {/* Settings modal */}
-      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
+      {showSettings && (
+        <SettingsPanel onClose={() => setShowSettings(false)}>
+          <SettingsActions
+            authAvailable={isAuthAvailable}
+            isSignedIn={!!user}
+            onAuthClick={() => { setShowSettings(false); if (user) setShowPersonalArea(true); else signInWithGoogle(); }}
+            hasTrail={!!trail}
+            onSaveTrail={handleSaveTrail}
+            saveTrailState={saveTrailState}
+            canShare={!!trailSource && trailSource.kind !== 'file' && !(trailSource.kind === 'pack' && !trailSource.sourceUrl)}
+            onShare={() => { setShowSettings(false); handleShare(); }}
+            isTracking={isTracking}
+            onStopTracking={() => setIsTracking(false)}
+          />
+        </SettingsPanel>
+      )}
 
       {/* Personal area modal */}
       {showPersonalArea && user && (

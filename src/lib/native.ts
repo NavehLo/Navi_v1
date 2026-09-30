@@ -153,15 +153,42 @@ export function clearNativeAlarm() {
   void LocalNotifications.cancel({ notifications: [{ id: ALARM_ID }] }).catch(() => {});
 }
 
-// Tapping the notification is also "I have heard it".
+// ── The alarm sound, played natively (android-app/…/AlarmSoundPlugin.java) ──
+// On the phone's alarm channel, at a chosen share of its volume, looping in
+// native code so that throttled page timers in the background do not matter.
+// Present from the app version with the sound choice; an older install falls
+// back to the notification above.
+
+interface AlarmSoundPluginApi {
+  play(o: { sound: string; volume: number; loop: boolean; maxMs: number; title?: string; body?: string }): Promise<void>;
+  stop(): Promise<void>;
+  addListener(e: 'silenced', cb: () => void): Promise<PluginListenerHandle>;
+}
+const AlarmSound = registerPlugin<AlarmSoundPluginApi>('AlarmSound');
+
+export function nativeAlarmSoundAvailable(): boolean {
+  try { return isNativeApp() && Capacitor.isPluginAvailable('AlarmSound'); } catch { return false; }
+}
+
+export async function playNativeAlarmSound(o: { sound: string; volume: number; loop: boolean; maxMs: number; title?: string; body?: string }) {
+  try { await AlarmSound.play(o); } catch {}
+}
+
+export function stopNativeAlarmSound() {
+  if (!nativeAlarmSoundAvailable()) return;
+  void AlarmSound.stop().catch(() => {});
+}
+
+// Tapping the notification (or its "השתק" button) is also "I have heard it".
 export function onNativeAlarmTapped(cb: () => void): () => void {
   if (!isNativeApp()) return () => {};
-  let handle: PluginListenerHandle | null = null;
+  const handles: PluginListenerHandle[] = [];
   let gone = false;
-  LocalNotifications.addListener('localNotificationActionPerformed', cb)
-    .then((h) => { if (gone) void h.remove(); else handle = h; })
-    .catch(() => {});
-  return () => { gone = true; void handle?.remove(); };
+  const keep = (p: Promise<PluginListenerHandle>) =>
+    p.then((h) => { if (gone) void h.remove(); else handles.push(h); }).catch(() => {});
+  keep(LocalNotifications.addListener('localNotificationActionPerformed', cb));
+  if (nativeAlarmSoundAvailable()) keep(AlarmSound.addListener('silenced', cb));
+  return () => { gone = true; handles.forEach((h) => void h.remove()); };
 }
 
 // ── Signing in with Google from the app ──────────────────────────────────────

@@ -84,6 +84,42 @@ export default function MeasureTool({
   const [liveSnap, setLive] = useState<Omit<PickedPoint, 'id'> | null>(null);
   const nextIdRef = useRef(1);
 
+  // The panel: the bottom third of the screen by default, scrolling inside;
+  // it can grow to half the screen or shrink to a strip with just the buttons.
+  // The pin sits in the middle of the map that is left visible above it — so
+  // the panel never covers it — and moves when the panel changes size.
+  const [size, setSize] = useState<'min' | 'third' | 'half'>('third');
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [pinY, setPinY] = useState<number | null>(null);
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const measure = () => {
+      const top = panel.getBoundingClientRect().top - map.getContainer().getBoundingClientRect().top;
+      setPinY(Math.max(60, Math.round(top / 2)));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(panel);
+    ro.observe(map.getContainer());
+    return () => ro.disconnect();
+  }, [map]);
+  // The pixel under the pin's tip.
+  const pinPixel = useCallback((): [number, number] => {
+    const el = map.getContainer();
+    return [el.clientWidth / 2, pinY ?? el.clientHeight / 2];
+  }, [map, pinY]);
+
+  // When the pin moves up or down the screen, the map moves with it, so the
+  // same ground stays under it.
+  const lastPinYRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (pinY == null) return;
+    const last = lastPinYRef.current;
+    lastPinYRef.current = pinY;
+    if (last != null && last !== pinY) map.panBy([0, last - pinY], { duration: 250 });
+  }, [map, pinY]);
+
   // ── The ground under the pin, snapped to the trail or to a path ──
   const lastKmRef = useRef<number | null>(null);
   useEffect(() => {
@@ -91,8 +127,7 @@ export default function MeasureTool({
     let frame = 0;
     const update = () => {
       frame = 0;
-      const el = map.getContainer();
-      const px = el.clientWidth / 2, py = el.clientHeight / 2;
+      const [px, py] = pinPixel();
       if (trail) {
         const c = map.unproject([px, py]);
         const snap = snapToTrail(trail.coords, trail.accumulatedDistances, c.lat, c.lng, lastKmRef.current);
@@ -108,7 +143,7 @@ export default function MeasureTool({
     map.on('move', schedule);
     map.on('idle', schedule); // paths finish drawing after the map stops
     return () => { map.off('move', schedule); map.off('idle', schedule); if (frame) cancelAnimationFrame(frame); };
-  }, [map, trail, picking]);
+  }, [map, trail, picking, pinPixel]);
   const live = picking ? liveSnap : null;
 
   // ── Free mode: walking routes, one leg per pair of neighbouring points ──
@@ -162,8 +197,7 @@ export default function MeasureTool({
   // ── Editing the list ──
   const pinPoint = (): Omit<PickedPoint, 'id'> => {
     if (live) return live;
-    const el = map.getContainer();
-    const c = map.unproject([el.clientWidth / 2, el.clientHeight / 2]);
+    const c = map.unproject(pinPixel());
     return { lat: c.lat, lon: c.lng, km: null };
   };
 
@@ -330,7 +364,9 @@ export default function MeasureTool({
     if (all.length < 2) return;
     const bounds = new mapboxgl.LngLatBounds();
     all.forEach((c) => bounds.extend([c[1], c[0]]));
-    map.fitBounds(bounds, { padding: { top: 80, bottom: 360, left: 60, right: 60 }, duration: 900, maxZoom: 16 });
+    // Framed in the part of the map the panel leaves open.
+    const covered = map.getContainer().clientHeight - (pinY ?? 0) * 2;
+    map.fitBounds(bounds, { padding: { top: 80, bottom: Math.max(80, covered + 30), left: 60, right: 60 }, duration: 900, maxZoom: 16 });
   };
 
   const startNavigation = () => {
@@ -347,8 +383,7 @@ export default function MeasureTool({
   const lastKm = n > 0 ? points[n - 1].km : null;
   const liveFromLast = trail && lastKm != null && live?.km != null ? Math.abs(live.km - lastKm) : null;
   const liveOffTrailFar = !!trail && !!live && (() => {
-    const el = map.getContainer();
-    const c = map.unproject([el.clientWidth / 2, el.clientHeight / 2]);
+    const c = map.unproject(pinPixel());
     return c.distanceTo(new mapboxgl.LngLat(live.lon, live.lat)) > 500;
   })();
   const anyLoading = legs.some((l) => l.loading);
@@ -358,29 +393,66 @@ export default function MeasureTool({
   return (
     <>
       {/* The floating pin */}
-      {picking && (
-        <div className="absolute inset-0 z-[44] pointer-events-none flex items-center justify-center">
-          <MapPin className="w-10 h-10 text-orange-500 fill-orange-500/30 drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)] -translate-y-5" />
-          <div className="absolute w-2 h-2 rounded-full bg-orange-500 border border-white/80" />
+      {picking && pinY != null && (
+        <div className="absolute left-1/2 z-[44] pointer-events-none w-0 h-0 transition-[top] duration-200" style={{ top: pinY }}>
+          {/* The pin's tip is the point: the glyph is lifted so the tip sits on it */}
+          <MapPin className="absolute w-10 h-10 -left-5 -top-10 text-orange-500 fill-orange-500/30 drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)]" />
+          <div className="absolute w-2 h-2 -left-1 -top-1 rounded-full bg-orange-500 border border-white/80" />
         </div>
       )}
 
       {/* Three parts: a header, a middle that scrolls, and the buttons — which
           never scroll away, however long the list of points gets. */}
       <div
-        className="absolute inset-x-3 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-[420px] z-[50] bg-zinc-900/95 border border-white/15 rounded-3xl shadow-2xl backdrop-blur-md p-4 flex flex-col gap-3 text-white max-h-[58dvh]"
+        ref={panelRef}
+        className={`absolute inset-x-3 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-[420px] z-[50] bg-zinc-900/95 border border-white/15 rounded-3xl shadow-2xl backdrop-blur-md px-4 pb-3 pt-1 flex flex-col gap-2 text-white ${
+          size === 'half' ? 'h-[50dvh]' : size === 'third' ? 'h-[33dvh]' : ''
+        }`}
         style={{ bottom: 'max(12px, env(safe-area-inset-bottom))' }}
         dir="rtl"
       >
-        <div className="flex items-center justify-between shrink-0">
-          <div className="font-bold text-base flex items-center gap-2">
-            <Ruler className="w-4 h-4 text-orange-400" />
-            {onTrail ? 'מדידה לאורך המסלול' : 'מדידת מרחק הליכה'}
+        {/* The grab bar: a tap folds the panel down, or brings it back */}
+        <button
+          onClick={() => setSize(size === 'min' ? 'third' : 'min')}
+          className="self-center py-1.5 px-6 shrink-0"
+          aria-label={size === 'min' ? 'הרחב את הפאנל' : 'צמצם את הפאנל'}
+        >
+          <span className="block w-10 h-1.5 rounded-full bg-white/50" />
+        </button>
+
+        <div className="flex items-center justify-between gap-2 shrink-0">
+          <div className="font-bold text-base flex items-center gap-2 min-w-0">
+            <Ruler className="w-4 h-4 text-orange-400 shrink-0" />
+            <span className="truncate">{onTrail ? 'מדידה לאורך המסלול' : 'מדידת מרחק הליכה'}</span>
           </div>
-          <button onClick={onClose} className="text-white hover:text-orange-300 p-1" aria-label="סגור מדידה"><X size={20} /></button>
+          <div className="flex items-center shrink-0">
+            {/* Folded down, the running total stays in sight */}
+            {size === 'min' && n >= 2 && (
+              <span className="text-sm ml-1">{n} נק׳{total && <> · <b className="text-yellow-300">{fmtKm(total.km)}</b></>}</span>
+            )}
+            <button
+              onClick={() => setSize(size === 'half' ? 'third' : 'min')}
+              disabled={size === 'min'}
+              className={iconBtn}
+              aria-label="צמצם את הפאנל"
+              title="צמצם"
+            >
+              <ChevronDown className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => setSize(size === 'min' ? 'third' : 'half')}
+              disabled={size === 'half'}
+              className={iconBtn}
+              aria-label="הרחב את הפאנל"
+              title="הרחב"
+            >
+              <ChevronUp className="w-5 h-5" />
+            </button>
+            <button onClick={onClose} className="text-white hover:text-orange-300 p-1 mr-1" aria-label="סגור מדידה"><X size={20} /></button>
+          </div>
         </div>
 
-        <div className="flex flex-col gap-2 overflow-y-auto overscroll-contain min-h-0 flex-1">
+        <div className={`flex-col gap-2 overflow-y-auto overscroll-contain min-h-0 flex-1 ${size === 'min' ? 'hidden' : 'flex'}`}>
           {picking && (
             <>
               <p className="text-sm leading-relaxed">
@@ -508,7 +580,7 @@ export default function MeasureTool({
               )}
             </div>
             {n >= 2 && (
-              <button onClick={() => finish(points)} className="text-sm text-white underline underline-offset-4 py-1">
+              <button onClick={() => finish(points)} className="text-sm text-white underline underline-offset-4">
                 סיום בלי להוסיף את מיקום הנעץ
               </button>
             )}
