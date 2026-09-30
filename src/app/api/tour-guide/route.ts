@@ -5,6 +5,7 @@ import {
   type NarrationInput,
   availableProviders,
   pickTextProvider,
+  textProviderChain,
   ttsPreferenceFor,
   lookupNarration,
   resultFromLookup,
@@ -48,6 +49,13 @@ export async function GET(request: Request) {
   const stamp = voiceStamp(voice);
   return NextResponse.json({
     providers: availableProviders(),
+    // The order narration will actually try, for the environment as deployed.
+    // `providers` above only covers the three paid keys, so without this there
+    // was no way to tell from outside whether GEMINI_FREE_API_KEY had reached
+    // the server at all — and a free key that is simply absent looks exactly
+    // like one that is configured and never chosen. Engine names only; the
+    // keys themselves never leave the server.
+    textChain: textProviderChain(),
     tts: stamp
       ? {
           provider: stamp.provider,
