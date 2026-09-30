@@ -164,8 +164,12 @@ export function useAIGuide() {
   // knows when it may start the next one.
   const speakTextFallback = (text: string): Promise<void> =>
     new Promise((resolve) => {
+      // Reached only when this clip has no audio of its own. Saying "the
+      // browser cannot read text" on its own was misleading twice over: inside
+      // the Android app there is no browser to speak of, and the sentence
+      // sounded like a limitation of the device rather than a missing file.
       if (!("speechSynthesis" in window)) {
-        setVoiceNotice("הדפדפן הזה לא יודע להקריא טקסט, ואין קול מהשרת — הקריינות מוצגת ככתוביות בלבד.");
+        setVoiceNotice("לנקודה הזו לא נוצר קובץ קול, והמכשיר אינו יודע להקריא טקסט בעצמו — לכן היא מוצגת ככתוביות בלבד.");
         return resolve();
       }
       window.speechSynthesis.cancel();
@@ -183,7 +187,7 @@ export function useAIGuide() {
         // Not a warning about quality — the utterance will very likely produce
         // no sound at all, which is the complaint this explains.
         setVoiceNotice(
-          "אין קול עברי מותקן במכשיר, ולכן ההקראה מהדפדפן לא תישמע. התקן קול עברי בהגדרות המכשיר, או הגדר קול בשרת."
+          "לנקודה הזו לא נוצר קובץ קול, ואין במכשיר קול עברי שיקריא אותה — לכן לא יישמע כלום. נסה לרענן את ההורדה של המסלול."
         );
       }
 
@@ -229,6 +233,11 @@ export function useAIGuide() {
       el.onplay = () => {
         setIsSpeaking(true);
         setIsSynthesizerActive(true);
+        // Real audio is playing, so nothing that was said about missing sound
+        // is true any more. Without this a single early failure — a point
+        // downloaded before the voice worked, say — kept its warning on screen
+        // for the rest of the tour while every later point played perfectly.
+        setVoiceNotice(null);
       };
       el.onended = finish;
       el.onerror = finish;
@@ -280,6 +289,7 @@ export function useAIGuide() {
     setIsSynthesizerActive(false);
     setCurrentScript(null);
     setCurrentVoice(null);
+    setVoiceNotice(null);
     setCurrentFromDevice(false);
   }, [interruptPlayback]);
 

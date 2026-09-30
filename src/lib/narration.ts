@@ -60,17 +60,48 @@ export function availableProviders(): Record<TextProvider, boolean> {
   };
 }
 
+// The paid providers plus Google's free tier, which is a different key against
+// a different model and so has to be named separately. It comes last on
+// purpose: a free-tier key is rate limited, and Google's terms for it allow
+// the prompts to be used to improve their products. Narration is written from
+// public Wikipedia text about public places, which is why it is acceptable
+// here at all — it would not be for anything of the user's.
+export type TextEngine = TextProvider | 'gemini-free';
+
+const GEMINI_FREE_MODEL = process.env.GEMINI_FREE_TEXT_MODEL || 'gemini-3.5-flash-lite';
+
+function engineAvailable(engine: TextEngine): boolean {
+  if (engine === 'gemini-free') return !!process.env.GEMINI_FREE_API_KEY;
+  return availableProviders()[engine];
+}
+
+// Every engine that could write this narration, best first.
+//
+// A single provider was a single point of failure: when the Gemini key ran out
+// of prepaid credit the whole request answered 500 with Google's billing page
+// in the message, although an OpenAI key sat right there in the environment.
+// Falling through costs nothing when the first engine works.
+export function textProviderChain(requested?: string): TextEngine[] {
+  const order: TextEngine[] = [];
+  const add = (engine?: TextEngine | null) => {
+    if (engine && engineAvailable(engine) && !order.includes(engine)) order.push(engine);
+  };
+  add(requested?.toLowerCase() as TextEngine | undefined);
+  add(process.env.AI_PROVIDER?.toLowerCase() as TextEngine | undefined);
+  // OpenAI first among the rest: it is the one that has been reliable here.
+  for (const engine of ['openai', 'gemini', 'claude', 'gemini-free'] as TextEngine[]) add(engine);
+  return order;
+}
+
 // Priority: user's in-app choice → AI_PROVIDER env → first available key.
-export function pickTextProvider(requested?: string): TextProvider | null {
-  const has = availableProviders();
-  const req = requested?.toLowerCase() as TextProvider | undefined;
-  if (req && has[req]) return req;
-  const explicit = process.env.AI_PROVIDER?.toLowerCase() as TextProvider | undefined;
-  if (explicit && has[explicit]) return explicit;
-  if (has.openai) return 'openai';
-  if (has.gemini) return 'gemini';
-  if (has.claude) return 'claude';
-  return null;
+export function pickTextProvider(requested?: string): TextEngine | null {
+  return textProviderChain(requested)[0] ?? null;
+}
+
+// Which voice family to prefer, for an engine that may not be one of the
+// three the TTS side knows about.
+export function ttsPreferenceFor(engine: TextEngine | null): TextProvider {
+  return engine === 'gemini-free' ? 'gemini' : (engine ?? 'openai');
 }
 
 // Low, not zero: the narration should read as speech rather than as a
@@ -99,12 +130,15 @@ async function generateTextOpenAI(system: string, user: string): Promise<string>
   return data.choices[0].message.content;
 }
 
-async function generateTextGemini(system: string, user: string): Promise<string> {
+// Shared by both Gemini keys: the paid project key and the free-tier one,
+// which differ only in the key and the model they are allowed to drive.
+async function generateTextGemini(system: string, user: string, free = false): Promise<string> {
   // gemini-2.5-flash was retired for new users in September 2026 (the API
   // answers "no longer available"); 3.6 is what Google points to instead.
-  const model = process.env.GEMINI_TEXT_MODEL || 'gemini-3.6-flash';
+  const model = free ? GEMINI_FREE_MODEL : (process.env.GEMINI_TEXT_MODEL || 'gemini-3.6-flash');
+  const key = free ? process.env.GEMINI_FREE_API_KEY : process.env.GEMINI_API_KEY;
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -117,6 +151,7 @@ async function generateTextGemini(system: string, user: string): Promise<string>
   );
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || 'Gemini text error');
+  if (!data.candidates?.[0]?.content?.parts) throw new Error('Gemini returned no text');
   return data.candidates[0].content.parts.map((p: any) => p.text).join('');
 }
 
@@ -140,10 +175,34 @@ async function generateTextClaude(system: string, user: string): Promise<string>
   return data.content.map((b: any) => (b.type === 'text' ? b.text : '')).join('');
 }
 
-function generateText(provider: TextProvider, system: string, user: string): Promise<string> {
-  if (provider === 'gemini') return generateTextGemini(system, user);
-  if (provider === 'claude') return generateTextClaude(system, user);
+function generateText(engine: TextEngine, system: string, user: string): Promise<string> {
+  if (engine === 'gemini') return generateTextGemini(system, user);
+  if (engine === 'gemini-free') return generateTextGemini(system, user, true);
+  if (engine === 'claude') return generateTextClaude(system, user);
   return generateTextOpenAI(system, user);
+}
+
+// Walks the chain until one engine answers. A provider that is out of credit,
+// rate limited or having an outage costs one failed call and the next one is
+// tried; only when every engine has refused does the caller see an error, and
+// then it is the last real reason rather than the first.
+async function generateTextWithFallback(
+  chain: TextEngine[],
+  system: string,
+  user: string
+): Promise<{ text: string; engine: TextEngine }> {
+  let lastError: unknown = new Error('no text provider configured');
+  for (const engine of chain) {
+    try {
+      const text = (await generateText(engine, system, user)).trim();
+      if (text) return { text, engine };
+      lastError = new Error(`${engine} returned empty text`);
+    } catch (e) {
+      lastError = e;
+      console.error(`Narration text via ${engine} failed, trying the next provider:`, e);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 // ── The narration pipeline ────────────────────────────────────────────────────
@@ -189,8 +248,7 @@ export interface NarrationLookup {
 // Everything that can be answered without spending anything.
 export async function lookupNarration(input: NarrationInput): Promise<NarrationLookup> {
   const poiKey = poiKeyFor(input);
-  const provider = pickTextProvider() ?? 'openai';
-  const voice = resolveTtsVoice(provider, input.voice);
+  const voice = resolveTtsVoice(ttsPreferenceFor(pickTextProvider()), input.voice);
 
   const durable = isNarrationCacheConfigured();
   const cached = durable ? await readNarration(poiKey) : null;
@@ -298,7 +356,7 @@ export async function groundingFor(input: NarrationInput, lookup: NarrationLooku
 export async function generateNarration(
   input: NarrationInput,
   lookup: NarrationLookup,
-  provider: TextProvider,
+  provider: TextEngine,
   grounding?: Grounding
 ): Promise<NarrationResult | null> {
   const { poiKey, voice } = lookup;
@@ -307,7 +365,15 @@ export async function generateNarration(
   if (!text) {
     grounding ??= (await groundingFor(input, lookup)) ?? undefined;
     if (!grounding) return null;
-    text = (await generateText(provider, SYSTEM_PROMPT, buildUserPrompt(input, grounding))).trim();
+    // Starting from the engine the caller picked, then whatever else is
+    // configured — one provider being out of credit must not silence the
+    // guide when another key is sitting right there.
+    const written = await generateTextWithFallback(
+      textProviderChain(provider),
+      SYSTEM_PROMPT,
+      buildUserPrompt(input, grounding)
+    );
+    text = written.text;
     rememberInMemory(memNarration, poiKey, text);
     // The sources are stored with the text so it stays possible to check, after
     // the fact, what the guide was actually working from.

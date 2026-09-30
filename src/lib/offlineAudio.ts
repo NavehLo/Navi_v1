@@ -105,6 +105,17 @@ export function promisify<T>(request: IDBRequest<T>): Promise<T> {
 // the case where the current one is not known — offline on first load, say.
 // Any other value is matched exactly, so a clip from a retired voice is never
 // played in place of the one that is configured now.
+// A record with no audio in it. These were written while ElevenLabs was
+// refusing the configured voice: the download stored the text and an empty
+// blob, on the theory that the browser would read it aloud instead. On a phone
+// with no Hebrew speech engine that is not a fallback, it is silence — and
+// because the record exists, the app treats the point as downloaded and never
+// asks the server for the audio that now exists. Treating them as absent is
+// what lets a trail heal itself.
+function usable(r: StoredNarration | undefined): boolean {
+  return !!r && (r.blob?.size ?? 0) > 0;
+}
+
 export async function getStoredNarration(
   poiKey: string,
   voiceSignature: string | null
@@ -119,12 +130,12 @@ export async function getStoredNarration(
       const exact = await promisify(
         store.get(narrationKey(poiKey, voiceSignature)) as IDBRequest<StoredNarration | undefined>
       );
-      return exact ?? null;
+      return usable(exact) ? exact! : null;
     }
 
     // Unknown voice: take the most recently saved copy of this point.
     const range = IDBKeyRange.bound(`${poiKey}|`, `${poiKey}|￿`);
-    const any = await promisify(store.getAll(range) as IDBRequest<StoredNarration[]>);
+    const any = (await promisify(store.getAll(range) as IDBRequest<StoredNarration[]>)).filter(usable);
     if (any.length === 0) return null;
     return any.reduce((newest, r) => (r.savedAt > newest.savedAt ? r : newest));
   } catch (e) {
@@ -180,6 +191,34 @@ export async function listStoredKeys(
   } catch (e) {
     console.error('Offline audio list failed:', e);
     return new Set();
+  }
+}
+
+// Removes the silent records described above. Reading around them is not
+// enough on its own: while they sit in the store they are counted as
+// downloaded points, so the panel reports a trail as fully saved when several
+// of its points have no sound, and "refresh download" has nothing to fetch.
+// Returns how many were dropped.
+export async function deleteSilentNarrations(trailSlug?: string): Promise<number> {
+  if (!isOfflineAudioSupported()) return 0;
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    const records = await promisify(
+      (trailSlug
+        ? store.index(TRAIL_INDEX).getAll(trailSlug)
+        : store.getAll()) as IDBRequest<StoredNarration[]>
+    );
+    const silent = records.filter((r) => !usable(r));
+    for (const r of silent) await promisify(store.delete(r.key) as IDBRequest);
+    if (silent.length > 0) {
+      console.info(`Dropped ${silent.length} narration(s) saved without audio; they will be fetched again.`);
+    }
+    return silent.length;
+  } catch (e) {
+    console.error('Offline audio cleanup failed:', e);
+    return 0;
   }
 }
 

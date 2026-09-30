@@ -5,6 +5,7 @@ import {
   type NarrationInput,
   availableProviders,
   pickTextProvider,
+  ttsPreferenceFor,
   lookupNarration,
   resultFromLookup,
   groundingFor,
@@ -43,7 +44,7 @@ export async function GET(request: Request) {
     // A malformed preference is the same as none.
   }
 
-  const voice = resolveTtsVoice(pickTextProvider() ?? 'openai', override);
+  const voice = resolveTtsVoice(ttsPreferenceFor(pickTextProvider()), override);
   const stamp = voiceStamp(voice);
   return NextResponse.json({
     providers: availableProviders(),

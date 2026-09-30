@@ -20,6 +20,7 @@ import {
 import {
   NO_VOICE,
   deleteOtherVoices,
+  deleteSilentNarrations,
   deleteTrailNarrations,
   isOfflineAudioSupported,
   listStoredKeys,
@@ -109,6 +110,7 @@ export function useOfflineTrail(
       setProgress({ done: 0, total: 0, bytes: 0 });
       return;
     }
+    await deleteSilentNarrations(trailSlug);
     const keys = await listStoredKeys(trailSlug, currentSignature);
     const bytes = await storedBytesFor(trailSlug);
     setSavedKeys(keys);
@@ -122,6 +124,11 @@ export function useOfflineTrail(
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Records saved with no audio in them are dropped before anything is
+      // counted, so a trail downloaded while the voice was being refused
+      // reports the points as missing — and a refresh actually fetches them —
+      // instead of claiming to be complete and playing silence.
+      if (trailSlug) await deleteSilentNarrations(trailSlug);
       const keys = trailSlug ? await listStoredKeys(trailSlug, currentSignature) : new Set<string>();
       const bytes = trailSlug ? await storedBytesFor(trailSlug) : 0;
       const pack = trailSlug ? await getMapPack(trailSlug) : null;
