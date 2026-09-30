@@ -43,16 +43,18 @@ import {
 import type { TrailPOI, DrivePlace, TrailSource } from "@/hooks/useTrailData";
 
 // Which of the two worlds the home screen is in: hiking trails, or a drive
-// between two places. Remembered per device, read through an external store
-// so the server render (always trails) and the first client render agree.
+// between two places. Not remembered: the app always opens on the trails, and
+// a drive is one tap away. (It used to open on whichever was used last, which
+// made the drive planner the first thing seen after a single road trip.)
+// Only a shared or saved drive switches it on its own.
 type AppMode = 'trails' | 'drive';
-const APP_MODE_KEY = "navi:appMode";
 const modeListeners = new Set<() => void>();
+let currentAppMode: AppMode = 'trails';
 function readAppMode(): AppMode {
-  try { return localStorage.getItem(APP_MODE_KEY) === 'drive' ? 'drive' : 'trails'; } catch { return 'trails'; }
+  return currentAppMode;
 }
 function writeAppMode(mode: AppMode) {
-  try { localStorage.setItem(APP_MODE_KEY, mode); } catch {}
+  currentAppMode = mode;
   modeListeners.forEach((l) => l());
 }
 function subscribeAppMode(l: () => void) {
@@ -1033,6 +1035,18 @@ export default function TrailApp() {
     return () => { map.off('style.load', syncWaterLayers); };
   }, [map, water, styleRev]);
 
+  // Changing between trails and a drive starts the map afresh: the drive's
+  // pins and route options, a half-done measurement, a tapped world trail and
+  // a searched-for place all belong to the side that was left.
+  const switchAppMode = (mode: AppMode) => {
+    if (mode === appMode) return;
+    writeAppMode(mode);
+    setDrivePreview({ from: null, to: null, vias: [] });
+    setLastDrivePlan(null);
+    setIsMeasuring(false);
+    worldTrails.clearSelection();
+  };
+
   return (
     <div className="w-full h-dvh relative bg-zinc-900 overflow-hidden m-0 p-0 select-none touch-none" dir="rtl">
       {/* Map Engine Layer */}
@@ -1046,7 +1060,7 @@ export default function TrailApp() {
             aria-selected={appMode === 'trails'}
             aria-label="מסלולי טיול"
             title="מסלולי טיול"
-            onClick={() => writeAppMode('trails')}
+            onClick={() => switchAppMode('trails')}
             className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full transition-colors ${appMode === 'trails' ? 'bg-orange-500 text-white' : 'text-zinc-300 hover:bg-white/10'}`}
           >
             <Footprints className="w-4 h-4 sm:w-3.5 sm:h-3.5" /><span className="hidden sm:inline whitespace-nowrap">מסלולי טיול</span>
@@ -1056,7 +1070,7 @@ export default function TrailApp() {
             aria-selected={appMode === 'drive'}
             aria-label="נסיעה בכביש"
             title="נסיעה בכביש"
-            onClick={() => writeAppMode('drive')}
+            onClick={() => switchAppMode('drive')}
             className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full transition-colors ${appMode === 'drive' ? 'bg-orange-500 text-white' : 'text-zinc-300 hover:bg-white/10'}`}
           >
             <Car className="w-4 h-4 sm:w-3.5 sm:h-3.5" /><span className="hidden sm:inline whitespace-nowrap">נסיעה בכביש</span>
@@ -1068,6 +1082,9 @@ export default function TrailApp() {
           not — once one is open the map follows the trail, not a search. */}
       {map && !trail && !uiHidden && (
         <PlaceSearchBox
+          // A new one for each mode, so the pin of a place searched on the
+          // other side goes with it.
+          key={appMode}
           map={map}
           // Clear of the left rail, which is at its widest with the button
           // labels showing, and of the trail panel on a wide screen.
