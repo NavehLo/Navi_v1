@@ -39,11 +39,21 @@ export const serverOffRouteThreshold = () => DEFAULT_THRESHOLD;
 // to be heard from a pocket over wind. The phone also vibrates, for when the
 // sound is not heard.
 //
+// It repeats until it is silenced (the banner's "השתק" button), the walker is
+// back on the route, or ALARM_MAX_MS has passed — a single burst is easy to
+// miss, and one that never stops is its own emergency.
+//
 // Browsers only let a page make sound after a tap, so the context is created
-// (or resumed) from one: switching on the live location or field mode calls
-// primeAlarm().
+// (or resumed) from one: switching on the live location calls primeAlarm().
+
+const BURST_MS = 2400;
+const GAP_MS = 1600;
+const ALARM_MAX_MS = 30_000;
 
 let ctx: AudioContext | null = null;
+let repeatTimer: ReturnType<typeof setInterval> | null = null;
+let stopTimer: ReturnType<typeof setTimeout> | null = null;
+let current: { osc: OscillatorNode; gain: GainNode } | null = null;
 
 export function primeAlarm() {
   try {
@@ -54,8 +64,8 @@ export function primeAlarm() {
   }
 }
 
-export function soundAlarm() {
-  try { navigator.vibrate?.([400, 150, 400, 150, 400, 150, 800]); } catch {}
+function burst() {
+  try { navigator.vibrate?.([400, 150, 400, 150, 800]); } catch {}
   if (!ctx) primeAlarm();
   if (!ctx) return;
   if (ctx.state === 'suspended') void ctx.resume();
@@ -66,7 +76,7 @@ export function soundAlarm() {
   const osc = ctx.createOscillator();
   osc.type = 'square';
   osc.connect(gain);
-  // Three rising two-tone bursts, ~2.5 seconds in all.
+  // Six two-tone beats, 2.4 seconds.
   for (let i = 0; i < 6; i++) {
     const t = t0 + i * 0.4;
     osc.frequency.setValueAtTime(i % 2 ? 1320 : 880, t);
@@ -74,5 +84,30 @@ export function soundAlarm() {
     gain.gain.setValueAtTime(0, t + 0.32);
   }
   osc.start(t0);
-  osc.stop(t0 + 6 * 0.4);
+  osc.stop(t0 + BURST_MS / 1000);
+  current = { osc, gain };
+}
+
+// Starts the alarm; repeats until stopAlarm(). `once` plays a single burst
+// (the "play a sample" button in the settings).
+export function soundAlarm({ once = false }: { once?: boolean } = {}) {
+  stopAlarm();
+  burst();
+  if (once) return;
+  repeatTimer = setInterval(burst, BURST_MS + GAP_MS);
+  stopTimer = setTimeout(stopAlarm, ALARM_MAX_MS);
+}
+
+export function stopAlarm() {
+  if (repeatTimer) { clearInterval(repeatTimer); repeatTimer = null; }
+  if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
+  if (current) {
+    try { current.gain.gain.cancelScheduledValues(0); current.gain.gain.value = 0; current.osc.stop(); } catch {}
+    current = null;
+  }
+  try { navigator.vibrate?.(0); } catch {}
+}
+
+export function isAlarmSounding() {
+  return repeatTimer !== null;
 }

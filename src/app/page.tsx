@@ -2,12 +2,12 @@
 
 import React, { useState, useEffect, useCallback, useMemo, memo, useRef, useSyncExternalStore } from "react";
 import mapboxgl from "mapbox-gl";
-import { EyeOff, TriangleAlert, LocateFixed } from "lucide-react";
+import { EyeOff, TriangleAlert, LocateFixed, VolumeX } from "lucide-react";
 import MapComponent from "@/components/Map";
 import StatsPanel from "@/components/StatsPanel";
 import TrailDiscovery from "@/components/TrailDiscovery";
 import Controls, { BottomBar } from "@/components/Controls";
-import AIAssistantUI from "@/components/AIAssistantUI";
+import AIAssistantUI, { NoGuidePointsHint } from "@/components/AIAssistantUI";
 import SettingsPanel from "@/components/SettingsPanel";
 import PersonalArea from "@/components/PersonalArea";
 import GuidePointsPanel from "@/components/GuidePointsPanel";
@@ -21,7 +21,7 @@ import { useTrailData } from "@/hooks/useTrailData";
 import { useTour } from "@/hooks/useTour";
 import { useAIGuide } from "@/hooks/useAIGuide";
 import { usePOIGeofence } from "@/hooks/usePOIGeofence";
-import { pointAtDistance, projectOntoTrail, snapToTrail, coordsToGpx, type Coordinate3D } from "@/utils/trailUtils";
+import { pointAtDistance, snapToTrail, coordsToGpx, type Coordinate3D } from "@/utils/trailUtils";
 import { useOffRouteAlert } from "@/hooks/useOffRouteAlert";
 import { primeAlarm } from "@/lib/offRouteAlert";
 import { useTrailPOIs } from "@/hooks/useTrailPOIs";
@@ -178,9 +178,9 @@ export default function TrailApp() {
   const { requestGuideForPoint, unlockAudio, isSpeaking, isLoading, currentScript, stopSpeaking, queueLength, currentVoice, currentFromDevice } = useAIGuide();
 
   // The guide is opt-in, every time. It starts off, and goes back to off when
-  // a new trail is opened, when a virtual tour reaches its end and when field
-  // mode is switched off — so a tour or a walk never narrates, and never spends
-  // a TTS credit, unless it was switched on for that tour or that walk. Off is
+  // a new trail is opened and when a virtual tour reaches its end — so a tour
+  // or a walk never narrates, and never spends a TTS credit, unless it was
+  // switched on for that tour or that walk. Off is
   // a real off: the geofence never fires, so not a single request goes out.
   // Tapping a point on the map or in the list still plays it — that is a
   // deliberate press, not the automatic guide.
@@ -190,21 +190,25 @@ export default function TrailApp() {
   // button that brings the chrome back is taken off the screen.
   const [uiHidden, setUiHidden] = useState(false);
   const [showGuidePoints, setShowGuidePoints] = useState(false);
+  // Switched on outside a virtual tour, it is for a real walk: the guide goes
+  // by where the phone is, so the live location comes on with it.
   const handleToggleGuide = useCallback(() => {
-    setIsGuideEnabled((prev) => {
-      const next = !prev;
-      if (!next) stopSpeaking();
-      else unlockAudio(); // the toggle is a user gesture — use it to unlock audio
-      return next;
-    });
-  }, [stopSpeaking, unlockAudio]);
+    if (isGuideEnabled) {
+      stopSpeaking();
+    } else {
+      unlockAudio(); // the toggle is a user gesture — use it to unlock audio
+      if (!isTourActive) { primeAlarm(); setIsTracking(true); }
+    }
+    setIsGuideEnabled(!isGuideEnabled);
+  }, [isGuideEnabled, isTourActive, stopSpeaking, unlockAudio]);
 
-  // Real GPS "field mode": continuous tracking that feeds the POI geofence
-  const [isFieldMode, setIsFieldMode] = useState(false);
-  // The live location: once switched on (the locate button, or field mode) the
-  // blue dot follows the phone, the trail card counts down the distance left,
-  // and the off-route alarm listens. Field mode adds the screen lock and the
-  // guide on top of it.
+  // The live location: once switched on (the locate button, the guide, or
+  // starting to navigate a measured route) the blue dot follows the phone,
+  // the trail card counts down the distance left, the off-route alarm listens
+  // and the guide — if it is on — narrates the points as they are reached.
+  // (This used to be split across a separate "field mode" button, which added
+  // a screen lock on top. Nothing needed the button, and the lock emptied the
+  // battery.)
   const [isTracking, setIsTracking] = useState(false);
   const [gpsPos, setGpsPos] = useState<{ lat: number; lon: number; accuracy: number | null } | null>(null);
   const centerOnNextFixRef = useRef(false);
@@ -293,35 +297,36 @@ export default function TrailApp() {
     return { lat: pt[0], lon: pt[1] };
   }, [trail, virtualKm]);
 
-  // During a virtual tour the camera is the "traveler"; in field mode it's the real GPS
-  const guidePos = isTourActive ? virtualPos : (isFieldMode ? gpsPos : null);
+  // During a virtual tour the camera is the "traveler"; otherwise, with the
+  // live location on, it is the real GPS.
+  const guidePos = isTourActive ? virtualPos : gpsPos;
 
-  // Back to opt-in: a new trail, a tour that has run to its end, field mode
-  // switched off. Pausing a tour and resuming it keeps the choice.
+  // Back to opt-in: a new trail, a tour that has run to its end. Pausing a
+  // tour and resuming it keeps the choice.
   useEffect(() => { setIsGuideEnabled(false); }, [trail]);
   useEffect(() => {
     if (!isTourActive && progress >= 1) setIsGuideEnabled(false);
   }, [isTourActive, progress]);
-  useEffect(() => {
-    if (!isFieldMode) setIsGuideEnabled(false);
-  }, [isFieldMode]);
+
+  // The walker snapped onto the open trail: how far along, how far off it.
+  // Measured to the line itself, not to its nearest point, so a sparse route
+  // does not read as "off the trail" between two far-apart points.
+  const lastUserKmRef = useRef<number | null>(null);
+  useEffect(() => { lastUserKmRef.current = null; }, [trail]);
+  const userOnTrail = useMemo(() => {
+    if (!trail || !gpsPos) return null;
+    const snap = snapToTrail(trail.coords, trail.accumulatedDistances, gpsPos.lat, gpsPos.lon, lastUserKmRef.current);
+    if (!snap) return null;
+    if (snap.offTrailKm <= 0.3) lastUserKmRef.current = snap.km;
+    return { km: snap.km, offTrailM: snap.offTrailKm * 1000, ele: snap.ele };
+  }, [trail, gpsPos]);
 
   // How far along the trail the traveler is — exact for the virtual tour,
-  // projected onto the route from the GPS fix in field mode. This is what lets
-  // the guide narrate points in the order they are actually walked.
-  const lastProjectedKmRef = useRef<number | null>(null);
-  const fieldKm = useMemo(() => {
-    if (!trail || isTourActive || !isFieldMode || !gpsPos) return null;
-    const projection = projectOntoTrail(
-      trail.coords, trail.accumulatedDistances, gpsPos.lat, gpsPos.lon, lastProjectedKmRef.current
-    );
-    // Wandered well off the route — its along-trail position means nothing.
-    if (!projection || projection.offTrailKm > 0.3) return null;
-    lastProjectedKmRef.current = projection.km;
-    return projection.km;
-  }, [trail, isTourActive, isFieldMode, gpsPos]);
-
-  const travelerKm = isTourActive ? virtualKm : fieldKm;
+  // from the GPS otherwise. This is what lets the guide narrate points in the
+  // order they are actually walked. Wandered well off the route, the
+  // along-trail position means nothing.
+  const walkerKm = userOnTrail && userOnTrail.offTrailM <= 300 ? userOnTrail.km : null;
+  const travelerKm = isTourActive ? virtualKm : walkerKm;
 
   // The trail's guide points: real places along it with something of their own
   // to be said. Best-effort; empty until discovery answers.
@@ -340,7 +345,7 @@ export default function TrailApp() {
     guidePos,
     (poi) => requestGuideForPoint(poi, trail!.name),
     {
-      enabled: isGuideEnabled && !isDrive && (isTourActive || isFieldMode),
+      enabled: isGuideEnabled && !isDrive && (isTourActive || isTracking),
       radiusKm: GEOFENCE_RADIUS_KM,
       resetKey: trail?.name,
       poiDistancesKm,
@@ -505,7 +510,6 @@ export default function TrailApp() {
     if (!navigator.geolocation) {
       alert("הדפדפן שלך לא תומך באיתור מיקום");
       setIsTracking(false);
-      setIsFieldMode(false);
       return;
     }
     const watchId = navigator.geolocation.watchPosition(
@@ -521,7 +525,6 @@ export default function TrailApp() {
       (err) => {
         alert("שגיאה באיתור מיקום: " + err.message);
         setIsTracking(false);
-        setIsFieldMode(false);
       },
       { enableHighAccuracy: true }
     );
@@ -535,57 +538,14 @@ export default function TrailApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [styleRev]);
 
-  // The walker snapped onto the open trail: how far along, how far off it.
-  const lastUserKmRef = useRef<number | null>(null);
-  useEffect(() => { lastUserKmRef.current = null; }, [trail]);
-  const userOnTrail = useMemo(() => {
-    if (!trail || !gpsPos) return null;
-    const snap = snapToTrail(trail.coords, trail.accumulatedDistances, gpsPos.lat, gpsPos.lon, lastUserKmRef.current);
-    if (!snap) return null;
-    if (snap.offTrailKm <= 0.3) lastUserKmRef.current = snap.km;
-    return { km: snap.km, offTrailM: snap.offTrailKm * 1000, ele: snap.ele };
-  }, [trail, gpsPos]);
-
   const offRoute = useOffRouteAlert(
     userOnTrail ? userOnTrail.offTrailM : null,
     gpsPos?.accuracy ?? null,
     trail
   );
 
-  // Keep the screen on while walking with the map. The lock is lost when the
-  // app goes to the background and has to be asked for again on return.
-  useEffect(() => {
-    if (!isFieldMode || typeof navigator === 'undefined' || !('wakeLock' in navigator)) return;
-    let lock: WakeLockSentinel | null = null;
-    let active = true;
-    const acquire = async () => {
-      if (!active || document.visibilityState !== 'visible') return;
-      try {
-        lock = await navigator.wakeLock.request('screen');
-      } catch {
-        // Denied (low battery, say) — the walk goes on without it.
-      }
-    };
-    acquire();
-    document.addEventListener('visibilitychange', acquire);
-    return () => {
-      active = false;
-      document.removeEventListener('visibilitychange', acquire);
-      lock?.release().catch(() => {});
-    };
-  }, [isFieldMode]);
-
-  const handleToggleFieldMode = useCallback(() => {
-    if (!isFieldMode) {
-      unlockAudio(); // toggle-on is a user gesture — unlock audio for TTS
-      primeAlarm();
-      setIsTracking(true);
-    }
-    setIsFieldMode(!isFieldMode);
-  }, [isFieldMode, unlockAudio]);
-
   // A measured stretch opened as a trail of its own, and walked: the live
-  // location and field mode go on together. Kept as GPX so it can be saved to
+  // location goes on with it. Kept as GPX so it can be saved to
   // the personal area like an uploaded file.
   const handleMeasureNavigate = useCallback((coords: Coordinate3D[], name: string) => {
     setIsMeasuring(false);
@@ -593,7 +553,6 @@ export default function TrailApp() {
     unlockAudio();
     primeAlarm();
     setIsTracking(true);
-    setIsFieldMode(true);
   }, [loadTrailFromCoords, unlockAudio]);
 
   const handleToggleMeasure = useCallback(() => {
@@ -1012,11 +971,11 @@ export default function TrailApp() {
 
       {/* Strayed off the route: said once, loudly, until back on it */}
       {offRoute.alert && (
-        <div className="absolute top-16 inset-x-3 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-[380px] z-[55] bg-red-600 text-white rounded-2xl shadow-2xl border border-red-300/40 p-3 flex items-center gap-3 animate-pulse" dir="rtl" role="alert">
+        <div className={`absolute top-16 inset-x-3 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-[400px] z-[55] bg-red-600 text-white rounded-2xl shadow-2xl border border-red-300/40 p-3 flex items-center gap-2 ${offRoute.alert.silenced ? '' : 'animate-pulse'}`} dir="rtl" role="alert">
           <TriangleAlert className="w-7 h-7 shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="font-bold text-sm">סטית מהמסלול</div>
-            <div className="text-xs text-red-100">
+            <div className="text-xs text-white">
               {offRoute.alert.distanceM >= 1000 ? `${(offRoute.alert.distanceM / 1000).toFixed(1)} ק״מ` : `${offRoute.alert.distanceM} מ׳`} מהתוואי
             </div>
           </div>
@@ -1029,7 +988,12 @@ export default function TrailApp() {
               <LocateFixed className="w-4 h-4" />
             </button>
           )}
-          <button onClick={offRoute.dismiss} className="text-xs font-bold px-3 py-2 rounded-xl bg-white text-red-700">הבנתי</button>
+          {!offRoute.alert.silenced && (
+            <button onClick={offRoute.silence} className="flex items-center gap-1 text-xs font-bold px-3 py-2 rounded-xl bg-white text-red-700">
+              <VolumeX className="w-4 h-4" /> השתק
+            </button>
+          )}
+          <button onClick={offRoute.dismiss} className="text-xs font-bold px-3 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white">סגור</button>
         </div>
       )}
 
@@ -1056,8 +1020,6 @@ export default function TrailApp() {
         onMeasure={handleToggleMeasure}
         isMeasuring={isMeasuring}
         map={map}
-        isFieldMode={isFieldMode}
-        onToggleFieldMode={isDrive ? undefined : handleToggleFieldMode}
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
         onCompass={handleCompass}
@@ -1156,6 +1118,8 @@ export default function TrailApp() {
             voice={currentVoice}
             voiceFromDevice={currentFromDevice}
           />}
+          <div className="flex items-center gap-2">
+          {!isDrive && !isLoading && !currentScript && enrichedPois.length === 0 && <NoGuidePointsHint />}
           <MemoizedBottomBar
             hasTrail={!!trail}
             trailKind={trail.kind}
@@ -1173,6 +1137,7 @@ export default function TrailApp() {
               }
             }}
           />
+          </div>
         </div>
       )}
 

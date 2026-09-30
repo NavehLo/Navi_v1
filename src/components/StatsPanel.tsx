@@ -155,7 +155,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
               ) : (
                 <>
                   {trail.totalDistance.toFixed(1)} ק״מ · {Math.round(trail.minEle)}–{Math.round(trail.maxEle)} מ׳
-                  {shade && <> · <span className="text-lime-400">{Math.round(shade.shadePct)}% צל</span></>}
+                  {shade && <> · <span className="text-lime-400">{Math.round(shade.shadePct)}% אפשרות לצל</span></>}
                 </>
               )}
             </div>
@@ -290,7 +290,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
         <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-2 font-bold">בקיץ</div>
 
         {/* מים */}
-        <div className="text-[11px] text-zinc-300 font-bold mb-1">מים להתרעננות</div>
+        <div className="text-xs text-white font-bold mb-1">אפשרות למים להתרעננות</div>
 
         {waterStatus === 'loading' && !water && (
           <div className="text-zinc-300 text-[11px] mb-3">מחפש מקורות מים…</div>
@@ -385,7 +385,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
         {shade && (
           <>
             <div className="flex justify-between items-baseline mb-1.5">
-              <div className="text-[11px] text-zinc-300 font-bold">צל</div>
+              <div className="text-xs text-white font-bold">אפשרות לצל</div>
               <div className="text-lg font-bold text-lime-400 leading-none">
                 {Math.round(shade.shadePct)}%
                 <span className="text-[10px] font-normal text-zinc-400 mr-1">מהמסלול</span>

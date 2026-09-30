@@ -613,7 +613,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
         {/* Field rehearsal: cut the network without leaving the house. */}
         <h3 className="text-zinc-300 font-bold text-sm mt-6 mb-1 flex items-center gap-2">
           <WifiOff size={15} className="text-sky-400" />
-          בדיקת מצב שטח
+          בדיקה בלי קליטה
         </h3>
         <p className="text-zinc-500 text-xs mb-3">
           מדמה אובדן קליטה: המפה, הקריינות והמסלולים יגיעו רק ממה שנשמר במכשיר. כך אפשר

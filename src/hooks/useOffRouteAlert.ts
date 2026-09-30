@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
-  readOffRouteThreshold, subscribeOffRouteThreshold, serverOffRouteThreshold, soundAlarm,
+  readOffRouteThreshold, subscribeOffRouteThreshold, serverOffRouteThreshold, soundAlarm, stopAlarm,
 } from '../lib/offRouteAlert';
 
 // Sounds the alarm once when the walker strays past the set distance from the
@@ -24,7 +24,11 @@ export function useOffRouteAlert(
   // The route the banner is about. A different route (or none) and it goes.
   const [firedFor, setFiredFor] = useState<unknown>(null);
 
-  useEffect(() => { armedRef.current = false; }, [resetKey]);
+  const [silenced, setSilenced] = useState(false);
+  useEffect(() => { armedRef.current = false; stopAlarm(); }, [resetKey]);
+  // A threshold switched off mid-alarm, or the page going away, ends the sound.
+  useEffect(() => { if (!threshold) stopAlarm(); }, [threshold]);
+  useEffect(() => () => stopAlarm(), []);
 
   // Reacting to each GPS fix is exactly what this effect is for: the alarm is
   // a sound and a vibration, not something a render can produce.
@@ -34,20 +38,24 @@ export function useOffRouteAlert(
     if (accuracyM != null && accuracyM > Math.max(threshold, 30)) return;
 
     if (offTrailM <= threshold * 0.7) {
+      if (!armedRef.current) stopAlarm(); // back on the route: the siren stops by itself
       armedRef.current = true;
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setFiredFor(null);
     } else if (offTrailM > threshold && armedRef.current) {
       armedRef.current = false;
       setFiredFor(resetKey);
+      setSilenced(false);
       soundAlarm();
     }
   }, [offTrailM, accuracyM, threshold, resetKey]);
 
   const showing = !!threshold && firedFor != null && firedFor === resetKey && offTrailM != null;
   return {
-    alert: showing ? { distanceM: Math.round(offTrailM!) } : null,
+    alert: showing ? { distanceM: Math.round(offTrailM!), silenced } : null,
     threshold,
-    dismiss: () => setFiredFor(null),
+    // Stops the siren; the banner stays, so the distance can still be read.
+    silence: () => { stopAlarm(); setSilenced(true); },
+    dismiss: () => { stopAlarm(); setFiredFor(null); },
   };
 }

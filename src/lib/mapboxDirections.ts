@@ -68,30 +68,40 @@ export async function driveRoute(from: [number, number], to: [number, number]): 
   return { coords, distanceKm: route.distance / 1000, durationSec: route.duration };
 }
 
-// Walking routes between two points, for measuring a distance where there is
-// no trail loaded. The walking profile follows footways, paths and tracks as
-// well as streets, and never cuts across open ground — so the answer is a
-// distance someone could actually walk, not a line through a wadi wall.
-// `alternatives` asks for up to two more routes besides the best one; Mapbox
-// only returns them when they are genuinely different, so there may be fewer.
+// Walking routes, for measuring a distance where there is no trail loaded.
+// The walking profile follows footways, paths and tracks as well as streets,
+// and never cuts across open ground — so the answer is a distance someone
+// could actually walk. Choosing *which* routes to offer is walkAlternatives.ts;
+// this is the one request underneath it.
 export interface WalkRoute {
   coords: Coordinate3D[]; // [lat, lon, 0] — elevation is filled in separately
   distanceKm: number;
   durationSec: number;
 }
 
-export async function walkRoutes(from: [number, number], to: [number, number]): Promise<WalkRoute[]> {
+export interface WalkResponse {
+  routes: WalkRoute[];
+  // Where Mapbox put the first and last point: on the nearest walkable way,
+  // which is where the route really starts and ends.
+  start: [number, number] | null; // [lon, lat]
+  end: [number, number] | null;
+}
+
+// `points` are [lon, lat], two or more; any in between are passed through.
+export async function walkRequest(points: [number, number][], alternatives: boolean): Promise<WalkResponse> {
   const token = mapboxgl.accessToken;
   if (!token) throw new DirectionsError('no-token');
 
-  const path = `${from[0]},${from[1]};${to[0]},${to[1]}`;
+  const path = points.map(([lon, lat]) => `${lon},${lat}`).join(';');
   const params = new URLSearchParams({
     geometries: 'geojson',
     overview: 'full',
-    alternatives: 'true',
+    alternatives: alternatives ? 'true' : 'false',
     language: 'he',
     access_token: token,
   });
+  // A point in between is a place to pass, not a stop to turn around at.
+  if (points.length > 2) params.set('waypoints', `0;${points.length - 1}`);
 
   let res: Response;
   try {
@@ -102,20 +112,26 @@ export async function walkRoutes(from: [number, number], to: [number, number]): 
   if (res.status === 401 || res.status === 403) throw new DirectionsError('unauthorized');
 
   const data = await res.json().catch(() => null) as
-    | { code?: string; routes?: Array<{ distance: number; duration: number; geometry: { coordinates: [number, number][] } }> }
+    | {
+        code?: string;
+        routes?: Array<{ distance: number; duration: number; geometry: { coordinates: [number, number][] } }>;
+        waypoints?: Array<{ location: [number, number] }>;
+      }
     | null;
   if (!data) throw new DirectionsError('unavailable');
   if (data.code === 'NoRoute' || data.code === 'NoSegment') throw new DirectionsError('no-route');
   if (data.code !== 'Ok' || !data.routes?.length) throw new DirectionsError('unavailable');
 
-  return data.routes
-    .map((r) => ({
+  const wps = data.waypoints ?? [];
+  return {
+    routes: data.routes.map((r) => ({
       coords: thinCoords(r.geometry.coordinates.map(([lon, lat]) => [lat, lon, 0] as Coordinate3D)),
       distanceKm: r.distance / 1000,
       durationSec: r.duration,
-    }))
-    .sort((a, b) => a.distanceKm - b.distanceKm)
-    .slice(0, 3);
+    })),
+    start: wps[0]?.location ?? null,
+    end: wps[wps.length - 1]?.location ?? null,
+  };
 }
 
 export function describeSearchOrDirectionsError(e: unknown): string {

@@ -5,7 +5,7 @@ import type { TrailKind } from "../hooks/useTrailData";
 import { tourSpeedsFor } from "../hooks/useTour";
 import {
   Home, Settings, UserCircle2, BookmarkPlus, Check, Share2, Headphones, HeadphoneOff,
-  ListMusic, Layers, Maximize2, LocateFixed, Footprints, Play, Square, Eye, MoreHorizontal, X, Tag, Ruler,
+  ListMusic, Layers, Maximize2, LocateFixed, Play, Square, Eye, MoreHorizontal, X, Tag, Ruler,
 } from "lucide-react";
 
 interface ControlsProps {
@@ -22,8 +22,6 @@ interface ControlsProps {
   onMeasure?: () => void;
   isMeasuring?: boolean;
   map?: mapboxgl.Map | null;
-  isFieldMode?: boolean;
-  onToggleFieldMode?: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onCompass: () => void;
@@ -116,7 +114,7 @@ function RailBtn({
 export default function Controls(props: ControlsProps) {
   const {
     onStyleChange, onToggle3D, is3D,
-    onLocateUser, isFieldMode, onToggleFieldMode, onZoomIn, onZoomOut, onCompass, mapBearing,
+    onLocateUser, onZoomIn, onZoomOut, onCompass, mapBearing,
     onFitToTrail, hasTrail, onHome, onOpenSettings, authAvailable, isSignedIn,
     onAuthClick, onSaveTrail, saveTrailState, canShare, onShare, isGuideEnabled, onToggleGuide,
     onOpenGuidePoints, guidePointCount, onHideUI, showWorldTrails, onToggleWorldTrails,
@@ -225,20 +223,6 @@ export default function Controls(props: ControlsProps) {
             <RailBtn label="כל המסלול" labelsOn={labelsOn} onClick={onFitToTrail} className="text-amber-400" title="מרכוז התצוגה על כל המסלול">
               <Maximize2 className="w-[18px] h-[18px]" />
             </RailBtn>
-            {onToggleFieldMode && (
-              <RailBtn
-                label="מצב שטח"
-                labelsOn={labelsOn}
-                onClick={onToggleFieldMode}
-                className={`border-t border-white/10 ${isFieldMode ? 'bg-sky-500 text-white' : 'text-sky-400'}`}
-                title={isFieldMode
-                  ? 'מצב שטח פעיל — מעקב GPS רציף. אם המדריכה מופעלת, היא תקריין כשמגיעים לנקודה'
-                  : 'מצב שטח — לטיול אמיתי ברגליים: מעקב GPS רציף. המדריכה מקריינת רק אם הפעלת אותה'}
-                ariaPressed={isFieldMode}
-              >
-                <Footprints className="w-[18px] h-[18px]" />
-              </RailBtn>
-            )}
             {onToggleGuide && (
               <RailBtn
                 label={isGuideEnabled ? 'מדריכה פעילה' : 'מדריכה כבויה'}

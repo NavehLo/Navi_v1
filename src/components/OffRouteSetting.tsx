@@ -16,14 +16,14 @@ export default function OffRouteSetting() {
           <BellRing size={15} className="text-red-400" /> התראה על סטייה מהמסלול
         </div>
         <button
-          onClick={() => { primeAlarm(); soundAlarm(); }}
-          className="text-[11px] text-zinc-400 hover:text-white underline underline-offset-2"
+          onClick={() => { primeAlarm(); soundAlarm({ once: true }); }}
+          className="text-xs text-white hover:text-orange-300 underline underline-offset-2"
         >
           השמע דוגמה
         </button>
       </div>
-      <p className="text-[11px] text-zinc-400 leading-relaxed mb-2">
-        צליל חזק ורטט כשמתרחקים מהמסלול, פעם אחת — ושוב רק אחרי שחוזרים אליו. פועל כשהמיקום החי או מצב שטח דולקים.
+      <p className="text-xs text-white leading-relaxed mb-2">
+        צליל חזק ורטט כשמתרחקים מהמסלול, עד שלוחצים ״השתק״. פעם אחת בלבד — ושוב רק אחרי שחוזרים לתוואי. פועל כשהמיקום החי דולק.
       </p>
       <div className="grid grid-cols-4 gap-1.5">
         {OFF_ROUTE_OPTIONS.map((m) => (

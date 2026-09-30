@@ -1,49 +1,63 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { MapPin, X, Loader2, Navigation, RotateCcw, Ruler, TrendingUp, TrendingDown, Footprints } from 'lucide-react';
+import {
+  MapPin, X, Loader2, Navigation, RotateCcw, Ruler, Undo2, Check, Plus,
+} from 'lucide-react';
 import type { TrailData } from '../hooks/useTrailData';
 import {
-  snapToTrail, sliceTrail, computeElevationGain, type Coordinate3D, type TrailSnap,
+  snapToTrail, sliceTrail, computeElevationGain, type Coordinate3D,
 } from '../utils/trailUtils';
-import { walkRoutes, describeSearchOrDirectionsError, type WalkRoute } from '../lib/mapboxDirections';
+import { describeSearchOrDirectionsError, type WalkRoute } from '../lib/mapboxDirections';
+import { findWalkRoutes } from '../lib/walkAlternatives';
 import { withElevation } from '../lib/demElevation';
+import { snapToRenderedPath } from '../lib/pathSnap';
 import { formatDuration } from './DrivePlanner';
 
-// Measuring a distance by walking, never as the crow flies.
+// Measuring a distance by walking, never as the crow flies — across as many
+// points as the walk needs, with every leg and the whole shown separately.
 //
-// With a trail open, both points are on the trail: the floating pin snaps to
-// the nearest spot on the line as the map moves under it, and the distance is
-// the length of trail between the two — the walk, not the gap.
+// With a trail open, every point is on the trail: the floating pin snaps to
+// the nearest spot on the line as the map moves under it, and each leg is the
+// length of trail between two points.
 //
-// With no trail, the two points can be anywhere, and the answer is the walking
-// routes between them: up to three, shortest first, along paths and streets
-// that can be walked.
+// With no trail, the points can be anywhere. The pin snaps to the nearest
+// path or road the map is drawing, and each leg is a walking route — up to
+// three of them where there is more than one way round, shortest first, one of
+// which is chosen for the total.
 //
-// Either way, the result can be walked for real: "התחל ניווט" opens it as a
-// trail of its own, with the elevation profile, distance left and the
-// off-route alarm, and switches on field mode.
+// Either way the result can be walked for real: "התחל ניווט" opens it as a
+// trail of its own, with the elevation profile, the distance left and the
+// off-route alarm, and switches on the live location.
 //
-// The pin is the same crosshair as the drive planner: fixed to the middle of
-// the screen, with the map moving under it. Tapping to drop a marker fights
-// with panning and rotating on a phone; this does not.
+// The pin is a crosshair fixed to the middle of the screen, with the map
+// moving under it; tapping to drop a marker fights with panning on a phone.
+// The point taken is the ground under that exact pixel. (Not map.getCenter():
+// on a tilted 3D map that is a different place from the one under the pin,
+// which is how points used to land beside it.)
 
-type Step = 'A' | 'B' | 'done';
 interface PickedPoint { lat: number; lon: number; km: number | null }
 interface ScoredRoute extends WalkRoute { gain: number | null; loss: number | null }
+interface FreeLeg { status: 'loading' | 'ok' | 'error'; routes: ScoredRoute[]; selected: number; error?: string }
+interface LegSummary { km: number; gain: number | null; loss: number | null; durationSec: number | null; coords: Coordinate3D[] }
 
 const LINE_SRC = 'measure-lines';
 const PT_SRC = 'measure-points';
 const LAYERS = ['measure-line-casing', 'measure-line', 'measure-pt', 'measure-pt-label'];
 const ROUTE_COLORS = ['#facc15', '#a78bfa', '#34d399'];
+const LETTERS = 'אבגדהוזחטיכלמנסעפצקרשת';
+
+const letter = (i: number) => LETTERS[i] ?? String(i + 1);
 
 function fmtKm(km: number): string {
   return km < 1 ? `${Math.round(km * 1000)} מ׳` : `${km.toFixed(km < 10 ? 2 : 1)} ק״מ`;
 }
 
 function climbOf(coords: Coordinate3D[]): { gain: number; loss: number } | null {
-  const eles = coords.map((c) => c[2] || 0);
-  if (Math.max(...eles) - Math.min(...eles) < 1) return null;
-  return computeElevationGain(eles);
+  if (coords.length < 2) return null;
+  let lo = Infinity, hi = -Infinity;
+  for (const c of coords) { lo = Math.min(lo, c[2] || 0); hi = Math.max(hi, c[2] || 0); }
+  if (hi - lo < 1) return null;
+  return computeElevationGain(coords.map((c) => c[2] || 0));
 }
 
 export default function MeasureTool({
@@ -56,106 +70,162 @@ export default function MeasureTool({
   onNavigate: (coords: Coordinate3D[], name: string) => void;
 }) {
   const onTrail = !!trail;
-  const [step, setStep] = useState<Step>('A');
-  const [a, setA] = useState<PickedPoint | null>(null);
-  const [b, setB] = useState<PickedPoint | null>(null);
-  const [liveSnap, setLive] = useState<TrailSnap | null>(null);
-  const [routes, setRoutes] = useState<ScoredRoute[] | null>(null);
-  const [selected, setSelected] = useState(0);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [points, setPoints] = useState<PickedPoint[]>([]);
+  const [picking, setPicking] = useState(true);
+  const [legs, setLegs] = useState<FreeLeg[]>([]);
+  const [liveSnap, setLive] = useState<PickedPoint | null>(null);
 
-  // ── Trail mode: the pin snaps to the trail as the map moves ──
+  // The ground under the pin, snapped to the trail or to a path, as the map
+  // moves. Recomputed at most once a frame.
   const lastKmRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!trail || step === 'done') return;
+    if (!picking) return;
     let frame = 0;
     const update = () => {
       frame = 0;
-      const c = map.getCenter();
-      const snap = snapToTrail(trail.coords, trail.accumulatedDistances, c.lat, c.lng, lastKmRef.current);
-      if (snap) lastKmRef.current = snap.km;
-      setLive(snap);
+      const el = map.getContainer();
+      const px = el.clientWidth / 2, py = el.clientHeight / 2;
+      if (trail) {
+        const c = map.unproject([px, py]);
+        const snap = snapToTrail(trail.coords, trail.accumulatedDistances, c.lat, c.lng, lastKmRef.current);
+        if (snap) lastKmRef.current = snap.km;
+        setLive(snap ? { lat: snap.lat, lon: snap.lon, km: snap.km } : null);
+      } else {
+        const p = snapToRenderedPath(map, px, py);
+        setLive(p ? { ...p, km: null } : null);
+      }
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
     schedule();
     map.on('move', schedule);
-    return () => { map.off('move', schedule); if (frame) cancelAnimationFrame(frame); };
-  }, [map, trail, step]);
-  const live = trail && step !== 'done' ? liveSnap : null;
+    map.on('idle', schedule); // paths finish drawing after the map stops
+    return () => { map.off('move', schedule); map.off('idle', schedule); if (frame) cancelAnimationFrame(frame); };
+  }, [map, trail, picking]);
+  const live = picking ? liveSnap : null;
 
-  // The measured stretch of trail, in walking order.
-  const segment = useMemo(() => {
-    if (!trail || !a || !b || a.km == null || b.km == null) return null;
-    const coords = sliceTrail(trail.coords, trail.accumulatedDistances, a.km, b.km);
-    return { coords, km: Math.abs(b.km - a.km), climb: climbOf(coords) };
-  }, [trail, a, b]);
-
-  const pick = useCallback(async () => {
-    setError(null);
-    const c = map.getCenter();
-    const point: PickedPoint = trail && live
-      ? { lat: live.lat, lon: live.lon, km: live.km }
-      : { lat: c.lat, lon: c.lng, km: null };
-
-    if (step === 'A') { setA(point); setStep('B'); return; }
-    if (step !== 'B' || !a) return;
-    setB(point);
-    setStep('done');
-    if (trail) return;
-
-    // No trail: ask for walking routes, then give each its elevation so the
-    // three can be compared on climb as well as length.
-    setBusy(true);
+  // ── Free mode: the walking routes of one leg ──
+  // A generation per leg, so a leg that was undone and picked again does not
+  // take the answer that was on its way for the old one.
+  const legGenRef = useRef<number[]>([]);
+  const routeLeg = useCallback(async (i: number, from: PickedPoint, to: PickedPoint) => {
+    const gen = (legGenRef.current[i] ?? 0) + 1;
+    legGenRef.current[i] = gen;
+    setLegs((ls) => { const n = ls.slice(0, i); n[i] = { status: 'loading', routes: [], selected: 0 }; return n; });
     try {
-      const found = await walkRoutes([a.lon, a.lat], [point.lon, point.lat]);
+      const found = await findWalkRoutes([from.lon, from.lat], [to.lon, to.lat]);
       // One elevation pass for all of them — they share most of their tiles.
-      const all = await withElevation(found.flatMap((r) => r.coords));
+      const all = await withElevation(found.routes.flatMap((r) => r.coords));
       let at = 0;
-      const scored = found.map((r) => {
+      const routes = found.routes.map((r) => {
         const coords = all.slice(at, at + r.coords.length);
         at += r.coords.length;
         const climb = climbOf(coords);
         return { ...r, coords, gain: climb?.gain ?? null, loss: climb?.loss ?? null };
       });
-      setRoutes(scored);
-      setSelected(0);
+      if (legGenRef.current[i] !== gen) return;
+      setLegs((ls) => { const n = ls.slice(); n[i] = { status: 'ok', routes, selected: 0 }; return n; });
+      // The walk really starts and ends on the way the router found: move
+      // the markers there. The new end is where the next leg starts from.
+      setPoints((ps) => ps.map((p, k) => {
+        if (k === i && i === 0 && found.start) return { ...p, lon: found.start[0], lat: found.start[1] };
+        if (k === i + 1 && found.end) return { ...p, lon: found.end[0], lat: found.end[1] };
+        return p;
+      }));
     } catch (e) {
-      setError(describeSearchOrDirectionsError(e));
-    } finally {
-      setBusy(false);
+      if (legGenRef.current[i] !== gen) return;
+      setLegs((ls) => { const n = ls.slice(); n[i] = { status: 'error', routes: [], selected: 0, error: describeSearchOrDirectionsError(e) }; return n; });
     }
-  }, [map, trail, live, step, a]);
+  }, []);
+
+  const addPoint = () => {
+    const el = map.getContainer();
+    const c = map.unproject([el.clientWidth / 2, el.clientHeight / 2]);
+    const point: PickedPoint = live ?? { lat: c.lat, lon: c.lng, km: null };
+    const prev = points[points.length - 1];
+    setPoints([...points, point]);
+    if (!trail && prev) void routeLeg(points.length - 1, prev, point);
+  };
+
+  const undo = () => {
+    if (!points.length) return;
+    const n = points.length - 1;
+    setPoints(points.slice(0, n));
+    if (!trail && n >= 1) {
+      legGenRef.current[n - 1] = (legGenRef.current[n - 1] ?? 0) + 1; // drop anything in flight
+      setLegs(legs.slice(0, n - 1));
+    }
+    setPicking(true);
+  };
 
   const reset = () => {
-    setA(null); setB(null); setRoutes(null); setError(null); setSelected(0); setStep('A');
+    legGenRef.current = legGenRef.current.map((g) => g + 1);
+    setPoints([]); setLegs([]); setPicking(true);
   };
+
+  const selectRoute = useCallback((leg: number, idx: number) =>
+    setLegs((ls) => ls.map((l, i) => (i === leg ? { ...l, selected: idx } : l))), []);
+
+  // ── Every leg as a number ──
+  const summaries: (LegSummary | null)[] = useMemo(() => {
+    const out: (LegSummary | null)[] = [];
+    for (let i = 0; i < points.length - 1; i++) {
+      if (trail) {
+        const a = points[i].km, b = points[i + 1].km;
+        if (a == null || b == null) { out.push(null); continue; }
+        const coords = sliceTrail(trail.coords, trail.accumulatedDistances, a, b);
+        const climb = climbOf(coords);
+        out.push({ km: Math.abs(b - a), gain: climb?.gain ?? null, loss: climb?.loss ?? null, durationSec: null, coords });
+      } else {
+        const leg = legs[i];
+        const r = leg?.status === 'ok' ? leg.routes[leg.selected] : null;
+        out.push(r ? { km: r.distanceKm, gain: r.gain, loss: r.loss, durationSec: r.durationSec, coords: r.coords } : null);
+      }
+    }
+    return out;
+  }, [points, legs, trail]);
+
+  const complete = summaries.length > 0 && summaries.every(Boolean);
+  const total = useMemo(() => {
+    if (!complete) return null;
+    const s = summaries as LegSummary[];
+    const coords: Coordinate3D[] = [];
+    s.forEach((l, i) => coords.push(...(i === 0 ? l.coords : l.coords.slice(1))));
+    const hasClimb = s.some((l) => l.gain != null);
+    return {
+      km: s.reduce((a, l) => a + l.km, 0),
+      gain: hasClimb ? s.reduce((a, l) => a + (l.gain ?? 0), 0) : null,
+      loss: hasClimb ? s.reduce((a, l) => a + (l.loss ?? 0), 0) : null,
+      durationSec: trail ? null : s.reduce((a, l) => a + (l.durationSec ?? 0), 0),
+      coords,
+    };
+  }, [complete, summaries, trail]);
 
   // ── What is drawn on the map ──
   const drawn = useMemo(() => {
     const lines: GeoJSON.Feature<GeoJSON.LineString>[] = [];
-    if (segment) {
-      lines.push({ type: 'Feature', properties: { idx: 0, color: ROUTE_COLORS[0], sel: 1 }, geometry: { type: 'LineString', coordinates: segment.coords.map((c) => [c[1], c[0]]) } });
-    } else if (routes) {
-      // The selected route last, so it is drawn over the others where they share a path.
-      routes
-        .map((r, i) => ({ r, i }))
-        .sort((x, y) => (x.i === selected ? 1 : 0) - (y.i === selected ? 1 : 0))
-        .forEach(({ r, i }) => lines.push({
-          type: 'Feature',
-          properties: { idx: i, color: ROUTE_COLORS[i], sel: i === selected ? 1 : 0 },
-          geometry: { type: 'LineString', coordinates: r.coords.map((c) => [c[1], c[0]]) },
-        }));
+    const line = (coords: Coordinate3D[], props: Record<string, unknown>) =>
+      lines.push({ type: 'Feature', properties: props, geometry: { type: 'LineString', coordinates: coords.map((c) => [c[1], c[0]]) } });
+    if (trail) {
+      summaries.forEach((s, i) => s && line(s.coords, { leg: i, idx: 0, color: ROUTE_COLORS[0], sel: 1 }));
+    } else {
+      // Unchosen alternatives first, so the chosen routes are drawn on top.
+      legs.forEach((l, i) => l.routes.forEach((r, k) => {
+        if (k !== l.selected) line(r.coords, { leg: i, idx: k, color: ROUTE_COLORS[k], sel: 0 });
+      }));
+      legs.forEach((l, i) => {
+        const r = l.routes[l.selected];
+        if (r) line(r.coords, { leg: i, idx: l.selected, color: ROUTE_COLORS[l.selected], sel: 1 });
+      });
     }
-    const pts: GeoJSON.Feature<GeoJSON.Point>[] = [];
-    if (a) pts.push({ type: 'Feature', properties: { label: 'א', role: 'end' }, geometry: { type: 'Point', coordinates: [a.lon, a.lat] } });
-    if (b) pts.push({ type: 'Feature', properties: { label: 'ב', role: 'end' }, geometry: { type: 'Point', coordinates: [b.lon, b.lat] } });
-    if (live && step !== 'done') pts.push({ type: 'Feature', properties: { label: '', role: 'live' }, geometry: { type: 'Point', coordinates: [live.lon, live.lat] } });
+    const pts: GeoJSON.Feature<GeoJSON.Point>[] = points.map((p, i) => ({
+      type: 'Feature', properties: { label: letter(i), role: 'end' }, geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+    }));
+    if (live) pts.push({ type: 'Feature', properties: { label: '', role: 'live' }, geometry: { type: 'Point', coordinates: [live.lon, live.lat] } });
     return {
       lines: { type: 'FeatureCollection', features: lines } as GeoJSON.FeatureCollection,
       pts: { type: 'FeatureCollection', features: pts } as GeoJSON.FeatureCollection,
     };
-  }, [segment, routes, selected, a, b, live, step]);
+  }, [trail, summaries, legs, points, live]);
 
   useEffect(() => {
     const sync = () => {
@@ -173,7 +243,7 @@ export default function MeasureTool({
           paint: {
             'line-color': ['get', 'color'],
             'line-width': ['case', ['==', ['get', 'sel'], 1], 6, 3],
-            'line-opacity': ['case', ['==', ['get', 'sel'], 1], 1, 0.7],
+            'line-opacity': ['case', ['==', ['get', 'sel'], 1], 1, 0.75],
           },
         });
       } else {
@@ -222,33 +292,40 @@ export default function MeasureTool({
   // A route can be chosen by tapping its line, too.
   useEffect(() => {
     const onClick = (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) => {
-      const idx = e.features?.[0]?.properties?.idx;
-      if (typeof idx === 'number') setSelected(idx);
+      const p = e.features?.[0]?.properties;
+      if (typeof p?.leg === 'number' && typeof p?.idx === 'number') selectRoute(p.leg, p.idx);
     };
     map.on('click', 'measure-line', onClick);
     return () => { map.off('click', 'measure-line', onClick); };
-  }, [map]);
+  }, [map, selectRoute]);
 
-  // Frame the answer once it is in.
-  useEffect(() => {
-    const coords = segment?.coords ?? routes?.flatMap((r) => r.coords);
-    if (!coords || coords.length < 2) return;
+  // Done picking: frame the whole walk. Never while picking — that would move
+  // the map out from under the pin.
+  const finish = () => {
+    setPicking(false);
+    const coords = trail
+      ? summaries.flatMap((s) => s?.coords ?? [])
+      : legs.flatMap((l) => l.routes.flatMap((r) => r.coords));
+    const all = coords.length ? coords : points.map((p) => [p.lat, p.lon, 0] as Coordinate3D);
+    if (all.length < 2) return;
     const bounds = new mapboxgl.LngLatBounds();
-    coords.forEach((c) => bounds.extend([c[1], c[0]]));
-    map.fitBounds(bounds, { padding: { top: 80, bottom: 280, left: 60, right: 60 }, duration: 900, maxZoom: 16 });
-  }, [map, segment, routes]);
-
-  const startNavigation = () => {
-    if (segment && trail) {
-      onNavigate(segment.coords, `קטע מתוך ${trail.name} · ${fmtKm(segment.km)}`);
-    } else if (routes?.[selected]) {
-      onNavigate(routes[selected].coords, `הליכה · ${fmtKm(routes[selected].distanceKm)}`);
-    }
+    all.forEach((c) => bounds.extend([c[1], c[0]]));
+    map.fitBounds(bounds, { padding: { top: 80, bottom: 340, left: 60, right: 60 }, duration: 900, maxZoom: 16 });
   };
 
-  const picking = step !== 'done';
-  const liveKm = trail && a?.km != null && live ? Math.abs(live.km - a.km) : null;
-  const farFromTrail = !!live && live.offTrailKm > 0.5;
+  const startNavigation = () => {
+    if (!total) return;
+    onNavigate(total.coords, trail ? `קטע מתוך ${trail.name} · ${fmtKm(total.km)}` : `הליכה · ${fmtKm(total.km)}`);
+  };
+
+  const n = points.length;
+  const liveFromLast = trail && n > 0 && points[n - 1].km != null && live?.km != null ? Math.abs(live.km - points[n - 1].km!) : null;
+  const liveOffTrailFar = !!trail && !!live && (() => {
+    const el = map.getContainer();
+    const c = map.unproject([el.clientWidth / 2, el.clientHeight / 2]);
+    return c.distanceTo(new mapboxgl.LngLat(live.lon, live.lat)) > 500;
+  })();
+  const anyLoading = legs.some((l) => l.status === 'loading');
 
   return (
     <>
@@ -260,112 +337,145 @@ export default function MeasureTool({
         </div>
       )}
 
-      <div className="absolute bottom-3 inset-x-3 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-[400px] z-[50] bg-zinc-900/95 border border-white/10 rounded-3xl shadow-2xl backdrop-blur-md p-4 flex flex-col gap-3" dir="rtl">
-        <div className="flex items-center justify-between">
-          <div className="text-white font-bold text-sm flex items-center gap-2">
+      <div className="absolute bottom-3 inset-x-3 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-[420px] z-[50] bg-zinc-900/95 border border-white/15 rounded-3xl shadow-2xl backdrop-blur-md p-4 flex flex-col gap-3 text-white max-h-[55vh]" dir="rtl">
+        <div className="flex items-center justify-between shrink-0">
+          <div className="font-bold text-base flex items-center gap-2">
             <Ruler className="w-4 h-4 text-orange-400" />
             {onTrail ? 'מדידה לאורך המסלול' : 'מדידת מרחק הליכה'}
           </div>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white p-1" aria-label="סגור מדידה"><X size={18} /></button>
+          <button onClick={onClose} className="text-white hover:text-orange-300 p-1" aria-label="סגור מדידה"><X size={20} /></button>
         </div>
 
         {picking && (
-          <>
-            <p className="text-xs text-zinc-300 leading-relaxed">
-              הזז את המפה כך שהנעץ יעמוד על {step === 'A' ? <b className="text-white">נקודת ההתחלה</b> : <b className="text-white">נקודת הסיום</b>}
-              {onTrail && ' — הנקודה תוצמד לתוואי המסלול (העיגול הכתום).'}
+          <div className="flex flex-col gap-2 shrink-0">
+            <p className="text-sm leading-relaxed">
+              {n === 0
+                ? <>הזז את המפה כך שהנעץ יעמוד על <b>נקודת ההתחלה</b>.</>
+                : <>הזז את המפה אל <b>נקודה {letter(n)}׳</b>{n >= 2 && ', או לחץ ״סיום״'}.</>}
+              {' '}{onTrail
+                ? 'הנקודה נצמדת לתוואי המסלול (העיגול הכתום).'
+                : live ? 'הנקודה נצמדת לדרך הקרובה (העיגול הכתום).' : ''}
             </p>
-            {onTrail && live && (
-              <div className="text-[11px] text-zinc-400 flex justify-between">
+            {!onTrail && !live && (
+              <p className="text-sm text-amber-200">אין דרך מסומנת ליד הנעץ בזום הזה — הנקודה תוצמד לדרך הקרובה ביותר כשהמסלול יחושב.</p>
+            )}
+            {onTrail && live?.km != null && (
+              <div className="text-sm flex justify-between">
                 <span>{fmtKm(live.km)} מתחילת המסלול</span>
-                {liveKm != null && <span className="text-orange-300 font-bold">{fmtKm(liveKm)} מנקודה א׳</span>}
+                {liveFromLast != null && <span className="text-orange-300 font-bold">{fmtKm(liveFromLast)} מנקודה {letter(n - 1)}׳</span>}
               </div>
             )}
-            {onTrail && farFromTrail && (
-              <div className="text-[11px] text-amber-300">הנעץ רחוק מהמסלול — הנקודה תוצמד למקום הקרוב ביותר עליו.</div>
+            {liveOffTrailFar && (
+              <div className="text-sm text-amber-200">הנעץ רחוק מהמסלול — הנקודה תוצמד למקום הקרוב ביותר עליו.</div>
             )}
             <div className="flex gap-2">
               <button
-                onClick={pick}
+                onClick={addPoint}
                 className="flex-1 flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-400 text-white text-sm font-bold py-2.5 rounded-2xl transition-colors"
               >
-                <MapPin className="w-4 h-4" /> {step === 'A' ? 'קבע נקודה א׳' : 'קבע נקודה ב׳'}
+                {n === 0 ? <MapPin className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                {n === 0 ? 'קבע נקודה א׳' : `הוסף נקודה ${letter(n)}׳`}
               </button>
-              {step === 'B' && (
-                <button onClick={reset} className="px-3 bg-zinc-800 text-zinc-200 text-sm font-bold rounded-2xl border border-white/10" title="התחל מחדש">
-                  <RotateCcw className="w-4 h-4" />
+              {n >= 2 && (
+                <button onClick={finish} className="flex items-center gap-1.5 px-4 bg-white text-zinc-900 text-sm font-bold rounded-2xl">
+                  <Check className="w-4 h-4" /> סיום
+                </button>
+              )}
+              {n >= 1 && (
+                <button onClick={undo} className="px-3 bg-zinc-800 text-white text-sm font-bold rounded-2xl border border-white/15" title="בטל את הנקודה האחרונה" aria-label="בטל את הנקודה האחרונה">
+                  <Undo2 className="w-4 h-4" />
                 </button>
               )}
             </div>
-          </>
+          </div>
         )}
 
-        {step === 'done' && segment && (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-yellow-300">{fmtKm(segment.km)}</span>
-              <span className="text-xs text-zinc-400">לאורך המסלול</span>
-            </div>
-            {segment.climb && (
-              <div className="flex gap-4 text-xs font-bold">
-                <span className="text-emerald-400 flex items-center gap-1"><TrendingUp className="w-3.5 h-3.5" /> עלייה {segment.climb.gain} מ׳</span>
-                <span className="text-red-400 flex items-center gap-1"><TrendingDown className="w-3.5 h-3.5" /> ירידה {segment.climb.loss} מ׳</span>
+        {/* Every leg, then the whole */}
+        {n >= 2 && (
+          <div className="flex flex-col gap-2 overflow-y-auto overscroll-contain min-h-0">
+            {summaries.map((s, i) => {
+              const leg = legs[i];
+              return (
+                <div key={i} className="rounded-2xl bg-white/5 border border-white/10 px-3 py-2">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-sm font-bold">{letter(i)}׳ ← {letter(i + 1)}׳</span>
+                    {s ? (
+                      <span className="text-sm">
+                        <b className="text-yellow-300">{fmtKm(s.km)}</b>
+                        {s.durationSec != null && <> · {formatDuration(s.durationSec)}</>}
+                        {s.gain != null && <> · ↑{s.gain} ↓{s.loss} מ׳</>}
+                      </span>
+                    ) : leg?.status === 'loading' ? (
+                      <span className="text-sm flex items-center gap-1.5"><Loader2 className="w-4 h-4 animate-spin" /> מחפש דרכים…</span>
+                    ) : null}
+                  </div>
+                  {leg?.status === 'error' && <div className="text-sm text-amber-200 mt-1">{leg.error}</div>}
+                  {/* The ways round, when there is more than one */}
+                  {!onTrail && leg?.status === 'ok' && leg.routes.length > 1 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {leg.routes.map((r, k) => (
+                        <button
+                          key={k}
+                          onClick={() => selectRoute(i, k)}
+                          aria-pressed={leg.selected === k}
+                          className={`flex items-center gap-1.5 text-sm rounded-xl px-2.5 py-1 border transition-colors ${
+                            leg.selected === k ? 'bg-white/15 border-white' : 'bg-transparent border-white/20 hover:bg-white/10'
+                          }`}
+                        >
+                          <span className="w-2.5 h-2.5 rounded-full" style={{ background: ROUTE_COLORS[k] }} />
+                          {fmtKm(r.distanceKm)}
+                          {k === 0 && <span className="text-emerald-300 text-xs font-bold">הקצרה</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {!onTrail && leg?.status === 'ok' && leg.routes.length === 1 && (
+                    <div className="text-xs text-white mt-1">דרך אחת בלבד — לא נמצאה בין הנקודות האלה דרך הליכה שונה באמת.</div>
+                  )}
+                </div>
+              );
+            })}
+
+            {n >= 3 && total && (
+              <div className="rounded-2xl bg-yellow-300/10 border border-yellow-300/40 px-3 py-2 flex items-baseline justify-between gap-2">
+                <span className="text-sm font-bold">סה״כ</span>
+                <span className="text-sm">
+                  <b className="text-yellow-300 text-base">{fmtKm(total.km)}</b>
+                  {total.durationSec != null && <> · {formatDuration(total.durationSec)}</>}
+                  {total.gain != null && <> · ↑{total.gain} ↓{total.loss} מ׳</>}
+                </span>
               </div>
             )}
-          </div>
-        )}
 
-        {step === 'done' && !onTrail && busy && (
-          <div className="flex items-center gap-2 text-xs text-zinc-300"><Loader2 className="w-4 h-4 animate-spin" /> מחפש דרכי הליכה…</div>
-        )}
-
-        {step === 'done' && !onTrail && routes && (
-          <div className="flex flex-col gap-1.5">
-            {routes.map((r, i) => (
-              <button
-                key={i}
-                onClick={() => setSelected(i)}
-                aria-pressed={selected === i}
-                className={`flex items-center gap-3 text-right rounded-2xl px-3 py-2 border transition-colors ${
-                  selected === i ? 'bg-white/10 border-white/30' : 'bg-white/5 border-transparent hover:bg-white/10'
-                }`}
-              >
-                <span className="w-3 h-3 rounded-full shrink-0" style={{ background: ROUTE_COLORS[i] }} />
-                <span className="flex-1 min-w-0">
-                  <span className="text-sm font-bold text-white">{fmtKm(r.distanceKm)}</span>
-                  <span className="text-[11px] text-zinc-400 mr-2">
-                    <Footprints className="inline w-3 h-3 ml-0.5" />{formatDuration(r.durationSec)}
-                    {r.gain != null && <> · ↑{r.gain} ↓{r.loss} מ׳</>}
-                  </span>
-                </span>
-                {i === 0 && <span className="text-[10px] text-emerald-400 font-bold shrink-0">הקצרה</span>}
-              </button>
-            ))}
-            {routes.length < 3 && (
-              <p className="text-[10px] text-zinc-500">
-                {routes.length === 1 ? 'נמצאה דרך אחת בלבד' : `נמצאו ${routes.length} דרכים`} — אין בין הנקודות האלה דרכי הליכה שונות נוספות.
+            {!onTrail && (
+              <p className="text-xs text-white leading-relaxed">
+                דרכי הליכה לפי Mapbox: שבילים, דרכי עפר ורחובות. הזמן הוא הערכה להליכה במישור. אפשר לבחור דרך גם בלחיצה על הקו במפה.
               </p>
             )}
-            <p className="text-[10px] text-zinc-500">דרכי הליכה לפי Mapbox (שבילים, דרכי עפר ורחובות). הזמן הוא הערכה להליכה במישור.</p>
+            {total?.gain == null && complete && onTrail && (
+              <p className="text-xs text-white">לקובץ המסלול אין נתוני גובה, לכן אין עלייה וירידה.</p>
+            )}
           </div>
         )}
 
-        {error && (
-          <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">{error}</div>
-        )}
-
-        {step === 'done' && !busy && (
-          <div className="flex gap-2">
-            {(segment || routes?.length) ? (
+        {!picking && (
+          <div className="flex gap-2 shrink-0">
+            {total && (
               <button
                 onClick={startNavigation}
                 className="flex-1 flex items-center justify-center gap-2 bg-sky-500 hover:bg-sky-400 text-white text-sm font-bold py-2.5 rounded-2xl transition-colors"
               >
                 <Navigation className="w-4 h-4" /> התחל ניווט
               </button>
-            ) : null}
-            <button onClick={reset} className="flex items-center justify-center gap-1.5 px-4 bg-zinc-800 text-zinc-200 text-sm font-bold py-2.5 rounded-2xl border border-white/10">
-              <RotateCcw className="w-4 h-4" /> מדידה חדשה
+            )}
+            {!total && anyLoading && (
+              <div className="flex-1 flex items-center justify-center gap-2 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> מחשב…</div>
+            )}
+            <button onClick={() => setPicking(true)} className="flex items-center justify-center gap-1.5 px-3 bg-zinc-800 text-white text-sm font-bold py-2.5 rounded-2xl border border-white/15">
+              <Plus className="w-4 h-4" /> נקודות
+            </button>
+            <button onClick={reset} className="flex items-center justify-center gap-1.5 px-3 bg-zinc-800 text-white text-sm font-bold py-2.5 rounded-2xl border border-white/15">
+              <RotateCcw className="w-4 h-4" /> חדשה
             </button>
           </div>
         )}

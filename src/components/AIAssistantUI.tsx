@@ -1,5 +1,5 @@
 import { Volume2, Loader2, StopCircle, X, Smartphone, ChevronUp, ChevronDown, Minus, MessageSquareText, Headphones, HeadphoneOff } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type PlayingVoice } from "../hooks/useAIGuide";
 import { voiceNameFor } from "../lib/voicePrefs";
 
@@ -63,18 +63,9 @@ export default function AIAssistantUI({
   const voiceName = voiceNameFor(voice?.voiceId);
 
   if (!isLoading && !currentScript) {
-    if (!hasPoints) {
-      return (
-        <div
-          className="pointer-events-auto bg-zinc-900/90 text-zinc-400 shadow-xl rounded-full px-3.5 py-2 flex items-center gap-1.5 backdrop-blur-md border border-white/10"
-          dir="rtl"
-          title="לא נמצאו במסלול הזה נקודות שיש עליהן מידע ייחודי"
-        >
-          <HeadphoneOff className="w-4 h-4" />
-          <span className="text-xs font-bold">אין נקודות למדריכה במסלול</span>
-        </div>
-      );
-    }
+    // Nothing to narrate: said by a small icon beside the tour button (see
+    // NoGuidePointsHint) rather than a pill here, which sat on the trail card.
+    if (!hasPoints) return null;
     return guideEnabled ? (
       <button
         onClick={onToggleGuide}
@@ -188,6 +179,37 @@ export default function AIAssistantUI({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// "No guide points on this trail", as an icon the size of a button. Tapped, it
+// says so in a bubble that goes away by itself — the full-width pill that used
+// to say it permanently sat on top of the trail card.
+export function NoGuidePointsHint() {
+  const [open, setOpen] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  const show = () => {
+    setOpen(true);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setOpen(false), 3500);
+  };
+  return (
+    <div className="pointer-events-auto relative" dir="rtl">
+      <button
+        onClick={show}
+        aria-label="אין נקודות למדריכה במסלול"
+        title="אין נקודות למדריכה במסלול"
+        className="w-10 h-10 flex items-center justify-center bg-zinc-900/90 text-zinc-300 rounded-full border border-white/10 backdrop-blur-md shadow-xl"
+      >
+        <HeadphoneOff className="w-4 h-4" />
+      </button>
+      {open && (
+        <div role="tooltip" className="absolute bottom-full mb-2 right-0 w-56 bg-zinc-900 text-white text-xs leading-relaxed rounded-xl border border-white/15 shadow-2xl px-3 py-2">
+          אין נקודות למדריכה במסלול — לא נמצאו בו מקומות שיש עליהם מידע ייחודי.
+        </div>
+      )}
     </div>
   );
 }
