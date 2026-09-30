@@ -1,0 +1,20 @@
+{
+  "name": "navi-android",
+  "private": true,
+  "description": "The Android shell around https://navi-v1.vercel.app — adds GPS and alarms that keep working with the screen off.",
+  "scripts": {
+    "sync": "cap sync android",
+    "build:apk": "cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor-community/background-geolocation": "^1.2.26",
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/browser": "^8.0.4",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/local-notifications": "^8.3.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2"
+  }
+}

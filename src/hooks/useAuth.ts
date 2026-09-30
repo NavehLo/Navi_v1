@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from 'react';
+import { isNativeApp, NATIVE_AUTH_REDIRECT, openInSystemBrowser, onNativeAuthRedirect } from '../lib/native';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 
@@ -83,8 +84,28 @@ export function useAuth() {
     };
   }, []);
 
+  // The app's sign-in comes back as a link into the app (see lib/native.ts):
+  // a code to exchange, or the tokens themselves after the "#".
+  useEffect(() => onNativeAuthRedirect(async (url) => {
+    const client = supabase;
+    if (!client) return;
+    const code = url.searchParams.get('code');
+    const hash = new URLSearchParams(url.hash.replace(/^#/, ''));
+    const access_token = hash.get('access_token'), refresh_token = hash.get('refresh_token');
+    if (code) await client.auth.exchangeCodeForSession(code);
+    else if (access_token && refresh_token) await client.auth.setSession({ access_token, refresh_token });
+  }), []);
+
   const signInWithGoogle = useCallback(async () => {
     if (!supabase) return;
+    if (isNativeApp()) {
+      const { data } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: NATIVE_AUTH_REDIRECT, skipBrowserRedirect: true },
+      });
+      if (data?.url) await openInSystemBrowser(data.url);
+      return;
+    }
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: window.location.origin },

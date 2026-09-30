@@ -1,0 +1,18 @@
+{
+  "appId": "app.navi.trails",
+  "appName": "Navi",
+  "webDir": "www",
+  "server": {
+    "url": "https://navi-v1.vercel.app",
+    "cleartext": false,
+    "androidScheme": "https"
+  },
+  "android": {
+    "useLegacyBridge": true
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "iconColor": "#f97316"
+    }
+  }
+}

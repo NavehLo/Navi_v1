@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   readOffRouteThreshold, subscribeOffRouteThreshold, serverOffRouteThreshold, soundAlarm, stopAlarm,
 } from '../lib/offRouteAlert';
+import { onNativeAlarmTapped } from '../lib/native';
 
 // Sounds the alarm once when the walker strays past the set distance from the
 // route, and not again until they have come back to it.
@@ -29,6 +30,8 @@ export function useOffRouteAlert(
   // A threshold switched off mid-alarm, or the page going away, ends the sound.
   useEffect(() => { if (!threshold) stopAlarm(); }, [threshold]);
   useEffect(() => () => stopAlarm(), []);
+  // In the Android app, tapping the alarm notification silences it too.
+  useEffect(() => onNativeAlarmTapped(() => { stopAlarm(); setSilenced(true); }), []);
 
   // Reacting to each GPS fix is exactly what this effect is for: the alarm is
   // a sound and a vibration, not something a render can produce.
@@ -46,7 +49,7 @@ export function useOffRouteAlert(
       armedRef.current = false;
       setFiredFor(resetKey);
       setSilenced(false);
-      soundAlarm();
+      soundAlarm({ message: `${Math.round(offTrailM)} מ׳ מהתוואי — חזרו למסלול` });
     }
   }, [offTrailM, accuracyM, threshold, resetKey]);
 

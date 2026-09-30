@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Navi</string>
+    <string name="title_activity_main">Navi</string>
+    <string name="package_name">app.navi.trails</string>
+    <string name="custom_url_scheme">app.navi.trails</string>
+    <!-- The persistent notification shown while the walk is being followed with the screen off -->
+    <string name="capacitor_background_geolocation_notification_channel_name">מעקב אחרי המסלול</string>
+</resources>

@@ -26,6 +26,7 @@ import { usePOIGeofence } from "@/hooks/usePOIGeofence";
 import { pointAtDistance, snapToTrail, coordsToGpx, parseGPX, type Coordinate3D } from "@/utils/trailUtils";
 import { useOffRouteAlert } from "@/hooks/useOffRouteAlert";
 import { primeAlarm } from "@/lib/offRouteAlert";
+import { isNativeApp, watchNativePosition, openAppSettings } from "@/lib/native";
 import { useTrailPOIs } from "@/hooks/useTrailPOIs";
 import { useAuth } from "@/hooks/useAuth";
 import { useOfflineTrail } from "@/hooks/useOfflineTrail";
@@ -545,12 +546,31 @@ export default function TrailApp() {
     setIsTracking(true);
   }, [map, isTracking, gpsPos]);
 
-  // Continuous GPS tracking via watchPosition, for as long as the live
-  // location is on.
+  // Continuous GPS tracking, for as long as the live location is on. In the
+  // Android app it comes from the app itself and keeps coming with the screen
+  // off; in a browser, from watchPosition, which stops when the screen does.
   useEffect(() => {
     if (!isTracking) {
       setGpsPos(null);
       return;
+    }
+    const onFix = (longitude: number, latitude: number, accuracy: number | null) => {
+      setGpsPos({ lat: latitude, lon: longitude, accuracy });
+      updateUserLocLayer(longitude, latitude);
+      if (centerOnNextFixRef.current && map) {
+        centerOnNextFixRef.current = false;
+        map.easeTo({ center: [longitude, latitude], zoom: Math.max(map.getZoom(), 15), duration: 1500 });
+      }
+    };
+    if (isNativeApp()) {
+      return watchNativePosition(
+        (fix) => onFix(fix.lon, fix.lat, fix.accuracy),
+        (message, needsSettings) => {
+          setIsTracking(false);
+          if (needsSettings && window.confirm(`${message}\nלפתוח את הגדרות האפליקציה כדי לאשר מיקום?`)) openAppSettings();
+          else if (!needsSettings) alert('שגיאה באיתור מיקום: ' + message);
+        }
+      );
     }
     if (!navigator.geolocation) {
       alert("הדפדפן שלך לא תומך באיתור מיקום");
@@ -560,12 +580,7 @@ export default function TrailApp() {
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         const { longitude, latitude, accuracy } = pos.coords;
-        setGpsPos({ lat: latitude, lon: longitude, accuracy: Number.isFinite(accuracy) ? accuracy : null });
-        updateUserLocLayer(longitude, latitude);
-        if (centerOnNextFixRef.current && map) {
-          centerOnNextFixRef.current = false;
-          map.easeTo({ center: [longitude, latitude], zoom: Math.max(map.getZoom(), 15), duration: 1500 });
-        }
+        onFix(longitude, latitude, Number.isFinite(accuracy) ? accuracy : null);
       },
       (err) => {
         alert("שגיאה באיתור מיקום: " + err.message);
@@ -1154,6 +1169,7 @@ export default function TrailApp() {
         onTourSpeedChange={setTourSpeed}
         onLocateUser={handleLocateUser}
         isTracking={isTracking}
+        onStopTracking={() => setIsTracking(false)}
         onMeasure={handleToggleMeasure}
         isMeasuring={isMeasuring}
         map={map}

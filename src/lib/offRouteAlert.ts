@@ -33,6 +33,8 @@ export function subscribeOffRouteThreshold(l: () => void) {
 
 export const serverOffRouteThreshold = () => DEFAULT_THRESHOLD;
 
+import { isNativeApp, prepareNativeAlarm, showNativeAlarm, clearNativeAlarm } from './native';
+
 // ── The sound ────────────────────────────────────────────────────────────────
 // Synthesised rather than a file, so it needs no download and works offline.
 // A square wave at full volume, alternating two pitches like a siren — it has
@@ -56,6 +58,7 @@ let stopTimer: ReturnType<typeof setTimeout> | null = null;
 let current: { osc: OscillatorNode; gain: GainNode } | null = null;
 
 export function primeAlarm() {
+  prepareNativeAlarm();
   try {
     if (!ctx) ctx = new AudioContext();
     if (ctx.state === 'suspended') void ctx.resume();
@@ -64,7 +67,12 @@ export function primeAlarm() {
   }
 }
 
+let nativeMessage = 'חזרו לתוואי המסלול';
+
 function burst() {
+  // In the Android app the alarm is a notification with the siren as its
+  // sound: it plays on the lock screen, where page audio does not.
+  if (isNativeApp()) { void showNativeAlarm(nativeMessage); return; }
   try { navigator.vibrate?.([400, 150, 400, 150, 800]); } catch {}
   if (!ctx) primeAlarm();
   if (!ctx) return;
@@ -90,11 +98,13 @@ function burst() {
 
 // Starts the alarm; repeats until stopAlarm(). `once` plays a single burst
 // (the "play a sample" button in the settings).
-export function soundAlarm({ once = false }: { once?: boolean } = {}) {
+export function soundAlarm({ once = false, message }: { once?: boolean; message?: string } = {}) {
   stopAlarm();
+  if (message) nativeMessage = message;
   burst();
   if (once) return;
-  repeatTimer = setInterval(burst, BURST_MS + GAP_MS);
+  // The notification's siren runs six seconds; the page's burst 2.4.
+  repeatTimer = setInterval(burst, isNativeApp() ? 7000 : BURST_MS + GAP_MS);
   stopTimer = setTimeout(stopAlarm, ALARM_MAX_MS);
 }
 
@@ -106,6 +116,7 @@ export function stopAlarm() {
     current = null;
   }
   try { navigator.vibrate?.(0); } catch {}
+  clearNativeAlarm();
 }
 
 export function isAlarmSounding() {

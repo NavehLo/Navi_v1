@@ -5,7 +5,7 @@ import type { TrailKind } from "../hooks/useTrailData";
 import { tourSpeedsFor } from "../hooks/useTour";
 import {
   Home, Settings, UserCircle2, BookmarkPlus, Check, Share2, Headphones, HeadphoneOff,
-  ListMusic, Layers, Maximize2, LocateFixed, Play, Square, Eye, MoreHorizontal, X, Tag, Ruler,
+  ListMusic, Layers, LocateOff, Maximize2, LocateFixed, Play, Square, Eye, MoreHorizontal, X, Tag, Ruler,
 } from "lucide-react";
 
 interface ControlsProps {
@@ -19,6 +19,7 @@ interface ControlsProps {
   onLocateUser: () => void;
   // The live location is on: the dot follows the phone, and a tap recentres.
   isTracking?: boolean;
+  onStopTracking?: () => void;
   onMeasure?: () => void;
   isMeasuring?: boolean;
   map?: mapboxgl.Map | null;
@@ -118,7 +119,7 @@ export default function Controls(props: ControlsProps) {
     onFitToTrail, hasTrail, onHome, onOpenSettings, authAvailable, isSignedIn,
     onAuthClick, onSaveTrail, saveTrailState, canShare, onShare, isGuideEnabled, onToggleGuide,
     onOpenGuidePoints, guidePointCount, onHideUI, showWorldTrails, onToggleWorldTrails,
-    offlineStyleKey, isTracking, onMeasure, isMeasuring, map,
+    offlineStyleKey, isTracking, onStopTracking, onMeasure, isMeasuring, map,
   } = props;
 
   const [showLayers, setShowLayers] = useState(false);
@@ -322,6 +323,11 @@ export default function Controls(props: ControlsProps) {
               <button onClick={() => setShowMore(false)} className="text-zinc-500 hover:text-white p-1"><X size={18} /></button>
             </div>
 
+            {isTracking && onStopTracking && (
+              <button onClick={() => { setShowMore(false); onStopTracking(); }} className="flex items-center gap-2.5 text-sm text-sky-300 font-bold p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
+                <LocateOff size={16} /> כבה מיקום חי
+              </button>
+            )}
             {onOpenSettings && (
               <button onClick={() => { setShowMore(false); onOpenSettings(); }} className="flex items-center gap-2.5 text-sm text-zinc-200 font-bold p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
                 <Settings size={16} /> הגדרות
