@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { isAdminRequest } from '../../../../lib/supabaseServer';
 import { rateLimit, clientIp } from '../../../../lib/rateLimit';
 import { classifyElevenLabsError } from '../../../../lib/elevenlabsErrors';
+import { isVoiceUnusable } from '../../../../lib/elevenlabs';
 
 // Lists the voices this ElevenLabs account can actually use.
 //
@@ -21,12 +22,24 @@ export interface VoiceChoice {
   category: string | null; // premade | cloned | professional | generated
   labels: Record<string, string>;
   previewUrl: string | null;
+  // This account was actually refused this voice — not a guess from its
+  // category, but a 402 the server has already received for it. The picker
+  // can then say so instead of offering a voice that will be silently
+  // replaced by the fallback.
+  refused?: boolean;
 }
 
 // The list changes rarely and the panel refetches on every open, so a short
 // process-memory cache keeps repeated opens off the API entirely.
 let cache: { at: number; voices: VoiceChoice[] } | null = null;
 const CACHE_MS = 5 * 60_000;
+
+// Refusals are read at response time rather than stored in the cache: the
+// list of voices changes rarely, but a voice becomes known-refused the moment
+// someone tries it.
+function withRefusals(voices: VoiceChoice[]): VoiceChoice[] {
+  return voices.map((v) => (isVoiceUnusable(v.id) ? { ...v, refused: true } : v));
+}
 
 export async function GET(request: Request) {
   // One of the admin's tuning tools (settings → מתקדם); see isAdminRequest.
@@ -45,7 +58,7 @@ export async function GET(request: Request) {
   }
 
   if (cache && Date.now() - cache.at < CACHE_MS) {
-    return NextResponse.json({ voices: cache.voices, cached: true });
+    return NextResponse.json({ voices: withRefusals(cache.voices), cached: true });
   }
 
   try {
@@ -78,7 +91,7 @@ export async function GET(request: Request) {
       }));
 
     cache = { at: Date.now(), voices };
-    return NextResponse.json({ voices, cached: false });
+    return NextResponse.json({ voices: withRefusals(voices), cached: false });
   } catch (error: any) {
     console.error('ElevenLabs voices failed:', error);
     return NextResponse.json({ error: error.message, voices: [] }, { status: 502 });

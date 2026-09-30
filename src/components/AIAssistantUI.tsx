@@ -1,4 +1,4 @@
-import { Volume2, Loader2, StopCircle, X, Smartphone, ChevronUp, ChevronDown, Minus, MessageSquareText, Headphones, HeadphoneOff, RotateCw, CloudOff } from "lucide-react";
+import { Volume2, Loader2, StopCircle, X, Smartphone, ChevronUp, ChevronDown, Minus, MessageSquareText, Headphones, HeadphoneOff, RotateCw, CloudOff, AlertTriangle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { type PlayingVoice } from "../hooks/useAIGuide";
 import { voiceNameFor } from "../lib/voicePrefs";
@@ -33,6 +33,10 @@ interface AIAssistantUIProps {
   // Played from the copy stored on the device rather than fetched. Worth saying
   // out loud: it is the one path where the audio predates the current settings.
   voiceFromDevice?: boolean;
+  // Why the guide is silent, or not in the voice that was chosen. Shown in
+  // place of the bare "browser voice" line, which said what was happening but
+  // never why — and read as a settings note when it was in fact a failure.
+  voiceNotice?: string | null;
 }
 
 // Lives inside the bottom stack, so it never sits on top of the tour controls
@@ -50,6 +54,7 @@ export default function AIAssistantUI({
   queueLength = 0,
   voice = null,
   voiceFromDevice = false,
+  voiceNotice = null,
 }: AIAssistantUIProps) {
   const [expanded, setExpanded] = useState(false);
   const [minimized, setMinimized] = useState(false);
@@ -164,18 +169,29 @@ export default function AIAssistantUI({
             is no way, from inside the app, to tell the voice you just chose from
             the one it replaced. */}
         {!isLoading && (
-          <div className="mt-1.5 pt-1.5 border-t border-white/10 flex items-center gap-1.5 text-[10px] text-zinc-500">
-            {voiceFromDevice && <Smartphone size={10} className="shrink-0" />}
+          <div className="mt-1.5 pt-1.5 border-t border-white/10 flex items-center gap-1.5 text-xs text-white/70">
+            {voiceFromDevice && <Smartphone size={12} className="shrink-0" />}
             {voice ? (
               <span className="truncate">
-                <span className="text-zinc-400">{voiceName ?? PROVIDER_LABEL[voice.provider] ?? voice.provider}</span>
+                <span className="text-white">{voiceName ?? PROVIDER_LABEL[voice.provider] ?? voice.provider}</span>
                 {voiceName && <span> · {PROVIDER_LABEL[voice.provider] ?? voice.provider}</span>}
                 {voiceFromDevice && <span> · מהמכשיר</span>}
               </span>
             ) : (
-              <span className="text-amber-400/90 truncate">קול הדפדפן — לא נוצר קול בשרת</span>
+              <span className="text-amber-300 truncate">קול הדפדפן — לא נוצר קול בשרת</span>
             )}
             {queueLength > 0 && <span className="shrink-0 mr-auto">· עוד {queueLength} בתור</span>}
+          </div>
+        )}
+
+        {/* The actual reason, when there is one. Without it the line above is
+            a description of a symptom: "browser voice" told the walker what
+            was happening but never that a voice had been refused, or that the
+            phone has no Hebrew voice to read with at all. */}
+        {!isLoading && voiceNotice && (
+          <div className="mt-1.5 flex items-start gap-1.5 rounded-lg bg-amber-500/15 border border-amber-400/30 px-2 py-1.5 text-xs text-amber-100 leading-relaxed">
+            <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+            <span>{voiceNotice}</span>
           </div>
         )}
       </div>

@@ -202,7 +202,7 @@ export default function TrailApp() {
     }
   }, [openDrive]);
   const { isActive: isTourActive, startTour, stopTour, speed: tourSpeed, setSpeed: setTourSpeed, progress, setProgressByJump } = useTour(map, trail);
-  const { requestGuideForPoint, unlockAudio, isSpeaking, isLoading, currentScript, stopSpeaking, queueLength, currentVoice, currentFromDevice } = useAIGuide();
+  const { requestGuideForPoint, unlockAudio, isSpeaking, isLoading, currentScript, stopSpeaking, queueLength, currentVoice, currentFromDevice, voiceNotice } = useAIGuide();
 
   // The guide is opt-in, every time. It starts off, and goes back to off when
   // a new trail is opened and when a virtual tour reaches its end — so a tour
@@ -1358,6 +1358,7 @@ export default function TrailApp() {
             queueLength={queueLength}
             voice={currentVoice}
             voiceFromDevice={currentFromDevice}
+            voiceNotice={voiceNotice}
           />}
           <div className="flex items-center gap-2">
           {!isDrive && !isLoading && !currentScript && enrichedPois.length === 0 && (

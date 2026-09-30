@@ -68,10 +68,47 @@ export function resolveVoiceSettings(override?: VoiceOverride | null): VoiceSett
 // so nothing else can be smuggled into the request path.
 const VOICE_ID_RE = /^[A-Za-z0-9]{16,40}$/;
 
-export function resolveVoiceId(override?: VoiceOverride | null): string {
+// A premade voice, which every plan may use through the API. Voices from the
+// Voice Library — the "professional" ones — are a paid feature: a free account
+// with characters to spare is still refused with 402 paid_plan_required, which
+// is exactly the state this fallback exists for. Overridable, because the best
+// answer for someone on a paid plan is their own voice.
+export const ELEVENLABS_FALLBACK_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL'; // Sarah, premade
+
+export function fallbackVoiceId(): string {
+  const configured = process.env.ELEVENLABS_FALLBACK_VOICE_ID?.trim();
+  return configured && VOICE_ID_RE.test(configured) ? configured : ELEVENLABS_FALLBACK_VOICE_ID;
+}
+
+// Voice ids this key turned out not to be allowed to use. Remembered for the
+// life of the process so the refusal is paid for once rather than on every
+// narration: after the first 402 the voice is resolved straight to the
+// fallback, which also keeps the audio cache key matching what is actually
+// rendered.
+const unusableVoices = new Set<string>();
+
+export function markVoiceUnusable(voiceId: string): void {
+  if (voiceId) unusableVoices.add(voiceId);
+}
+
+export function isVoiceUnusable(voiceId: string): boolean {
+  return unusableVoices.has(voiceId);
+}
+
+// The voice actually asked for, before the API has had its say.
+function requestedVoiceId(override?: VoiceOverride | null): string {
   const requested = override?.id?.trim();
   if (requested && VOICE_ID_RE.test(requested)) return requested;
   return process.env.ELEVENLABS_VOICE_ID || '';
+}
+
+export function resolveVoiceId(override?: VoiceOverride | null): string {
+  const requested = requestedVoiceId(override);
+  if (requested && unusableVoices.has(requested)) {
+    const fallback = fallbackVoiceId();
+    if (fallback !== requested) return fallback;
+  }
+  return requested;
 }
 
 export function isElevenLabsConfigured(override?: VoiceOverride | null): boolean {
@@ -195,7 +232,39 @@ export async function synthesizeElevenLabs(
     };
   }
 
-  const voice = elevenLabsVoiceSignature(override);
+  const signature = elevenLabsVoiceSignature(override);
+  const first = await synthesizeWithVoice(text, signature);
+  if (first.ok) return first;
+
+  // The account may not use this voice at all — a Voice Library voice on a
+  // free plan, or one that was removed. No amount of retrying the same
+  // request changes that, and silence on a trail is the worst outcome
+  // available, so the narration is spoken by a premade voice instead. The
+  // refusal is remembered, so the next point resolves straight to it.
+  const fallback = fallbackVoiceId();
+  if (isVoiceRefused(first.error) && fallback && fallback !== signature.voice) {
+    markVoiceUnusable(signature.voice);
+    console.error(
+      `ElevenLabs refused voice ${signature.voice} (${first.error.status}): ${first.error.detail} — ` +
+        `falling back to ${fallback}.`
+    );
+    const second = await synthesizeWithVoice(text, { ...signature, voice: fallback });
+    // The fallback's own failure is not the interesting one; report why the
+    // voice that was asked for could not be used.
+    if (second.ok) return second;
+  }
+  return first;
+}
+
+// Whether the account is not allowed to use this voice, as opposed to the
+// request being malformed or the service being down.
+function isVoiceRefused(error: SpeechFailure): boolean {
+  if (error.status === 402) return true;
+  if (error.status === 401 && /voice/i.test(error.detail)) return true;
+  return /paid_plan_required|voice_not_found|library voices/i.test(error.detail);
+}
+
+async function synthesizeWithVoice(text: string, voice: VoiceSignature): Promise<SpeechOutcome> {
   const url = `${API_BASE}/${encodeURIComponent(voice.voice)}?output_format=${encodeURIComponent(voice.format)}`;
   const tried: RequestVariant[] = [];
   let lastStatus: number | null = null;

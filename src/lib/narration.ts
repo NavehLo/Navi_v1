@@ -220,6 +220,10 @@ export interface NarrationResult {
   // server's default and hoping it is the same one. Null when there is no
   // server-side voice and the browser reads the text itself.
   voice: VoiceStamp | null;
+  // Why there is no server voice, or why it is not the one that was asked
+  // for — in the provider's own words where there are any. Null when nothing
+  // went wrong.
+  voiceError?: string | null;
 }
 
 export function resultFromLookup(lookup: NarrationLookup): NarrationResult | null {
@@ -316,13 +320,24 @@ export async function generateNarration(
     return { poiKey, text, audioUrl: null, audio: null, audioFormat: 'mp3', cached: false, charsSynthesized: 0, voice: null };
   }
 
-  const key = audioKey(text, voice);
-  const { speech } = await synthesize(text, voice, input.voice);
+  const { speech, error } = await synthesize(text, voice, input.voice);
   if (!speech) {
     // Synthesis failed: the text is still worth returning, but nothing spoke
-    // it, so no voice is claimed.
-    return { poiKey, text, audioUrl: null, audio: null, audioFormat: voice.format, cached: false, charsSynthesized: 0, voice: null };
+    // it, so no voice is claimed — and the provider's own words travel with
+    // the response. Dropping them here is what made every failure look like
+    // "no voice is configured on the server", whatever had actually gone
+    // wrong, so a refused voice was indistinguishable from a missing key.
+    return {
+      poiKey, text, audioUrl: null, audio: null, audioFormat: voice.format,
+      cached: false, charsSynthesized: 0, voice: null, voiceError: error,
+    };
   }
+
+  // Keyed on the voice that spoke. When a refused voice was replaced by the
+  // fallback, keying on the requested one would file the fallback's audio
+  // under the premium voice's name — and hand it back unchanged after an
+  // upgrade.
+  const key = audioKey(text, speech.voice);
 
   rememberInMemory(memAudio, key, { buffer: speech.buffer, format: speech.format });
   const stored = await writeAudio({
@@ -341,6 +356,11 @@ export async function generateNarration(
     audioFormat: speech.format,
     cached: false,
     charsSynthesized: text.length,
-    voice: voiceStamp(voice),
+    voice: voiceStamp(speech.voice),
+    // Set when the voice that spoke is not the voice that was asked for, so
+    // the app can say so instead of quietly sounding different.
+    voiceError: speech.voice.voice === voice.voice
+      ? null
+      : `הקול שנבחר אינו זמין בחשבון ElevenLabs הזה, והקריינות הוקראה בקול חלופי.`,
   };
 }

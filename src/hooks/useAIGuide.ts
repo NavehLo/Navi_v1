@@ -25,6 +25,21 @@ interface GuideEntry {
   // sounds like the voice you replaced.
   voice: PlayingVoice | null;
   fromDevice: boolean;
+  // Why this clip has no server voice, or why it is not the voice that was
+  // asked for. The server's own words, so the app can say what went wrong.
+  voiceError?: string | null;
+}
+
+// Does this device have a Hebrew voice of its own? When the server has no
+// voice the app falls back to the browser's speech synthesis, and on Android
+// that engine simply refuses a Hebrew utterance it has no voice for: the text
+// appears, nothing is heard, and nothing says why. `undefined` means the voice
+// list has not loaded yet, which is not the same as "none".
+function hebrewSpeechVoice(): SpeechSynthesisVoice | null | undefined {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  if (voices.length === 0) return undefined; // not populated yet
+  return voices.find((v) => v.lang?.toLowerCase().startsWith("he")) ?? null;
 }
 
 // Public identifiers only — a voice id is a Voice Library identifier.
@@ -67,6 +82,8 @@ export function useAIGuide() {
   const [queueLength, setQueueLength] = useState(0);
   // What is speaking right now, and whether it came off the device.
   const [currentVoice, setCurrentVoice] = useState<PlayingVoice | null>(null);
+  // Why the guide sounds wrong, or silent. Empty when it does not.
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
   const [currentFromDevice, setCurrentFromDevice] = useState(false);
 
   // The voice the server would use for this device's preferences. Undefined
@@ -78,6 +95,18 @@ export function useAIGuide() {
     voiceSignatureRef.current =
       voiceStatus === undefined ? null : voiceStatus === null ? NO_VOICE : voiceStatus.signature;
   }, [voiceStatus]);
+
+  // The browser fills its voice list asynchronously and reports an empty one
+  // until it has. Asking for it early, and again when it changes, means that
+  // by the time a narration needs the fallback the answer to "is there a
+  // Hebrew voice here" is already known rather than guessed at.
+  useEffect(() => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    const warm = () => window.speechSynthesis.getVoices();
+    warm();
+    window.speechSynthesis.addEventListener("voiceschanged", warm);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", warm);
+  }, []);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
@@ -135,12 +164,28 @@ export function useAIGuide() {
   // knows when it may start the next one.
   const speakTextFallback = (text: string): Promise<void> =>
     new Promise((resolve) => {
-      if (!("speechSynthesis" in window)) return resolve();
+      if (!("speechSynthesis" in window)) {
+        setVoiceNotice("הדפדפן הזה לא יודע להקריא טקסט, ואין קול מהשרת — הקריינות מוצגת ככתוביות בלבד.");
+        return resolve();
+      }
       window.speechSynthesis.cancel();
 
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = "he-IL";
       utterance.rate = 1.0;
+
+      // Naming the voice explicitly matters: some engines ignore `lang` alone
+      // and read Hebrew with an English voice, or refuse outright.
+      const hebrew = hebrewSpeechVoice();
+      if (hebrew) {
+        utterance.voice = hebrew;
+      } else if (hebrew === null) {
+        // Not a warning about quality — the utterance will very likely produce
+        // no sound at all, which is the complaint this explains.
+        setVoiceNotice(
+          "אין קול עברי מותקן במכשיר, ולכן ההקראה מהדפדפן לא תישמע. התקן קול עברי בהגדרות המכשיר, או הגדר קול בשרת."
+        );
+      }
 
       utterance.onstart = () => {
         setIsSpeaking(true);
@@ -355,6 +400,7 @@ export function useAIGuide() {
             }
           : null,
         fromDevice: false,
+        voiceError: data.voiceError ?? null,
       };
       cacheRef.current.set(cacheKey, entry);
       return entry;
@@ -388,6 +434,9 @@ export function useAIGuide() {
         setCurrentScript(entry.text);
         setCurrentVoice(entry.voice);
         setCurrentFromDevice(entry.fromDevice);
+        // The server's reason wins over any left over from an earlier point;
+        // a clip that plays fine clears the notice entirely.
+        setVoiceNotice(entry.voiceError ?? null);
         await playEntry(entry);
       }
     } finally {
@@ -434,5 +483,6 @@ export function useAIGuide() {
     queueLength,
     currentVoice,
     currentFromDevice,
+    voiceNotice,
   };
 }

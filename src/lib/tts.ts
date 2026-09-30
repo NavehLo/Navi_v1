@@ -175,7 +175,11 @@ export async function synthesize(
       speech: {
         buffer: outcome.result.buffer,
         format: outcome.result.format,
-        voice,
+        // The voice that *spoke*, which is not always the one that was asked
+        // for: a voice the account may not use is replaced by a premade one.
+        // Everything downstream — the cache key, and what the app says is
+        // speaking — has to follow the audio, not the intention.
+        voice: { ...voice, voice: outcome.result.voice.voice },
         spokenText: spoken,
         niqqud,
         degraded: outcome.result.variant === 'full' ? undefined : outcome.result.variant,

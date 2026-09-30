@@ -43,6 +43,10 @@ interface VoiceChoice {
   name: string;
   category: string | null;
   labels: Record<string, string>;
+  // The server has already been refused this voice by ElevenLabs (402 on the
+  // free plan for a Voice Library voice). Choosing it would work in the
+  // website's player and be silently replaced by the fallback here.
+  refused?: boolean;
 }
 
 // ElevenLabs' own grouping. Which of these an account may drive over the API
@@ -431,8 +435,8 @@ export default function SettingsPanel({ onClose, children, help }: SettingsPanel
               one of them. */}
           {voices && voices.length > 0 && (
             <>
-              <label className="block text-zinc-100 text-xs font-bold mb-1">
-                קולות שהחשבון שלך יכול להשתמש בהם ב-API
+              <label className="block text-white text-xs font-bold mb-1">
+                קולות בחשבון ElevenLabs שלך
               </label>
               <select
                 value={voice.id ?? ""}
@@ -444,9 +448,19 @@ export default function SettingsPanel({ onClose, children, help }: SettingsPanel
                   <option key={v.id} value={v.id}>
                     {v.name}
                     {v.category ? ` — ${CATEGORY_LABEL[v.category] ?? v.category}` : ""}
+                    {v.refused ? " — נדחה: דורש מנוי בתשלום" : ""}
                   </option>
                 ))}
               </select>
+              {/* The list is everything the account holds, which is not the
+                  same as everything it may drive over the API: a Voice
+                  Library voice plays on the website and is refused here. */}
+              {voices.some((v) => v.refused) && (
+                <p className="text-amber-200 text-xs -mt-2 mb-3 leading-relaxed">
+                  קול שמסומן „נדחה” אינו זמין ב-API בתוכנית הנוכחית שלך. הקריינות תוקרא בקול
+                  מובנה במקומו, עד שתבחר קול מובנה או תשדרג את המנוי ב-ElevenLabs.
+                </p>
+              )}
             </>
           )}
           {voicesError && (
