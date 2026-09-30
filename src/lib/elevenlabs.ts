@@ -87,12 +87,23 @@ export function fallbackVoiceId(): string {
 // rendered.
 const unusableVoices = new Set<string>();
 
-export function markVoiceUnusable(voiceId: string): void {
+// One 402 proves the whole category: this plan may not drive *any* Voice
+// Library voice over the API, not merely the one that was tried. Worth
+// recording separately, because it lets the settings picker warn about a
+// voice before someone waits for a narration to find out.
+let libraryVoicesBlocked = false;
+
+export function markVoiceUnusable(voiceId: string, paymentRequired = false): void {
   if (voiceId) unusableVoices.add(voiceId);
+  if (paymentRequired) libraryVoicesBlocked = true;
 }
 
 export function isVoiceUnusable(voiceId: string): boolean {
   return unusableVoices.has(voiceId);
+}
+
+export function areLibraryVoicesBlocked(): boolean {
+  return libraryVoicesBlocked;
 }
 
 // The voice actually asked for, before the API has had its say.
@@ -243,7 +254,7 @@ export async function synthesizeElevenLabs(
   // refusal is remembered, so the next point resolves straight to it.
   const fallback = fallbackVoiceId();
   if (isVoiceRefused(first.error) && fallback && fallback !== signature.voice) {
-    markVoiceUnusable(signature.voice);
+    markVoiceUnusable(signature.voice, first.error.status === 402);
     console.error(
       `ElevenLabs refused voice ${signature.voice} (${first.error.status}): ${first.error.detail} — ` +
         `falling back to ${fallback}.`

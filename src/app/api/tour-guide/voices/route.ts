@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { isAdminRequest } from '../../../../lib/supabaseServer';
 import { rateLimit, clientIp } from '../../../../lib/rateLimit';
 import { classifyElevenLabsError } from '../../../../lib/elevenlabsErrors';
-import { isVoiceUnusable } from '../../../../lib/elevenlabs';
+import { areLibraryVoicesBlocked, isVoiceUnusable } from '../../../../lib/elevenlabs';
 
 // Lists the voices this ElevenLabs account can actually use.
 //
@@ -37,8 +37,18 @@ const CACHE_MS = 5 * 60_000;
 // Refusals are read at response time rather than stored in the cache: the
 // list of voices changes rarely, but a voice becomes known-refused the moment
 // someone tries it.
+//
+// Once any voice has come back 402, the plan is known not to allow library
+// voices at all, and every non-premade voice in the list is marked — waiting
+// for each one to be tried in turn would mean a silent narration per voice.
+// 'premade' is the only category every plan may drive over the API.
 function withRefusals(voices: VoiceChoice[]): VoiceChoice[] {
-  return voices.map((v) => (isVoiceUnusable(v.id) ? { ...v, refused: true } : v));
+  const blocked = areLibraryVoicesBlocked();
+  return voices.map((v) =>
+    isVoiceUnusable(v.id) || (blocked && v.category !== 'premade')
+      ? { ...v, refused: true }
+      : v
+  );
 }
 
 export async function GET(request: Request) {

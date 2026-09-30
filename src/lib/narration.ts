@@ -61,11 +61,13 @@ export function availableProviders(): Record<TextProvider, boolean> {
 }
 
 // The paid providers plus Google's free tier, which is a different key against
-// a different model and so has to be named separately. It comes last on
-// purpose: a free-tier key is rate limited, and Google's terms for it allow
-// the prompts to be used to improve their products. Narration is written from
-// public Wikipedia text about public places, which is why it is acceptable
-// here at all — it would not be for anything of the user's.
+// a different model and so has to be named separately.
+//
+// The free tier goes first, at the owner's explicit choice: its rate limits
+// and Google's right to train on the prompts were both weighed and accepted,
+// and narration is written from public Wikipedia text about public places.
+// When it is rate limited the chain simply moves on to a paid key, so the
+// effect of it being first is that the free quota is spent before money is.
 export type TextEngine = TextProvider | 'gemini-free';
 
 const GEMINI_FREE_MODEL = process.env.GEMINI_FREE_TEXT_MODEL || 'gemini-3.5-flash-lite';
@@ -73,6 +75,23 @@ const GEMINI_FREE_MODEL = process.env.GEMINI_FREE_TEXT_MODEL || 'gemini-3.5-flas
 function engineAvailable(engine: TextEngine): boolean {
   if (engine === 'gemini-free') return !!process.env.GEMINI_FREE_API_KEY;
   return availableProviders()[engine];
+}
+
+// An engine that has just refused is stood down for a few minutes rather than
+// asked again on the very next point. A depleted prepaid balance or an
+// exhausted free quota does not recover within a tour, and trying it first
+// every time adds a failed round trip to every narration — which is what
+// AI_PROVIDER pointing at a dead key would otherwise cost.
+const PAUSE_MS = 10 * 60_000;
+const pausedUntil = new Map<TextEngine, number>();
+
+function pauseEngine(engine: TextEngine): void {
+  pausedUntil.set(engine, Date.now() + PAUSE_MS);
+}
+
+function isPaused(engine: TextEngine): boolean {
+  const until = pausedUntil.get(engine);
+  return until !== undefined && until > Date.now();
 }
 
 // Every engine that could write this narration, best first.
@@ -88,9 +107,15 @@ export function textProviderChain(requested?: string): TextEngine[] {
   };
   add(requested?.toLowerCase() as TextEngine | undefined);
   add(process.env.AI_PROVIDER?.toLowerCase() as TextEngine | undefined);
-  // OpenAI first among the rest: it is the one that has been reliable here.
-  for (const engine of ['openai', 'gemini', 'claude', 'gemini-free'] as TextEngine[]) add(engine);
-  return order;
+  // Free quota before paid keys; OpenAI ahead of the paid Gemini key, which is
+  // the one that ran out of prepaid credit.
+  for (const engine of ['gemini-free', 'openai', 'gemini', 'claude'] as TextEngine[]) add(engine);
+
+  // Engines that failed recently go to the back rather than being dropped:
+  // the judgement that one is dead was made from a single response, and being
+  // wrong about it must not leave the guide with nothing to try.
+  const ready = order.filter((e) => !isPaused(e));
+  return ready.length > 0 ? [...ready, ...order.filter(isPaused)] : order;
 }
 
 // Priority: user's in-app choice → AI_PROVIDER env → first available key.
@@ -199,6 +224,7 @@ async function generateTextWithFallback(
       lastError = new Error(`${engine} returned empty text`);
     } catch (e) {
       lastError = e;
+      pauseEngine(engine);
       console.error(`Narration text via ${engine} failed, trying the next provider:`, e);
     }
   }

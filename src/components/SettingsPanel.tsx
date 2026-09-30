@@ -1,5 +1,5 @@
 import type React from "react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { X, Sparkles, Volume2, Loader2, RotateCcw, AlertTriangle, Type, WifiOff, SlidersHorizontal, ChevronDown } from "lucide-react";
 import { AI_PROVIDER_STORAGE_KEY } from "../hooks/useAIGuide";
 import { type VoicePrefs, readVoicePrefs, rememberVoiceNames, writeVoicePrefs } from "../lib/voicePrefs";
@@ -60,6 +60,15 @@ const CATEGORY_LABEL: Record<string, string> = {
   generated: "קול מיוצר",
 };
 
+// ElevenLabs lets two voices carry the same words in their name, separated
+// differently: "Jessica - Playful, Bright, Warm" is premade, and
+// "Jessica | Playful, Bright, Warm" is a Voice Library clone. Collapsing the
+// punctuation is what makes the pair detectable, so the picker can tell them
+// apart by id instead of leaving the choice to luck.
+function normalizeVoiceName(name: string): string {
+  return name.toLowerCase().replace(/[-|·,]/g, " ").replace(/\s+/g, " ").trim();
+}
+
 interface TtsInfo {
   provider: "elevenlabs" | "openai" | "gemini";
   model: string;
@@ -115,6 +124,15 @@ export default function SettingsPanel({ onClose, children, help }: SettingsPanel
 
   const [voice, setVoice] = useState<VoicePrefs>({});
   const [voices, setVoices] = useState<VoiceChoice[] | null>(null);
+  // Names shared by more than one voice, which therefore cannot identify one.
+  const ambiguousVoiceNames = useMemo(() => {
+    const seen = new Map<string, number>();
+    for (const v of voices ?? []) {
+      const key = normalizeVoiceName(v.name);
+      seen.set(key, (seen.get(key) ?? 0) + 1);
+    }
+    return new Set([...seen].filter(([, n]) => n > 1).map(([k]) => k));
+  }, [voices]);
   const [voicesError, setVoicesError] = useState<{ hint: string | null; detail: string } | null>(null);
   const [testState, setTestState] = useState<"idle" | "loading" | "error">("idle");
   const [testMessage, setTestMessage] = useState<string | null>(null);
@@ -447,11 +465,23 @@ export default function SettingsPanel({ onClose, children, help }: SettingsPanel
                 {voices.map((v) => (
                   <option key={v.id} value={v.id}>
                     {v.name}
+                    {ambiguousVoiceNames.has(normalizeVoiceName(v.name)) ? ` (${v.id.slice(0, 6)})` : ""}
                     {v.category ? ` — ${CATEGORY_LABEL[v.category] ?? v.category}` : ""}
                     {v.refused ? " — נדחה: דורש מנוי בתשלום" : ""}
                   </option>
                 ))}
               </select>
+              {/* Two voices can carry the same name and differ only in a
+                  separator — "Jessica - Playful, Bright, Warm" is premade and
+                  works, "Jessica | Playful, Bright, Warm" is a library voice
+                  and is refused. Anyone comparing the picker with the website
+                  is looking at two different voices without being told. */}
+              {ambiguousVoiceNames.size > 0 && (
+                <p className="text-white/80 text-xs -mt-2 mb-3 leading-relaxed">
+                  לכמה קולות ברשימה יש שם כמעט זהה, ולכן מופיעות בסוגריים שש הספרות
+                  הראשונות של המזהה. שים לב לקטגוריה: רק „קול מובנה” עובד בתוכנית החינמית.
+                </p>
+              )}
               {/* The list is everything the account holds, which is not the
                   same as everything it may drive over the API: a Voice
                   Library voice plays on the website and is refused here. */}
