@@ -1,8 +1,11 @@
 import {
   Sun, CloudSun, Cloud, CloudFog, CloudDrizzle, CloudRain, CloudSnow, CloudLightning,
-  Droplets, Wind, Mountain, TriangleAlert, Info, RefreshCw, Clock,
+  Droplets, Wind, Mountain, TriangleAlert, Info, RefreshCw, Clock, Sparkles,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
+import { useTripAdvice } from "../hooks/useTripAdvice";
+import { adviceInput } from "../lib/tripAdvice";
+import type { HikeEffort } from "../lib/hikeEffort";
 import type { TripWeather } from "../hooks/useTripWeather";
 import { weatherCodeInfo, type CodeInfo } from "../lib/weather";
 import { formatHour, type DayAdvice, type Warning } from "../lib/hikeAdvice";
@@ -59,7 +62,13 @@ function agoLabel(at: number): string {
   return days === 1 ? "אתמול" : `לפני ${days} ימים`;
 }
 
-export default function TripWeatherSection({ weather, isDrive, advice }: { weather: TripWeather; isDrive: boolean; advice?: ReactNode }) {
+interface TrailBrief {
+  name: string;
+  kind: "hike" | "drive";
+  totalDistance: number;
+}
+
+export default function TripWeatherSection({ weather, isDrive, trail }: { weather: TripWeather; isDrive: boolean; trail: TrailBrief }) {
   const { status, days, selected: day, effort, hours, fetchedAt } = weather;
 
   return (
@@ -117,7 +126,7 @@ export default function TripWeatherSection({ weather, isDrive, advice }: { weath
 
           {day && <DayDetails day={day} isDrive={isDrive} />}
 
-          {advice}
+          {day && <AdviceText trail={trail} day={day} effort={effort} hours={hours} />}
 
           <div className="text-xs text-zinc-200 mt-2 leading-relaxed">
             {status === "cached" && fetchedAt != null && (
@@ -224,6 +233,40 @@ function DayDetails({ day, isDrive }: { day: DayAdvice; isDrive: boolean }) {
         </div>
       )}
     </div>
+  );
+}
+
+// The day in words. The facts above it stay the authority; this says them
+// the way a guide would, and falls back to plain sentences with no signal.
+function AdviceText({ trail, day, effort, hours }: { trail: TrailBrief; day: DayAdvice; effort: HikeEffort | null; hours: number }) {
+  const input = useMemo(
+    () => adviceInput({ name: trail.name, kind: trail.kind, totalDistance: trail.totalDistance }, day, effort, hours),
+    [trail.name, trail.kind, trail.totalDistance, day, effort, hours],
+  );
+  const advice = useTripAdvice(input);
+
+  return (
+    <div className="mt-2 rounded-xl bg-sky-500/10 border border-sky-400/25 p-2.5">
+      <div className="text-xs text-sky-200 font-bold mb-1 flex items-center gap-1">
+        <Sparkles className="w-3.5 h-3.5" />
+        {advice.source === "plain" ? "בקצרה" : "מה צפוי ביום הזה"}
+      </div>
+      {advice.loading && <div className="text-sm text-white">מכין הסבר…</div>}
+      {advice.text && <p className="text-sm text-white leading-relaxed">{isolateNumbers(advice.text)}</p>}
+      {advice.source === "plain" && (
+        <div className="text-xs text-zinc-200 mt-1">סיכום אוטומטי — אין כרגע חיבור לשירות ההסבר.</div>
+      )}
+    </div>
+  );
+}
+
+// The same problem in running text, where the numbers arrive inside the
+// model's sentence: each number, range or time ("17–18°", "-3°", "07:00") is
+// wrapped in a left-to-right isolate so it reads the way it was written, and
+// a range is glued together so a line break cannot split "24–" from "26°".
+function isolateNumbers(text: string): string {
+  return text.replace(/\d{1,2}:\d{2}|-?\d+(?:\.\d+)?(?:\s*[–-]\s*-?\d+(?:\.\d+)?)?°?/g, (m) =>
+    `\u2066${m.replace(/\s+/g, "\u00a0").replace(/(?<=.)([–-])/g, "\u2060$1\u2060")}\u2069`,
   );
 }
 

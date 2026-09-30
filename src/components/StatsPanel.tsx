@@ -254,7 +254,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           הסיור הווירטואלי מתקדם ב־80 קמ״ש ב־x1.
         </p>
       )}
-      {isDrive && weather && <TripWeatherSection weather={weather} isDrive />}
+      {isDrive && weather && <TripWeatherSection weather={weather} isDrive trail={trail} />}
       {!isDrive && (<>
       <div className="mt-3 border-t border-white/10 pt-3 relative" dir="ltr">
         <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-2 text-right font-bold">פרופיל גובה</div>
@@ -296,7 +296,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
         )}
       </div>
 
-      {weather && <TripWeatherSection weather={weather} isDrive={false} />}
+      {weather && <TripWeatherSection weather={weather} isDrive={false} trail={trail} />}
 
       {/* ── קיץ ─────────────────────────────────────────────────────────── */}
       <div className="mt-3 border-t border-white/10 pt-3">

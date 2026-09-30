@@ -140,7 +140,10 @@ async function generateTextClaude(system: string, user: string): Promise<string>
   return data.content.map((b: any) => (b.type === 'text' ? b.text : '')).join('');
 }
 
-function generateText(provider: TextProvider, system: string, user: string): Promise<string> {
+// Exported for the other places that write Hebrew from facts the app already
+// has — the trip-day weather advice (api/trip-advice) — so they go through the
+// same provider choice and the same model settings as the guide.
+export function generateText(provider: TextProvider, system: string, user: string): Promise<string> {
   if (provider === 'gemini') return generateTextGemini(system, user);
   if (provider === 'claude') return generateTextClaude(system, user);
   return generateTextOpenAI(system, user);
