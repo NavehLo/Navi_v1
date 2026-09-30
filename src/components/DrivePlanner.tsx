@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { Car, MapPin, X, Loader2, Search, ArrowLeftRight, Check, LocateFixed, Plus, Navigation } from 'lucide-react';
+import { Car, MapPin, X, Loader2, Search, ArrowLeftRight, Check, LocateFixed, Plus, Navigation, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   newSessionToken, suggestPlaces, retrievePlace, reversePlace,
   type Place, type PlaceSuggestion,
@@ -228,13 +228,14 @@ export default function DrivePlanner({
     return () => { map.off('style.load', sync); };
   }, [map, options, selected]);
 
-  // Frame all the roads when a new set arrives.
+  // Frame all the roads when a new set arrives, and again when the panel is
+  // folded or unfolded — folded, they get the room it gave up.
   useEffect(() => {
     if (!options?.length) return;
     const bounds = new mapboxgl.LngLatBounds();
     options.forEach((r) => r.coords.forEach((c) => bounds.extend([c[1], c[0]])));
-    map.fitBounds(bounds, { padding: { top: 80, bottom: 320, left: 40, right: 40 }, duration: 1000, maxZoom: 14 });
-  }, [map, options]);
+    map.fitBounds(bounds, { padding: { top: 80, bottom: isExpanded ? 320 : 150, left: 40, right: 40 }, duration: 1000, maxZoom: 14 });
+  }, [map, options, isExpanded]);
 
   useEffect(() => {
     const onClick = (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) => {
@@ -286,24 +287,61 @@ export default function DrivePlanner({
   }
 
   const fastest = options?.[0];
+  const chosen = options?.[selected];
 
   return (
     <div
       className={`absolute left-4 right-4 z-40 flex flex-col md:w-[380px] md:bottom-auto md:right-6 md:left-auto md:top-6 bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl transition-all
-        ${isExpanded ? 'bottom-16 rounded-3xl p-5 max-h-[70vh] md:max-h-[calc(100vh-3rem)]' : 'bottom-16 rounded-2xl p-4 md:rounded-3xl md:p-5'}`}
+        ${isExpanded ? 'bottom-16 rounded-3xl p-5 max-h-[70vh] md:max-h-[calc(100vh-3rem)]' : 'bottom-16 rounded-2xl p-3'}`}
       dir="rtl"
     >
-      <div className="flex justify-between items-center cursor-pointer md:cursor-default" onClick={() => setIsExpanded(!isExpanded)}>
-        <h2 className="font-extrabold text-white flex items-center gap-2 tracking-tight text-lg md:text-xl md:mb-4">
-          <Car className="text-orange-500" size={24} />
-          נסיעה בכביש
-        </h2>
-        {!isExpanded && fastest && (
-          <span className="text-sm font-bold text-sky-300">{formatDuration(options![selected].durationSec)}</span>
+      {/* The header folds the panel away, on every screen size, so the roads
+          on the map can be seen whole. Folded, it still says what matters:
+          the road chosen, and a way to open it without unfolding. */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          aria-expanded={isExpanded}
+          className="flex-1 min-w-0 flex items-center gap-2 text-right"
+        >
+          <Car className="text-orange-500 shrink-0" size={isExpanded ? 24 : 20} />
+          {isExpanded || !chosen ? (
+            <span className={`font-extrabold text-white tracking-tight truncate ${isExpanded ? 'text-lg md:text-xl' : 'text-base'}`}>
+              נסיעה בכביש
+            </span>
+          ) : (
+            <span className="min-w-0 flex items-center gap-2">
+              <span className="w-3 h-3 rounded-full shrink-0 ring-2 ring-white/30" style={{ background: DRIVE_OPTION_COLORS[selected] }} />
+              <span className="text-sm font-bold text-white truncate">
+                {formatDuration(chosen.durationSec)} · {fmtKm(chosen.distanceKm)}
+                {options!.length > 1 && <span className="text-white/85 font-medium"> · דרך {selected + 1} מתוך {options!.length}</span>}
+              </span>
+            </span>
+          )}
+        </button>
+        {!isExpanded && chosen && (
+          <button
+            onClick={go}
+            disabled={routing}
+            className="shrink-0 flex items-center gap-1.5 bg-orange-500 disabled:bg-zinc-700 text-white text-sm font-bold px-3 py-2 rounded-xl hover:bg-orange-400 transition-colors"
+          >
+            <Navigation className="w-4 h-4" /> פתח
+          </button>
         )}
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          aria-expanded={isExpanded}
+          aria-label={isExpanded ? 'צמצם את החלונית' : 'הרחב את החלונית'}
+          className="shrink-0 flex items-center gap-1 text-xs font-bold text-white bg-white/10 hover:bg-white/20 border border-white/15 px-2.5 py-2 rounded-xl transition-colors"
+        >
+          {isExpanded ? <><ChevronDown className="w-4 h-4" /> צמצם</> : <><ChevronUp className="w-4 h-4" /> הרחב</>}
+        </button>
       </div>
+      {!isExpanded && options && options.length > 1 && (
+        <p className="text-xs text-white/85 mt-1.5">אפשר לבחור דרך אחרת בלחיצה על הקו שלה במפה.</p>
+      )}
 
-      <div className={`flex-col gap-3 md:flex overflow-y-auto custom-scrollbar -mx-1 px-1 ${isExpanded ? 'flex mt-3 md:mt-0' : 'hidden'}`}>
+      <div className={`flex-col gap-3 overflow-y-auto custom-scrollbar -mx-1 px-1 ${isExpanded ? 'flex mt-3' : 'hidden'}`}>
         <PlaceField
           label="מוצא"
           value={plan.from}
