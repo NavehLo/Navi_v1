@@ -25,7 +25,7 @@ import { driveRoute, thinCoords } from "@/lib/mapboxDirections";
 import { encodeDrive, decodeDrive, type DriveLink } from "@/lib/driveLink";
 import { rememberOpenTrail, recallOpenTrail, forgetOpenTrail } from "@/lib/openTrailMemory";
 import { useTrailData } from "@/hooks/useTrailData";
-import { useTour } from "@/hooks/useTour";
+import { useTour, tourSecondsLeft, formatTourTimeLeft } from "@/hooks/useTour";
 import { useAIGuide } from "@/hooks/useAIGuide";
 import { usePOIGeofence } from "@/hooks/usePOIGeofence";
 import { pointAtDistance, snapToTrail, coordsToGpx, parseGPX, type Coordinate3D } from "@/utils/trailUtils";
@@ -1387,15 +1387,16 @@ export default function TrailApp() {
       {/* Tour Progress Bar */}
       {trail && !uiHidden && !isMeasuring && progress > 0 && Math.floor(progress * trail.coords.length) < trail.coords.length && (
         <div className="absolute bottom-[76px] left-3 right-3 md:bottom-auto md:top-3 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-[55%] md:max-w-md z-40 bg-black/80 px-3 py-2 rounded-2xl border border-white/10 backdrop-blur-md">
-          <div className="flex justify-between text-[11px] font-bold mb-1.5" dir="rtl">
-            <div className="text-emerald-400">הושלם: {(trail.totalDistance * progress).toFixed(1)} ק"מ <span className="text-emerald-300 font-bold">({Math.round(progress*100)}%)</span></div>
-            <div className="text-sky-400">נותר: {(trail.totalDistance * (1 - progress)).toFixed(1)} ק"מ</div>
+          <div className="flex justify-between text-xs font-bold mb-1" dir="rtl">
+            <div className="text-emerald-300">הושלם: {(trail.totalDistance * progress).toFixed(1)} ק״מ ({Math.round(progress*100)}%)</div>
+            <div className="text-sky-300">נותר: {(trail.totalDistance * (1 - progress)).toFixed(1)} ק״מ</div>
           </div>
-          {!isDrive && (
-            <div className="text-center text-orange-400 text-[10px] font-bold mb-1.5 uppercase tracking-widest">
-              גובה נוכחי: {Math.round(trail.elevations[Math.floor(progress * (trail.elevations.length - 1))])} מ'
-            </div>
-          )}
+          {/* The time left follows the speed buttons at once — the one place a
+              new speed is unmistakable (see tourSecondsLeft). */}
+          <div className="text-center text-white text-xs font-bold mb-1.5" dir="rtl">
+            {!isDrive && <><span className="text-orange-300">גובה {Math.round(trail.elevations[Math.floor(progress * (trail.elevations.length - 1))])} מ׳</span> · </>}
+            סוף הסיור בעוד {formatTourTimeLeft(tourSecondsLeft(trail.totalDistance, progress, tourSpeed))} <span className="text-orange-300">(x{tourSpeed})</span>
+          </div>
           {/* dir=ltr forces correct offsetX math; we flip the visual with scale */}
           <div dir="ltr" className="w-full h-3 bg-zinc-800 rounded-full cursor-pointer relative overflow-hidden" onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type mapboxgl from "mapbox-gl";
 import ScaleBar from "./ScaleBar";
 import type { TrailKind } from "../hooks/useTrailData";
@@ -345,11 +345,29 @@ function MapLegend() {
 export function BottomBar({
   onToggleTour, isTourActive, tourSpeed, onTourSpeedChange, hasTrail, tourProgress, trailKind,
 }: Pick<ControlsProps, 'onToggleTour' | 'isTourActive' | 'tourSpeed' | 'onTourSpeedChange' | 'hasTrail' | 'tourProgress'> & { trailKind?: TrailKind }) {
+  // A new speed says so, briefly, above the buttons: on screen the ground does
+  // not look anywhere near five times faster (the camera pulls back as it
+  // speeds up), and a press that seems to do nothing gets pressed again.
+  const [speedNote, setSpeedNote] = useState<number | null>(null);
+  const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (noteTimer.current) clearTimeout(noteTimer.current); }, []);
+  const chooseSpeed = (s: number) => {
+    onTourSpeedChange?.(s);
+    setSpeedNote(s);
+    if (noteTimer.current) clearTimeout(noteTimer.current);
+    noteTimer.current = setTimeout(() => setSpeedNote(null), 1800);
+  };
+
   if (!hasTrail) return null;
   const speeds = tourSpeedsFor(trailKind);
 
   return (
-    <div className="pointer-events-auto flex items-center gap-2" dir="rtl" data-tour="tour-button">
+    <div className="pointer-events-auto relative flex items-center gap-2" dir="rtl" data-tour="tour-button">
+      {isTourActive && speedNote != null && (
+        <div role="status" className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap bg-orange-500 text-white text-sm font-bold px-3 py-1.5 rounded-full shadow-2xl pointer-events-none">
+          מהירות x{speedNote}{speedNote > 1 ? ` — פי ${speedNote} מהר יותר` : ' — רגילה'}
+        </div>
+      )}
       {isTourActive ? (
         <div className="flex items-center bg-zinc-900/90 rounded-2xl p-1.5 border border-white/10 backdrop-blur-md gap-1 shadow-2xl">
           <button
@@ -361,7 +379,7 @@ export function BottomBar({
           {onTourSpeedChange && speeds.map((s) => (
             <button
               key={s}
-              onClick={() => onTourSpeedChange(s)}
+              onClick={() => chooseSpeed(s)}
               aria-pressed={tourSpeed === s}
               className={`${speeds.length > 3 ? 'px-1.5 text-[11px]' : 'px-2.5 text-xs'} py-2 rounded-xl font-bold ${tourSpeed === s ? 'bg-orange-500 text-white' : 'text-white hover:bg-white/10'}`}
             >x{s}</button>

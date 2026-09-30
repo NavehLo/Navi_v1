@@ -1,6 +1,6 @@
 import type React from "react";
 import { useState, useEffect, useRef } from "react";
-import { X, Sparkles, Volume2, Loader2, RotateCcw, AlertTriangle, Type, WifiOff } from "lucide-react";
+import { X, Sparkles, Volume2, Loader2, RotateCcw, AlertTriangle, Type, WifiOff, SlidersHorizontal, ChevronDown } from "lucide-react";
 import { AI_PROVIDER_STORAGE_KEY } from "../hooks/useAIGuide";
 import { type VoicePrefs, readVoicePrefs, rememberVoiceNames, writeVoicePrefs } from "../lib/voicePrefs";
 import { readSimulateOffline, setSimulateOffline, storageEstimate } from "../lib/offlineMap";
@@ -90,6 +90,7 @@ const VOICE_SLIDERS: Array<{ key: keyof VoicePrefs; label: string; hint: string;
 ];
 
 export default function SettingsPanel({ onClose, children, help }: SettingsPanelProps) {
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [selected, setSelected] = useState<string>("auto");
   const [available, setAvailable] = useState<Record<string, boolean> | null>(null);
   const [tts, setTts] = useState<TtsInfo | null | undefined>(undefined);
@@ -295,357 +296,378 @@ export default function SettingsPanel({ onClose, children, help }: SettingsPanel
           <OffRouteSetting />
         </div>
 
-        <h3 className="text-zinc-300 font-bold text-sm mb-1">ספק הבינה המלאכותית של המדריך</h3>
-        <p className="text-zinc-500 text-xs mb-4">
-          הבחירה נשמרת במכשיר הזה. מוצגים רק ספקים שהוגדר להם מפתח בשרת.
-        </p>
+        {/* Everything below is for tuning the guide and checking the app, not
+            for using it: the AI provider, the voice, the vowel points and the
+            rehearsal without reception. Folded away so a first look at the
+            settings is not a wall of API keys and sliders. */}
+        <button
+          onClick={() => setShowAdvanced((v) => !v)}
+          aria-expanded={showAdvanced}
+          className="w-full flex items-center justify-between gap-2 text-right rounded-xl bg-white/5 hover:bg-white/10 p-3 transition-colors"
+        >
+          <span className="flex items-center gap-2 text-white font-bold text-sm">
+            <SlidersHorizontal size={16} className="text-zinc-100" />
+            מתקדם
+            <span className="font-normal text-zinc-100 text-xs">קול, בינה מלאכותית ובדיקות</span>
+          </span>
+          <ChevronDown size={16} className={`text-white shrink-0 transition-transform ${showAdvanced ? "rotate-180" : ""}`} />
+        </button>
 
-        {noneConfigured && (
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-amber-300 text-xs mb-4">
-            לא הוגדר אף מפתח AI בשרת — המדריך יעבוד במצב הדגמה עם קול הדפדפן.
+        {showAdvanced && (
+          <div className="mt-5">
+          <h3 className="text-zinc-100 font-bold text-sm mb-1">ספק הבינה המלאכותית של המדריך</h3>
+          <p className="text-zinc-100 text-xs mb-4">
+            הבחירה נשמרת במכשיר הזה. מוצגים רק ספקים שהוגדר להם מפתח בשרת.
+          </p>
+
+          {noneConfigured && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-amber-300 text-xs mb-4">
+              לא הוגדר אף מפתח AI בשרת — המדריך יעבוד במצב הדגמה עם קול הדפדפן.
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2">
+            {Object.entries(PROVIDER_LABELS).map(([key, info]) => {
+              const isConfigured = key === "auto" || !available || available[key];
+              if (key !== "auto" && available && !available[key]) return null;
+              return (
+                <button
+                  key={key}
+                  onClick={() => choose(key)}
+                  disabled={!isConfigured}
+                  className={`text-right p-3.5 rounded-2xl border transition-all ${
+                    selected === key
+                      ? "bg-orange-500/15 border-orange-500/60"
+                      : "bg-white/5 border-white/10 hover:bg-white/10"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={`font-bold text-sm ${selected === key ? "text-orange-400" : "text-white"}`}>
+                      {info.name}
+                    </span>
+                    {selected === key && (
+                      <span className="text-xs font-bold text-orange-400 bg-orange-500/20 px-2 py-0.5 rounded-full">
+                        פעיל
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-zinc-100 text-xs mt-1">{info.desc}</p>
+                </button>
+              );
+            })}
           </div>
-        )}
 
-        <div className="flex flex-col gap-2">
-          {Object.entries(PROVIDER_LABELS).map(([key, info]) => {
-            const isConfigured = key === "auto" || !available || available[key];
-            if (key !== "auto" && available && !available[key]) return null;
-            return (
-              <button
-                key={key}
-                onClick={() => choose(key)}
-                disabled={!isConfigured}
-                className={`text-right p-3.5 rounded-2xl border transition-all ${
-                  selected === key
-                    ? "bg-orange-500/15 border-orange-500/60"
-                    : "bg-white/5 border-white/10 hover:bg-white/10"
+          {/* Voice — changeable here so trying one needs no redeploy */}
+          <h3 className="text-zinc-100 font-bold text-sm mt-6 mb-1 flex items-center gap-2">
+            <Volume2 size={15} className="text-emerald-400" />
+            הקול של המדריכה
+          </h3>
+
+          {/* Which voice is actually speaking. Without this the fallback to
+              OpenAI/Gemini is invisible: the sliders below simply stop having
+              any effect and nothing says why. */}
+          {tts === undefined ? (
+            <p className="text-zinc-100 text-xs mb-3">בודק איזה קול פעיל…</p>
+          ) : tts === null ? (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-amber-300 text-xs mb-3">
+              אין ספק קול בשרת — הקריינות תוקרא בקול של הדפדפן. ההגדרות למטה לא
+              ישפיעו עד שיוגדר <span dir="ltr">ELEVENLABS_API_KEY</span>.
+            </div>
+          ) : tts.provider === "elevenlabs" ? (
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 text-xs mb-3">
+              <div className="text-emerald-300 font-bold">הקול מגיע מ-ElevenLabs</div>
+              <div className="text-zinc-100 mt-0.5" dir="ltr">
+                {tts.model} · {tts.voiceId}
+              </div>
+              <div className="text-zinc-100 mt-0.5 text-xs">
+                ניקוד: {tts.niqqud ? (NIQQUD_LABEL[tts.niqqudProvider ?? ""] ?? tts.niqqudProvider) : "כבוי"}
+              </div>
+            </div>
+          ) : (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-amber-300 text-xs mb-3">
+              <div className="font-bold">
+                הקול מגיע מ-{TTS_LABEL[tts.provider] || tts.provider}, לא מ-ElevenLabs.
+              </div>
+              <div className="mt-1 text-amber-200/80">
+                ההגדרות למטה חלות על ElevenLabs בלבד, ולכן לא ישנו כלום כרגע. בדוק
+                ש-<span dir="ltr">ELEVENLABS_API_KEY</span> ו-
+                <span dir="ltr">ELEVENLABS_VOICE_ID</span> מוגדרים ב-Vercel, ושבוצע
+                Redeploy אחרי ההוספה.
+              </div>
+            </div>
+          )}
+
+          <p className="text-zinc-100 text-xs mb-3">
+            הבחירה נשמרת במכשיר הזה בלבד ואינה משנה את הגדרת השרת. השאר ריק כדי
+            להשתמש בקול שמוגדר ב-Vercel.
+          </p>
+
+          {/* Pick from what the account can actually drive over the API. A voice
+              copied out of the Voice Library on the website is not necessarily
+              one of them. */}
+          {voices && voices.length > 0 && (
+            <>
+              <label className="block text-zinc-100 text-xs font-bold mb-1">
+                קולות שהחשבון שלך יכול להשתמש בהם ב-API
+              </label>
+              <select
+                value={voice.id ?? ""}
+                onChange={(e) => updateVoice({ id: e.target.value || undefined })}
+                className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-emerald-500 mb-3"
+              >
+                <option value="">ברירת המחדל של השרת</option>
+                {voices.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name}
+                    {v.category ? ` — ${CATEGORY_LABEL[v.category] ?? v.category}` : ""}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+          {voicesError && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-3" dir="rtl">
+              <div className="text-amber-300 text-xs font-bold flex items-center gap-1.5">
+                <AlertTriangle size={13} />
+                לא ניתן לטעון את רשימת הקולות
+              </div>
+              {voicesError.hint && (
+                <p className="text-amber-200/80 text-xs mt-1">{voicesError.hint}</p>
+              )}
+              <p className="text-zinc-100 text-xs mt-2 break-words" dir="auto">
+                {voicesError.detail}
+              </p>
+            </div>
+          )}
+
+          <label className="block text-zinc-100 text-xs font-bold mb-1">
+            מזהה קול (Voice ID) — ידני
+          </label>
+          <input
+            type="text"
+            value={voice.id ?? ""}
+            onChange={(e) => updateVoice({ id: e.target.value.trim() || undefined })}
+            placeholder="ברירת המחדל של השרת"
+            dir="ltr"
+            className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-white text-xs placeholder:text-zinc-400 focus:outline-none focus:border-emerald-500 mb-3"
+            autoComplete="off"
+            spellCheck={false}
+          />
+
+          <div className="flex flex-col gap-3">
+            {VOICE_SLIDERS.map((slider) => {
+              const value = (voice[slider.key] as number | undefined) ?? slider.fallback;
+              return (
+                <div key={slider.key}>
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-zinc-100 text-xs font-bold">{slider.label}</span>
+                    <span className="text-zinc-100 text-xs tabular-nums">{value.toFixed(2)}</span>
+                  </div>
+                  {/* dir=ltr: inside the RTL panel a range input renders
+                      mirrored, so the handle sat opposite its own number. */}
+                  <input
+                    dir="ltr"
+                    type="range"
+                    min={slider.min}
+                    max={slider.max}
+                    step={slider.step}
+                    value={value}
+                    onChange={(e) => updateVoice({ [slider.key]: parseFloat(e.target.value) } as Partial<VoicePrefs>)}
+                    className="w-full accent-emerald-500"
+                  />
+                  <p className="text-zinc-100 text-xs">{slider.hint}</p>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Niqqud. A toggle rather than a setting, so it can be A/B'd against
+              the sample sentence in two clicks. */}
+          <label className="flex items-start gap-2 mt-4 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={voice.niqqud !== false}
+              onChange={(e) => updateVoice({ niqqud: e.target.checked ? undefined : false })}
+              className="mt-0.5 accent-emerald-500"
+            />
+            <span>
+              <span className="text-zinc-100 text-xs font-bold">ניקוד לפני ההקראה</span>
+              <span className="block text-zinc-100 text-xs">
+                מנקד את הטקסט לפני שהוא נשלח לקול, כדי למנוע קריאות כמו &quot;מַהֵר&quot;
+                במקום &quot;מֵהַר מירון&quot;. אם Nakdan של DICTA זמין הוא מנקד את כל
+                המשפט; אחרת נעשה שימוש בטבלה פנימית של מילות נוף בלבד.
+              </span>
+            </span>
+          </label>
+
+          <div className="flex gap-2 mt-4">
+            <button
+              onClick={testVoice}
+              disabled={testState === "loading"}
+              className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 font-bold text-xs py-2.5 hover:bg-emerald-500/20 transition-colors disabled:opacity-60"
+            >
+              {testState === "loading" ? <Loader2 size={14} className="animate-spin" /> : <Volume2 size={14} />}
+              השמע משפט לדוגמה
+            </button>
+            <button
+              onClick={resetVoice}
+              title="חזור להגדרת השרת"
+              className="shrink-0 rounded-xl border border-white/10 text-zinc-100 hover:text-white hover:bg-white/5 py-2.5 px-3 transition-colors"
+            >
+              <RotateCcw size={14} />
+            </button>
+          </div>
+
+          {testState === "error" && testHint && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs mt-3" dir="rtl">
+              <div className="text-amber-300 font-bold flex items-center gap-1.5">
+                <AlertTriangle size={13} />
+                מה לעשות
+              </div>
+              <p className="text-amber-200/80 mt-1">{testHint}</p>
+            </div>
+          )}
+
+          {testMessage && (
+            <p
+              className={`text-xs mt-2 break-words ${testState === "error" ? "text-zinc-100" : "text-zinc-100"}`}
+              dir="auto"
+            >
+              {testMessage}
+            </p>
+          )}
+
+          {/* Exactly what the voice was handed. The stored narration is plain
+              Hebrew, so this is the only place the vocalized form is visible. */}
+          {spokenText && (
+            <div className="bg-white/5 border border-white/10 rounded-xl p-3 mt-2">
+              <div className="text-zinc-100 text-xs font-bold mb-1">הטקסט שנשלח לקול</div>
+              <p className="text-zinc-100 text-xs leading-6" dir="rtl">{spokenText}</p>
+            </div>
+          )}
+
+          {/* Niqqud check — costs nothing and synthesizes nothing.
+              Two things cannot be settled anywhere else: whether the server can
+              reach Nakdan at all, and what each of the two passes does to a given
+              sentence. */}
+          <h3 className="text-zinc-100 font-bold text-sm mt-6 mb-1 flex items-center gap-2">
+            <Type size={15} className="text-sky-400" />
+            בדיקת ניקוד
+          </h3>
+          <p className="text-zinc-100 text-xs mb-3">
+            מראה מה הניקוד עושה למשפט, בלי לייצר קול ובלי לצרוך קרדיטים. שימושי
+            במיוחד כדי לבדוק אם השרת מצליח להגיע ל-Nakdan של DICTA.
+          </p>
+
+          <textarea
+            value={niqqudText}
+            onChange={(e) => setNiqqudText(e.target.value)}
+            rows={2}
+            dir="rtl"
+            className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-sky-500 mb-2 resize-none"
+          />
+          <button
+            onClick={checkNiqqud}
+            disabled={niqqudState === "loading" || !niqqudText.trim()}
+            className="w-full flex items-center justify-center gap-2 rounded-xl border border-sky-500/40 bg-sky-500/10 text-sky-300 font-bold text-xs py-2.5 hover:bg-sky-500/20 transition-colors disabled:opacity-60"
+          >
+            {niqqudState === "loading" ? <Loader2 size={14} className="animate-spin" /> : <Type size={14} />}
+            נקד את הטקסט
+          </button>
+
+          {niqqudError && (
+            <p className="text-amber-400 text-xs mt-2" dir="auto">{niqqudError}</p>
+          )}
+
+          {niqqudCheck && (
+            <div className="flex flex-col gap-2 mt-3">
+              <div
+                className={`rounded-xl p-3 border ${
+                  niqqudCheck.dicta.ok
+                    ? "bg-emerald-500/10 border-emerald-500/30"
+                    : "bg-amber-500/10 border-amber-500/30"
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className={`font-bold text-sm ${selected === key ? "text-orange-400" : "text-white"}`}>
-                    {info.name}
+                  <span className={`text-xs font-bold ${niqqudCheck.dicta.ok ? "text-emerald-300" : "text-amber-300"}`}>
+                    Nakdan (DICTA)
                   </span>
-                  {selected === key && (
-                    <span className="text-[10px] font-bold text-orange-400 bg-orange-500/20 px-2 py-0.5 rounded-full">
-                      פעיל
+                  {niqqudCheck.active === "dicta" && (
+                    <span className="text-xs font-bold text-zinc-100 bg-white/10 px-2 py-0.5 rounded-full">
+                      הספק הפעיל
                     </span>
                   )}
                 </div>
-                <p className="text-zinc-400 text-xs mt-1">{info.desc}</p>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Voice — changeable here so trying one needs no redeploy */}
-        <h3 className="text-zinc-300 font-bold text-sm mt-6 mb-1 flex items-center gap-2">
-          <Volume2 size={15} className="text-emerald-400" />
-          הקול של המדריכה
-        </h3>
-
-        {/* Which voice is actually speaking. Without this the fallback to
-            OpenAI/Gemini is invisible: the sliders below simply stop having
-            any effect and nothing says why. */}
-        {tts === undefined ? (
-          <p className="text-zinc-500 text-xs mb-3">בודק איזה קול פעיל…</p>
-        ) : tts === null ? (
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-amber-300 text-xs mb-3">
-            אין ספק קול בשרת — הקריינות תוקרא בקול של הדפדפן. ההגדרות למטה לא
-            ישפיעו עד שיוגדר <span dir="ltr">ELEVENLABS_API_KEY</span>.
-          </div>
-        ) : tts.provider === "elevenlabs" ? (
-          <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 text-xs mb-3">
-            <div className="text-emerald-300 font-bold">הקול מגיע מ-ElevenLabs</div>
-            <div className="text-zinc-400 mt-0.5" dir="ltr">
-              {tts.model} · {tts.voiceId}
-            </div>
-            <div className="text-zinc-500 mt-0.5 text-[10px]">
-              ניקוד: {tts.niqqud ? (NIQQUD_LABEL[tts.niqqudProvider ?? ""] ?? tts.niqqudProvider) : "כבוי"}
-            </div>
-          </div>
-        ) : (
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-amber-300 text-xs mb-3">
-            <div className="font-bold">
-              הקול מגיע מ-{TTS_LABEL[tts.provider] || tts.provider}, לא מ-ElevenLabs.
-            </div>
-            <div className="mt-1 text-amber-200/80">
-              ההגדרות למטה חלות על ElevenLabs בלבד, ולכן לא ישנו כלום כרגע. בדוק
-              ש-<span dir="ltr">ELEVENLABS_API_KEY</span> ו-
-              <span dir="ltr">ELEVENLABS_VOICE_ID</span> מוגדרים ב-Vercel, ושבוצע
-              Redeploy אחרי ההוספה.
-            </div>
-          </div>
-        )}
-
-        <p className="text-zinc-500 text-xs mb-3">
-          הבחירה נשמרת במכשיר הזה בלבד ואינה משנה את הגדרת השרת. השאר ריק כדי
-          להשתמש בקול שמוגדר ב-Vercel.
-        </p>
-
-        {/* Pick from what the account can actually drive over the API. A voice
-            copied out of the Voice Library on the website is not necessarily
-            one of them. */}
-        {voices && voices.length > 0 && (
-          <>
-            <label className="block text-zinc-400 text-[11px] font-bold mb-1">
-              קולות שהחשבון שלך יכול להשתמש בהם ב-API
-            </label>
-            <select
-              value={voice.id ?? ""}
-              onChange={(e) => updateVoice({ id: e.target.value || undefined })}
-              className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-emerald-500 mb-3"
-            >
-              <option value="">ברירת המחדל של השרת</option>
-              {voices.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name}
-                  {v.category ? ` — ${CATEGORY_LABEL[v.category] ?? v.category}` : ""}
-                </option>
-              ))}
-            </select>
-          </>
-        )}
-        {voicesError && (
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-3" dir="rtl">
-            <div className="text-amber-300 text-xs font-bold flex items-center gap-1.5">
-              <AlertTriangle size={13} />
-              לא ניתן לטעון את רשימת הקולות
-            </div>
-            {voicesError.hint && (
-              <p className="text-amber-200/80 text-[11px] mt-1">{voicesError.hint}</p>
-            )}
-            <p className="text-zinc-500 text-[10px] mt-2 break-words" dir="auto">
-              {voicesError.detail}
-            </p>
-          </div>
-        )}
-
-        <label className="block text-zinc-400 text-[11px] font-bold mb-1">
-          מזהה קול (Voice ID) — ידני
-        </label>
-        <input
-          type="text"
-          value={voice.id ?? ""}
-          onChange={(e) => updateVoice({ id: e.target.value.trim() || undefined })}
-          placeholder="ברירת המחדל של השרת"
-          dir="ltr"
-          className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-white text-xs placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500 mb-3"
-          autoComplete="off"
-          spellCheck={false}
-        />
-
-        <div className="flex flex-col gap-3">
-          {VOICE_SLIDERS.map((slider) => {
-            const value = (voice[slider.key] as number | undefined) ?? slider.fallback;
-            return (
-              <div key={slider.key}>
-                <div className="flex justify-between items-baseline">
-                  <span className="text-zinc-400 text-[11px] font-bold">{slider.label}</span>
-                  <span className="text-zinc-500 text-[11px] tabular-nums">{value.toFixed(2)}</span>
-                </div>
-                {/* dir=ltr: inside the RTL panel a range input renders
-                    mirrored, so the handle sat opposite its own number. */}
-                <input
-                  dir="ltr"
-                  type="range"
-                  min={slider.min}
-                  max={slider.max}
-                  step={slider.step}
-                  value={value}
-                  onChange={(e) => updateVoice({ [slider.key]: parseFloat(e.target.value) } as Partial<VoicePrefs>)}
-                  className="w-full accent-emerald-500"
-                />
-                <p className="text-zinc-600 text-[10px]">{slider.hint}</p>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Niqqud. A toggle rather than a setting, so it can be A/B'd against
-            the sample sentence in two clicks. */}
-        <label className="flex items-start gap-2 mt-4 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={voice.niqqud !== false}
-            onChange={(e) => updateVoice({ niqqud: e.target.checked ? undefined : false })}
-            className="mt-0.5 accent-emerald-500"
-          />
-          <span>
-            <span className="text-zinc-300 text-xs font-bold">ניקוד לפני ההקראה</span>
-            <span className="block text-zinc-600 text-[10px]">
-              מנקד את הטקסט לפני שהוא נשלח לקול, כדי למנוע קריאות כמו &quot;מַהֵר&quot;
-              במקום &quot;מֵהַר מירון&quot;. אם Nakdan של DICTA זמין הוא מנקד את כל
-              המשפט; אחרת נעשה שימוש בטבלה פנימית של מילות נוף בלבד.
-            </span>
-          </span>
-        </label>
-
-        <div className="flex gap-2 mt-4">
-          <button
-            onClick={testVoice}
-            disabled={testState === "loading"}
-            className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 font-bold text-xs py-2.5 hover:bg-emerald-500/20 transition-colors disabled:opacity-60"
-          >
-            {testState === "loading" ? <Loader2 size={14} className="animate-spin" /> : <Volume2 size={14} />}
-            השמע משפט לדוגמה
-          </button>
-          <button
-            onClick={resetVoice}
-            title="חזור להגדרת השרת"
-            className="shrink-0 rounded-xl border border-white/10 text-zinc-400 hover:text-white hover:bg-white/5 py-2.5 px-3 transition-colors"
-          >
-            <RotateCcw size={14} />
-          </button>
-        </div>
-
-        {testState === "error" && testHint && (
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs mt-3" dir="rtl">
-            <div className="text-amber-300 font-bold flex items-center gap-1.5">
-              <AlertTriangle size={13} />
-              מה לעשות
-            </div>
-            <p className="text-amber-200/80 mt-1">{testHint}</p>
-          </div>
-        )}
-
-        {testMessage && (
-          <p
-            className={`text-[10px] mt-2 break-words ${testState === "error" ? "text-zinc-500" : "text-zinc-500"}`}
-            dir="auto"
-          >
-            {testMessage}
-          </p>
-        )}
-
-        {/* Exactly what the voice was handed. The stored narration is plain
-            Hebrew, so this is the only place the vocalized form is visible. */}
-        {spokenText && (
-          <div className="bg-white/5 border border-white/10 rounded-xl p-3 mt-2">
-            <div className="text-zinc-500 text-[10px] font-bold mb-1">הטקסט שנשלח לקול</div>
-            <p className="text-zinc-300 text-[11px] leading-6" dir="rtl">{spokenText}</p>
-          </div>
-        )}
-
-        {/* Niqqud check — costs nothing and synthesizes nothing.
-            Two things cannot be settled anywhere else: whether the server can
-            reach Nakdan at all, and what each of the two passes does to a given
-            sentence. */}
-        <h3 className="text-zinc-300 font-bold text-sm mt-6 mb-1 flex items-center gap-2">
-          <Type size={15} className="text-sky-400" />
-          בדיקת ניקוד
-        </h3>
-        <p className="text-zinc-500 text-xs mb-3">
-          מראה מה הניקוד עושה למשפט, בלי לייצר קול ובלי לצרוך קרדיטים. שימושי
-          במיוחד כדי לבדוק אם השרת מצליח להגיע ל-Nakdan של DICTA.
-        </p>
-
-        <textarea
-          value={niqqudText}
-          onChange={(e) => setNiqqudText(e.target.value)}
-          rows={2}
-          dir="rtl"
-          className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-sky-500 mb-2 resize-none"
-        />
-        <button
-          onClick={checkNiqqud}
-          disabled={niqqudState === "loading" || !niqqudText.trim()}
-          className="w-full flex items-center justify-center gap-2 rounded-xl border border-sky-500/40 bg-sky-500/10 text-sky-300 font-bold text-xs py-2.5 hover:bg-sky-500/20 transition-colors disabled:opacity-60"
-        >
-          {niqqudState === "loading" ? <Loader2 size={14} className="animate-spin" /> : <Type size={14} />}
-          נקד את הטקסט
-        </button>
-
-        {niqqudError && (
-          <p className="text-amber-400 text-[11px] mt-2" dir="auto">{niqqudError}</p>
-        )}
-
-        {niqqudCheck && (
-          <div className="flex flex-col gap-2 mt-3">
-            <div
-              className={`rounded-xl p-3 border ${
-                niqqudCheck.dicta.ok
-                  ? "bg-emerald-500/10 border-emerald-500/30"
-                  : "bg-amber-500/10 border-amber-500/30"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className={`text-[11px] font-bold ${niqqudCheck.dicta.ok ? "text-emerald-300" : "text-amber-300"}`}>
-                  Nakdan (DICTA)
-                </span>
-                {niqqudCheck.active === "dicta" && (
-                  <span className="text-[9px] font-bold text-zinc-400 bg-white/10 px-2 py-0.5 rounded-full">
-                    הספק הפעיל
-                  </span>
+                {niqqudCheck.dicta.ok ? (
+                  <p className="text-zinc-200 text-xs leading-6 mt-1" dir="rtl">{niqqudCheck.dicta.text}</p>
+                ) : (
+                  <>
+                    <p className="text-amber-200/80 text-xs mt-1" dir="auto">{niqqudCheck.dicta.error}</p>
+                    <p className="text-zinc-100 text-xs mt-1">
+                      הקריינות עדיין תעבוד — היא נופלת חזרה לטבלה הפנימית.
+                    </p>
+                    {niqqudCheck.dicta.raw && (
+                      <details className="mt-2">
+                        <summary className="text-zinc-100 text-xs cursor-pointer">
+                          מה Nakdan החזיר בפועל
+                        </summary>
+                        <pre
+                          className="text-zinc-100 text-xs mt-1 whitespace-pre-wrap break-all max-h-40 overflow-y-auto"
+                          dir="ltr"
+                        >
+                          {niqqudCheck.dicta.raw}
+                        </pre>
+                      </details>
+                    )}
+                  </>
                 )}
+                <p className="text-zinc-100 text-xs mt-1.5 break-all" dir="ltr">{niqqudCheck.endpoint}</p>
               </div>
-              {niqqudCheck.dicta.ok ? (
-                <p className="text-zinc-200 text-[11px] leading-6 mt-1" dir="rtl">{niqqudCheck.dicta.text}</p>
-              ) : (
-                <>
-                  <p className="text-amber-200/80 text-[11px] mt-1" dir="auto">{niqqudCheck.dicta.error}</p>
-                  <p className="text-zinc-500 text-[10px] mt-1">
-                    הקריינות עדיין תעבוד — היא נופלת חזרה לטבלה הפנימית.
-                  </p>
-                  {niqqudCheck.dicta.raw && (
-                    <details className="mt-2">
-                      <summary className="text-zinc-500 text-[10px] cursor-pointer">
-                        מה Nakdan החזיר בפועל
-                      </summary>
-                      <pre
-                        className="text-zinc-500 text-[9px] mt-1 whitespace-pre-wrap break-all max-h-40 overflow-y-auto"
-                        dir="ltr"
-                      >
-                        {niqqudCheck.dicta.raw}
-                      </pre>
-                    </details>
+
+              <div className="rounded-xl p-3 border bg-white/5 border-white/10">
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-100 text-xs font-bold">טבלה פנימית</span>
+                  {niqqudCheck.active === "lexicon" && (
+                    <span className="text-xs font-bold text-zinc-100 bg-white/10 px-2 py-0.5 rounded-full">
+                      הספק הפעיל
+                    </span>
                   )}
-                </>
-              )}
-              <p className="text-zinc-600 text-[9px] mt-1.5 break-all" dir="ltr">{niqqudCheck.endpoint}</p>
-            </div>
-
-            <div className="rounded-xl p-3 border bg-white/5 border-white/10">
-              <div className="flex items-center justify-between">
-                <span className="text-zinc-400 text-[11px] font-bold">טבלה פנימית</span>
-                {niqqudCheck.active === "lexicon" && (
-                  <span className="text-[9px] font-bold text-zinc-400 bg-white/10 px-2 py-0.5 rounded-full">
-                    הספק הפעיל
-                  </span>
+                </div>
+                <p className="text-zinc-100 text-xs leading-6 mt-1" dir="rtl">{niqqudCheck.lexicon.text}</p>
+                {!niqqudCheck.lexicon.changed && (
+                  <p className="text-zinc-100 text-xs mt-1">אין במשפט הזה מילה שהטבלה מכירה.</p>
                 )}
               </div>
-              <p className="text-zinc-300 text-[11px] leading-6 mt-1" dir="rtl">{niqqudCheck.lexicon.text}</p>
-              {!niqqudCheck.lexicon.changed && (
-                <p className="text-zinc-600 text-[10px] mt-1">אין במשפט הזה מילה שהטבלה מכירה.</p>
-              )}
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Field rehearsal: cut the network without leaving the house. */}
-        <h3 className="text-zinc-300 font-bold text-sm mt-6 mb-1 flex items-center gap-2">
-          <WifiOff size={15} className="text-sky-400" />
-          בדיקה בלי קליטה
-        </h3>
-        <p className="text-zinc-500 text-xs mb-3">
-          מדמה אובדן קליטה: המפה, הקריינות והמסלולים יגיעו רק ממה שנשמר במכשיר. כך אפשר
-          לוודא בבית שהורדה של מסלול באמת מספיקה לשטח. לאחר ההפעלה צריך לרענן את הדף.
-        </p>
-        <button
-          onClick={toggleSimulateOffline}
-          aria-pressed={simulateOffline}
-          className={`w-full rounded-xl border py-2.5 text-xs font-bold transition-colors ${
-            simulateOffline
-              ? "border-amber-500/50 bg-amber-500/15 text-amber-300"
-              : "border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10"
-          }`}
-        >
-          {simulateOffline ? "מדמה אובדן קליטה — לחץ כדי לחזור לרשת" : "דמה אובדן קליטה"}
-        </button>
-        {storage && (
-          <p className="text-zinc-600 text-[10px] mt-2">
-            אחסון האפליקציה במכשיר: {(storage.usage / (1024 * 1024)).toFixed(0)} MB בשימוש מתוך{" "}
-            {(storage.quota / (1024 * 1024 * 1024)).toFixed(1)} GB זמינים.
+          {/* Field rehearsal: cut the network without leaving the house. */}
+          <h3 className="text-zinc-100 font-bold text-sm mt-6 mb-1 flex items-center gap-2">
+            <WifiOff size={15} className="text-sky-400" />
+            בדיקה בלי קליטה
+          </h3>
+          <p className="text-zinc-100 text-xs mb-3">
+            מדמה אובדן קליטה: המפה, הקריינות והמסלולים יגיעו רק ממה שנשמר במכשיר. כך אפשר
+            לוודא בבית שהורדה של מסלול באמת מספיקה לשטח. לאחר ההפעלה צריך לרענן את הדף.
           </p>
+          <button
+            onClick={toggleSimulateOffline}
+            aria-pressed={simulateOffline}
+            className={`w-full rounded-xl border py-2.5 text-xs font-bold transition-colors ${
+              simulateOffline
+                ? "border-amber-500/50 bg-amber-500/15 text-amber-300"
+                : "border-white/10 bg-white/5 text-zinc-100 hover:bg-white/10"
+            }`}
+          >
+            {simulateOffline ? "מדמה אובדן קליטה — לחץ כדי לחזור לרשת" : "דמה אובדן קליטה"}
+          </button>
+          {storage && (
+            <p className="text-zinc-100 text-xs mt-2">
+              אחסון האפליקציה במכשיר: {(storage.usage / (1024 * 1024)).toFixed(0)} MB בשימוש מתוך{" "}
+              {(storage.quota / (1024 * 1024 * 1024)).toFixed(1)} GB זמינים.
+            </p>
+          )}
+          </div>
         )}
       </div>
     </div>

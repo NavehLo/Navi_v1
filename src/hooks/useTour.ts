@@ -14,6 +14,21 @@ export function tourSpeedsFor(kind: TrailKind | undefined): readonly number[] {
   return kind === 'drive' ? DRIVE_TOUR_SPEEDS : TOUR_SPEEDS;
 }
 
+// How long the rest of the tour takes at the chosen speed — shown under the
+// progress bar, where a new speed shows up at once. On screen the ground seems
+// to speed up by much less than the multiplier (the camera pulls back as it
+// goes faster, see below), so without a number a new speed can look as if it
+// did nothing.
+export function tourSecondsLeft(totalKm: number, progress: number, speed: number): number {
+  return (Math.max(0, 1 - progress) * totalKm * SEC_PER_KM) / Math.max(speed, 1);
+}
+export function formatTourTimeLeft(sec: number): string {
+  if (sec < 60) return 'פחות מדקה';
+  const min = Math.ceil(sec / 60);
+  if (min < 60) return `${min} דק׳`;
+  return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')} שע׳`;
+}
+
 // The camera height that keeps the ground moving at a readable pace. At x1 the
 // traveller covers ~22 m/s; at x5 it is ~110 m/s, and at zoom 17 that is a
 // blur the satellite tiles cannot even load fast enough for. Pulling back a
