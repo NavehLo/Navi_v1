@@ -63,6 +63,30 @@ export function writeTripDate(date: string): void {
   }
 }
 
+// The hour chosen to set off at, across trails and days; null for the
+// default. Somebody who can only leave at eleven can only leave at eleven
+// whichever trail they look at.
+const START_KEY = 'navi:tripStart';
+
+export function readTripStart(): number | null {
+  try {
+    const raw = localStorage.getItem(START_KEY);
+    const h = raw == null ? NaN : Number(raw);
+    return Number.isFinite(h) && h >= 0 && h < 24 ? h : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeTripStart(hour: number | null): void {
+  try {
+    if (hour == null) localStorage.removeItem(START_KEY);
+    else localStorage.setItem(START_KEY, String(hour));
+  } catch {
+    // Not remembered — the default start is used next time.
+  }
+}
+
 function prune(): void {
   try {
     const entries: Array<{ storageKey: string; savedAt: number }> = [];

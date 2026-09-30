@@ -124,7 +124,7 @@ export default function TripWeatherSection({ weather, isDrive, trail }: { weathe
             })}
           </div>
 
-          {day && <DayDetails day={day} isDrive={isDrive} />}
+          {day && <DayDetails day={day} isDrive={isDrive} startHour={weather.startHour} onStart={weather.selectStart} />}
 
           {day && <AdviceText trail={trail} day={day} effort={effort} hours={hours} />}
 
@@ -144,13 +144,42 @@ export default function TripWeatherSection({ weather, isDrive, trail }: { weathe
   );
 }
 
-function DayDetails({ day, isDrive }: { day: DayAdvice; isDrive: boolean }) {
+// The hours offered for setting off. Early enough for a summer dawn start,
+// late enough for "I can only get there by the afternoon".
+const START_HOURS = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+
+function DayDetails({ day, isDrive, startHour, onStart }: { day: DayAdvice; isDrive: boolean; startHour: number | null; onStart: (h: number | null) => void }) {
   const s = day.summary;
   const info = weatherCodeInfo(s.code);
 
   return (
     <div>
-      {/* The day in one glance */}
+      {/* When they set off — the default is only a guess, and everything below
+          (the walking hours, the water, the warnings) follows this choice. */}
+      <div className="flex items-center gap-2 mb-2 flex-wrap text-xs text-zinc-100">
+        <Clock className="w-3.5 h-3.5 shrink-0" />
+        <label htmlFor="trip-start" className="text-white font-bold">שעת יציאה</label>
+        <select
+          id="trip-start"
+          value={startHour == null ? "" : String(startHour)}
+          onChange={(e) => onStart(e.target.value === "" ? null : Number(e.target.value))}
+          className="bg-zinc-800 text-white text-sm rounded-lg border border-white/20 px-2 py-1"
+        >
+          <option value="">מומלץ ({formatHour(day.defaultStart)})</option>
+          {START_HOURS.map((h) => (
+            <option key={h} value={h}>{formatHour(h)}</option>
+          ))}
+        </select>
+        <span>
+          סיום משוער <span className="text-white font-bold">{formatHour(Math.min(23.99, day.endHour))}</span> · שקיעה {day.sunset}
+        </span>
+      </div>
+
+      <div className="text-xs text-zinc-200 mb-1">
+        בשעות {isDrive ? "הנסיעה" : "ההליכה"} (<span dir="ltr" className="inline-block">{formatHour(day.startHour)}–{formatHour(Math.min(23.99, day.endHour))}</span>):
+      </div>
+
+      {/* The walking hours in one glance */}
       <div className="flex items-center gap-3 mb-2">
         <WeatherIcon code={s.code} className="w-9 h-9 text-yellow-300 shrink-0" />
         <div className="min-w-0">
@@ -169,11 +198,6 @@ function DayDetails({ day, isDrive }: { day: DayAdvice; isDrive: boolean }) {
         <Stat icon={<Sun className="w-3.5 h-3.5" />} label="קרינת UV" value={String(Math.round(s.uvMax))} tone="text-yellow-300" />
       </div>
 
-      <div className="text-xs text-zinc-100 mb-2 flex items-center gap-1 flex-wrap">
-        <Clock className="w-3.5 h-3.5 shrink-0" />
-        יציאה {formatHour(day.startHour)} · סיום משוער {formatHour(Math.min(23.99, day.endHour))} · שקיעה {day.sunset}
-      </div>
-
       {s.high && (
         <div className="text-xs text-zinc-100 mb-2 flex items-center gap-1">
           <Mountain className="w-3.5 h-3.5 shrink-0" />
@@ -181,21 +205,38 @@ function DayDetails({ day, isDrive }: { day: DayAdvice; isDrive: boolean }) {
         </div>
       )}
 
-      {/* Hour by hour through the walk */}
-      <div className="flex gap-1 overflow-x-auto pb-1 mb-2 overscroll-x-contain">
-        {day.hours.map((h) => (
-          <div key={h.hour} className="shrink-0 w-11 flex flex-col items-center rounded-lg bg-white/5 py-1">
-            <span className="text-[11px] text-zinc-200">{String(h.hour).padStart(2, "0")}:00</span>
-            <WeatherIcon code={h.code} className="w-4 h-4 text-white my-0.5" />
-            <span className={`text-xs font-bold ${h.heatLevel >= 4 ? "text-red-300" : h.heatLevel >= 3 ? "text-amber-300" : "text-white"}`}>{Math.round(h.temp)}°</span>
-            {h.pop >= 20 && <span className="text-[11px] text-sky-300">{Math.round(h.pop)}%</span>}
+      {/* The whole daytime in blocks, whatever the start — the walking hours
+          outlined. A forecast is not precise to the hour anyway. */}
+      <div className="text-xs text-white font-bold mb-1">לאורך היום</div>
+      <div className="grid grid-cols-4 gap-1 mb-2">
+        {day.blocks.map((b) => (
+          <div
+            key={b.from}
+            className={`flex flex-col items-center rounded-lg py-1.5 border ${b.inWalk ? "bg-white/10 border-white/40" : "bg-white/5 border-transparent"}`}
+          >
+            <span dir="ltr" className="text-xs text-zinc-100">{String(b.from).padStart(2, "0")}–{String(b.to).padStart(2, "0")}</span>
+            <WeatherIcon code={b.code} className="w-4 h-4 text-white my-0.5" />
+            <span className={`text-xs font-bold ${b.heatLevel >= 4 ? "text-red-300" : b.heatLevel >= 3 ? "text-amber-300" : "text-white"}`}>
+              <Deg from={b.tMin} to={b.tMax} />
+            </span>
+            {b.popMax >= 20 && <span className="text-xs text-sky-300">{Math.round(b.popMax)}%</span>}
           </div>
         ))}
       </div>
 
       {day.suggestedStart != null && (
-        <div className="text-xs text-sky-200 mb-2">
-          כדאי לצאת כבר ב־<span className="font-bold text-white">{formatHour(day.suggestedStart)}</span> — פחות שעות בחום.
+        <div className="text-xs text-sky-200 mb-2 flex items-center gap-2 flex-wrap">
+          <span>
+            כדאי לשקול לצאת כבר ב־<span className="font-bold text-white">{formatHour(day.suggestedStart)}</span> — פחות שעות בחום.
+          </span>
+          {Number.isInteger(day.suggestedStart) && START_HOURS.includes(day.suggestedStart) && (
+            <button
+              onClick={() => onStart(day.suggestedStart)}
+              className="text-xs text-white font-bold bg-sky-500/25 hover:bg-sky-500/40 rounded-full px-2.5 py-0.5"
+            >
+              לצאת ב־{formatHour(day.suggestedStart)}
+            </button>
+          )}
         </div>
       )}
 
@@ -213,15 +254,16 @@ function DayDetails({ day, isDrive }: { day: DayAdvice; isDrive: boolean }) {
       {/* What to take */}
       {!isDrive && day.water && (
         <div className="rounded-xl bg-white/5 border border-white/10 p-2.5">
-          <div className="text-xs text-white font-bold mb-1.5">מה לקחת</div>
+          <div className="text-xs text-white font-bold mb-1.5">מה כדאי לקחת</div>
           <div className="flex items-baseline gap-2 mb-1">
             <Droplets className="w-4 h-4 text-sky-300 self-center" />
+            <span className="text-sm text-white">לפחות</span>
             <span className="text-xl font-bold text-sky-300 leading-none">{day.water.liters}</span>
             <span className="text-sm text-white">ליטר מים לאדם</span>
           </div>
           <div className="text-xs text-zinc-100 mb-2">
-            בערך {day.water.perHour} ליטר לשעת הליכה, ועוד חצי ליטר רזרבה.
-            {day.water.electrolytes && <span className="text-amber-200"> לקחת גם חטיפים מלוחים או אבקת מלחים.</span>}
+            בערך {day.water.perHour} ליטר לשעת הליכה, ועוד {day.water.reserve === 1 ? "ליטר" : "חצי ליטר"} רזרבה.
+            {day.water.electrolytes && <span className="text-amber-200"> כדאי גם חטיפים מלוחים או אבקת מלחים.</span>}
           </div>
           {day.clothing.length > 0 && (
             <div className="flex flex-wrap gap-1">
@@ -236,8 +278,10 @@ function DayDetails({ day, isDrive }: { day: DayAdvice; isDrive: boolean }) {
   );
 }
 
-// The day in words. The facts above it stay the authority; this says them
-// the way a guide would, and falls back to plain sentences with no signal.
+// The day in words. By default the plain sentences built on the device; the
+// model's version only when switched on here (it is off unless somebody turns
+// it on, and it uses a free key only — see api/trip-advice). The facts above
+// stay the authority either way.
 function AdviceText({ trail, day, effort, hours }: { trail: TrailBrief; day: DayAdvice; effort: HikeEffort | null; hours: number }) {
   const input = useMemo(
     () => adviceInput({ name: trail.name, kind: trail.kind, totalDistance: trail.totalDistance }, day, effort, hours),
@@ -248,14 +292,29 @@ function AdviceText({ trail, day, effort, hours }: { trail: TrailBrief; day: Day
   return (
     <div className="mt-2 rounded-xl bg-sky-500/10 border border-sky-400/25 p-2.5">
       <div className="text-xs text-sky-200 font-bold mb-1 flex items-center gap-1">
-        <Sparkles className="w-3.5 h-3.5" />
-        {advice.source === "plain" ? "בקצרה" : "מה צפוי ביום הזה"}
+        {advice.source === "plain" ? "בקצרה" : <><Sparkles className="w-3.5 h-3.5" /> מה צפוי ביום הזה</>}
       </div>
       {advice.loading && <div className="text-sm text-white">מכין הסבר…</div>}
       {advice.text && <p className="text-sm text-white leading-relaxed">{isolateNumbers(advice.text)}</p>}
-      {advice.source === "plain" && (
-        <div className="text-xs text-zinc-200 mt-1">סיכום אוטומטי — אין כרגע חיבור לשירות ההסבר.</div>
+      {advice.reason === "not-configured" && (
+        <div className="text-xs text-amber-200 mt-1">לא הוגדר בשרת מפתח Gemini חינמי — מוצג הסיכום הרגיל.</div>
       )}
+      {advice.reason === "unavailable" && (
+        <div className="text-xs text-amber-200 mt-1">ההסבר המפורט לא זמין כרגע — מוצג הסיכום הרגיל.</div>
+      )}
+
+      <button
+        role="switch"
+        aria-checked={advice.enabled}
+        onClick={() => advice.setEnabled(!advice.enabled)}
+        className="mt-2 flex items-center gap-2 text-xs text-zinc-100"
+      >
+        <span className={`relative w-8 h-4 rounded-full transition-colors ${advice.enabled ? "bg-sky-500" : "bg-zinc-600"}`}>
+          <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${advice.enabled ? "left-0.5" : "left-[18px]"}`} />
+        </span>
+        <Sparkles className="w-3.5 h-3.5" />
+        הסבר מפורט בבינה מלאכותית (Gemini חינמי)
+      </button>
     </div>
   );
 }

@@ -5,7 +5,8 @@ import { weatherPointsFor, isDesertArea, type WeatherBundle, type WeatherStatus 
 import { estimateHike, type HikeEffort } from '../lib/hikeEffort';
 import { adviseWeek, findTodayIndex, type DayAdvice } from '../lib/hikeAdvice';
 import {
-  readCachedWeather, writeCachedWeather, readTripDate, writeTripDate, trailCacheKey, WEATHER_FRESH_MS,
+  readCachedWeather, writeCachedWeather, readTripDate, writeTripDate, readTripStart, writeTripStart,
+  trailCacheKey, WEATHER_FRESH_MS,
 } from '../lib/weatherCache';
 
 export interface TripWeather {
@@ -16,6 +17,8 @@ export interface TripWeather {
   days: DayAdvice[];           // today and the six after it
   selected: DayAdvice | null;
   selectDate: (date: string) => void;
+  startHour: number | null;    // chosen start; null for the default
+  selectStart: (hour: number | null) => void;
   retry: () => void;
 }
 
@@ -29,6 +32,7 @@ export function useTripWeather(trail: TrailData | null): TripWeather {
   const [status, setStatus] = useState<WeatherStatus>('loading');
   const [date, setDate] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [startHour, setStartHour] = useState<number | null>(() => (typeof window === 'undefined' ? null : readTripStart()));
 
   const isDrive = trail?.kind === 'drive';
 
@@ -96,8 +100,9 @@ export function useTripWeather(trail: TrailData | null): TripWeather {
       kind: isDrive ? 'drive' : 'hike',
       hours,
       isDesert: isDesertArea(mid[0], mid[1]),
+      startHour,
     });
-  }, [bundle, trail, isDrive, hours]);
+  }, [bundle, trail, isDrive, hours, startHour]);
 
   // The day picked here, else the trip day remembered from another trail,
   // else today — whichever is still one of the choosable days.
@@ -111,6 +116,11 @@ export function useTripWeather(trail: TrailData | null): TripWeather {
     writeTripDate(d);
   }, []);
 
+  const selectStart = useCallback((h: number | null) => {
+    setStartHour(h);
+    writeTripStart(h);
+  }, []);
+
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
   // One object per real change: the stats panel is memoised, and a fresh
@@ -118,7 +128,7 @@ export function useTripWeather(trail: TrailData | null): TripWeather {
   // would redraw it for nothing.
   const fetchedAt = bundle?.fetchedAt ?? null;
   return useMemo(
-    () => ({ status, fetchedAt, effort, hours, days, selected, selectDate, retry }),
-    [status, fetchedAt, effort, hours, days, selected, selectDate, retry],
+    () => ({ status, fetchedAt, effort, hours, days, selected, selectDate, startHour, selectStart, retry }),
+    [status, fetchedAt, effort, hours, days, selected, selectDate, startHour, selectStart, retry],
   );
 }

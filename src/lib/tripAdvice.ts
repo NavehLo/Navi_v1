@@ -31,7 +31,7 @@ export interface AdviceInput {
   gusts: number;
   uv: number;
   high: string | null;      // "בנקודה הגבוהה (1150 מ׳): 12–15°, מרגיש כמו 9°"
-  water: string | null;     // "3.5 ליטר לאדם (0.75 לשעה), ועוד חטיפים מלוחים"
+  water: string | null;     // "לפחות 3.5 ליטר לאדם (…)", always a minimum
   clothing: string[];
   warnings: string[];       // "סכנה: …", "זהירות: …"
   betterStart: string | null;
@@ -76,7 +76,7 @@ export function adviceInput(
     gusts: s.gustMax,
     uv: Math.round(s.uvMax),
     high: s.high ? `בנקודה הגבוהה (${s.high.ele} מ׳): ${range(s.high.tMin, s.high.tMax)}, מרגיש כמו ${Math.round(s.high.feelsMin)}°` : null,
-    water: w ? `${w.liters} ליטר לאדם (בערך ${w.perHour} לשעה)${w.electrolytes ? ', ועוד חטיפים מלוחים או אבקת מלחים' : ''}` : null,
+    water: w ? `לפחות ${w.liters} ליטר לאדם (בערך ${w.perHour} ליטר לשעת הליכה ועוד ${w.reserve === 1 ? 'ליטר' : 'חצי ליטר'} רזרבה)${w.electrolytes ? ', וכדאי גם חטיפים מלוחים או אבקת מלחים' : ''}` : null,
     clothing: day.clothing.map((c) => c.label),
     warnings: day.warnings.map((x) => `${x.level === 'danger' ? 'סכנה' : x.level === 'warn' ? 'זהירות' : 'לידיעה'}: ${x.text}`),
     betterStart: day.suggestedStart != null ? formatHour(day.suggestedStart) : null,
@@ -92,7 +92,9 @@ export function adviceKey(input: AdviceInput): string {
   return (h >>> 0).toString(36);
 }
 
-// With no model and nothing cached: the same facts, in plain sentences.
+// The same facts in plain sentences — what the panel shows by default, and
+// whenever the model is off or cannot be reached. Recommending, not ordering:
+// "ההמלצה היא לקחת לפחות…" rather than "קחו…".
 export function fallbackAdvice(a: AdviceInput): string {
   const parts: string[] = [];
   parts.push(`${a.day} צפוי ${a.sky}, ${a.temp} בשעות ${a.kind === 'drive' ? 'הנסיעה' : 'ההליכה'} (מרגיש כמו ${a.feels}).`);
@@ -101,9 +103,9 @@ export function fallbackAdvice(a: AdviceInput): string {
   if (a.gusts >= 35) parts.push(`רוח עם משבים של עד ${a.gusts} קמ״ש.`);
   if (a.kind === 'hike') {
     if (a.heat !== 'ללא עומס חום') parts.push(`${a.heat} — כדאי לנוח בצל ולשתות לאורך כל הדרך.`);
-    if (a.betterStart) parts.push(`כדי להימנע מהחום, אפשר לצאת כבר ב־${a.betterStart}.`);
-    if (a.water) parts.push(`קחו ${a.water}.`);
-    if (a.clothing.length) parts.push(`מה ללבוש ולקחת: ${a.clothing.join(', ')}.`);
+    if (a.betterStart) parts.push(`כדי להימנע מהחום, כדאי לשקול לצאת כבר ב־${a.betterStart}.`);
+    if (a.water) parts.push(`ההמלצה היא לקחת ${a.water}.`);
+    if (a.clothing.length) parts.push(`כדאי לשקול לקחת: ${a.clothing.join(', ')}.`);
   }
   return parts.join(' ');
 }

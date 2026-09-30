@@ -54,20 +54,25 @@ export interface TripInfo {
   kind: 'hike' | 'drive';
   hours: number;          // how long it is out there, breaks included
   isDesert: boolean;
+  // The hour chosen to set off at; null for the default (see defaultStartHour).
+  startHour?: number | null;
 }
 
-export interface HourRow {
-  hour: number;
-  temp: number;
-  feels: number;
-  pop: number;
-  precip: number;
-  wind: number;
-  gust: number;
-  code: number;
-  uv: number;
-  heatLevel: number;
+// The whole daytime in a few blocks of hours, whatever the start: the
+// forecast is not precise to the hour anyway, and somebody who can only leave
+// at eleven needs to see eleven, not just the default walking window.
+export interface DayBlock {
+  from: number;
+  to: number;
+  tMin: number;
+  tMax: number;
+  code: number;           // the worst sky in the block
+  popMax: number;
+  heatLevel: number;      // the worst hour
+  inWalk: boolean;        // overlaps the walking hours
 }
+
+export const DAY_BLOCKS: Array<[number, number]> = [[7, 10], [10, 13], [13, 16], [16, 20]];
 
 export type WarningLevel = 'danger' | 'warn' | 'info';
 
@@ -101,8 +106,9 @@ export interface DaySummary {
 }
 
 export interface WaterAdvice {
-  liters: number;
+  liters: number;         // "at least" — the panel and the text say so
   perHour: number;
+  reserve: number;        // litres on top of the hourly figure
   electrolytes: boolean;
 }
 
@@ -113,12 +119,14 @@ export interface DayAdvice {
   date: string;
   daysAhead: number;
   startHour: number;
+  defaultStart: number;   // what startHour is when nobody chose one
+  startChosen: boolean;
   endHour: number;
   sunrise: string;        // 'HH:MM'
   sunset: string;
-  // A start that would be meaningfully cooler than the default, when there is one.
+  // A start that would be meaningfully cooler than the chosen one, when there is one.
   suggestedStart: number | null;
-  hours: HourRow[];
+  blocks: DayBlock[];
   summary: DaySummary;
   water: WaterAdvice | null;      // null on drives
   clothing: ClothingItem[];       // empty on drives
@@ -140,11 +148,17 @@ export function formatHour(h: number): string {
   return `${pad(whole)}:${pad(Math.round((h - whole) * 60))}`;
 }
 
-// Starts at seven from May to October, when the heat is the thing to beat, and
-// at eight otherwise; never before first light.
-export function defaultStartHour(date: string, sunrise: string): number {
+// May to October: the heat is the thing to plan around.
+export function isSummer(date: string): boolean {
   const month = Number(date.slice(5, 7));
-  const base = month >= 5 && month <= 10 ? 7 : 8;
+  return month >= 5 && month <= 10;
+}
+
+// Starts at seven in summer, when the heat is the thing to beat, and at eight
+// otherwise; never before first light. Only a default — the panel lets the
+// start be changed.
+export function defaultStartHour(date: string, sunrise: string): number {
+  const base = isSummer(date) ? 7 : 8;
   return Math.max(base, Math.ceil(hourOf(sunrise) * 4) / 4);
 }
 
@@ -177,20 +191,24 @@ function worstHeatOver(p: PointForecast, idx: number[]): HeatLoad {
 // ── Water ─────────────────────────────────────────────────────────────────────
 // Litres an hour by heat load: from half a litre on a cool day up to one and a
 // quarter in heavy heat, in line with the common Israeli guidance of "a litre
-// an hour in the heat". Half a litre on top in reserve, rounded up to the half
-// litre, never under a litre and a half — and never under three for a walk of
-// three hours or more in real heat, which is the figure every hiking body here
-// repeats for a summer day out.
+// an hour in the heat". On top of that a reserve — a full litre in summer (or
+// in real heat at any time of year), half a litre otherwise — rounded up to
+// the half litre, never under a litre and a half, and never under three for a
+// walk of three hours or more in real heat, which is the figure every hiking
+// body here repeats for a summer day out. It is a minimum: the panel says
+// "at least".
 const LITERS_PER_HOUR = [0.4, 0.5, 0.6, 0.75, 1.0, 1.25];
 
-export function waterFor(hours: number, heatLevel: number): WaterAdvice {
+export function waterFor(hours: number, heatLevel: number, summer: boolean): WaterAdvice {
   const perHour = LITERS_PER_HOUR[Math.max(0, Math.min(5, heatLevel))];
-  let liters = Math.ceil((hours * perHour + 0.5) * 2) / 2;
+  const reserve = summer || heatLevel >= 2 ? 1 : 0.5;
+  let liters = Math.ceil((hours * perHour + reserve) * 2) / 2;
   liters = Math.max(1.5, liters);
   if (heatLevel >= 2 && hours >= 3) liters = Math.max(3, liters);
   return {
     liters,
     perHour,
+    reserve,
     electrolytes: (heatLevel >= 2 && hours >= 3) || hours >= 6,
   };
 }
@@ -205,7 +223,9 @@ export function adviseDay(bundle: WeatherBundle, dayIndex: number, todayIndex: n
 
   const sunrise = start.daily.sunrise[dayIndex] || `${date}T06:00`;
   const sunset = start.daily.sunset[dayIndex] || `${date}T18:00`;
-  const startHour = defaultStartHour(date, sunrise);
+  const defaultStart = defaultStartHour(date, sunrise);
+  const startChosen = trip.startHour != null;
+  const startHour = trip.startHour ?? defaultStart;
   const endHour = startHour + trip.hours;
 
   const idx = windowIndices(start.hourly.time, date, startHour, endHour);
@@ -215,18 +235,21 @@ export function adviseDay(bundle: WeatherBundle, dayIndex: number, todayIndex: n
   const H = start.hourly;
   const pick = (arr: number[], ii: number[]) => ii.map((i) => arr[i]);
 
-  const hours: HourRow[] = idx.map((i) => ({
-    hour: Number(H.time[i].slice(11, 13)),
-    temp: H.temp[i],
-    feels: H.feels[i],
-    pop: H.pop[i],
-    precip: H.precip[i],
-    wind: H.wind[i],
-    gust: H.gust[i],
-    code: H.code[i],
-    uv: H.uv[i],
-    heatLevel: heatLoad(H.temp[i], H.rh[i]).level,
-  }));
+  const blocks: DayBlock[] = [];
+  for (const [from, to] of DAY_BLOCKS) {
+    const b = windowIndices(H.time, date, from, to);
+    if (b.length === 0) continue;
+    const bc = pick(H.code, b);
+    blocks.push({
+      from, to,
+      tMin: round1(min(pick(H.temp, b))),
+      tMax: round1(max(pick(H.temp, b))),
+      code: bc.reduce((w, c) => (weatherCodeInfo(c).severity > weatherCodeInfo(w).severity ? c : w), bc[0] ?? 0),
+      popMax: max(pick(H.pop, b)),
+      heatLevel: worstHeatOver(start, b).level,
+      inWalk: from < endHour && to > startHour,
+    });
+  }
 
   // Heat is read at whichever point is hotter, cold at whichever is colder —
   // the walk passes through both.
@@ -294,23 +317,23 @@ export function adviseDay(bundle: WeatherBundle, dayIndex: number, todayIndex: n
   if (isHike && heat.level >= 5) {
     warnings.push({ id: 'heat', level: 'danger', text: `${heat.label} — לא מומלץ לצאת למסלול ביום הזה.` });
   } else if (isHike && heat.level === 4) {
-    warnings.push({ id: 'heat', level: 'danger', text: `${heat.label} — לצאת רק עם שחר, לקצר את המסלול, או לדחות.` });
+    warnings.push({ id: 'heat', level: 'danger', text: `${heat.label} — מומלץ לצאת עם שחר, לקצר את המסלול או לדחות.` });
   } else if (isHike && heat.level === 3) {
-    warnings.push({ id: 'heat', level: 'warn', text: `${heat.label} — להתחיל מוקדם, לנוח בצל ולשתות הרבה.` });
+    warnings.push({ id: 'heat', level: 'warn', text: `${heat.label} — כדאי להתחיל מוקדם, לנוח בצל ולשתות הרבה.` });
   }
 
   if (codes.some(isStormCode) || (capeMax >= 800 && summary.popMax >= 40)) {
-    warnings.push({ id: 'storm', level: 'danger', text: 'חשש לסופת רעמים — להימנע מפסגות, רכסים חשופים ואפיקי נחלים.' });
+    warnings.push({ id: 'storm', level: 'danger', text: 'חשש לסופת רעמים — מומלץ להימנע מפסגות, רכסים חשופים ואפיקי נחלים.' });
   }
 
   if (trip.isDesert && floodRain >= 5) {
-    warnings.push({ id: 'flood', level: 'danger', text: 'צפוי גשם באזור — סכנת שיטפונות. שיטפון יכול להגיע מגשם במעלה הנחל גם כשמעליכם שמש. לא להיכנס לאפיקי נחלים.' });
+    warnings.push({ id: 'flood', level: 'danger', text: 'צפוי גשם באזור — סכנת שיטפונות. שיטפון יכול להגיע מגשם במעלה הנחל גם כשמעליכם שמש. מומלץ לא להיכנס לאפיקי נחלים.' });
   } else if (trip.isDesert && floodRain >= 1) {
-    warnings.push({ id: 'flood', level: 'warn', text: 'קצת גשם באזור — לבדוק התראות שיטפונות ערב הטיול ולא להיכנס לאפיקים אם יורד גשם במעלה.' });
+    warnings.push({ id: 'flood', level: 'warn', text: 'קצת גשם באזור — כדאי לבדוק התראות שיטפונות ערב הטיול, ולא להיכנס לאפיקים אם יורד גשם במעלה.' });
   }
 
   if (codes.some(isSnowCode)) {
-    warnings.push({ id: 'snow', level: 'danger', text: 'צפוי שלג — הדרכים והשבילים עלולים להיסגר. לבדוק לפני היציאה.' });
+    warnings.push({ id: 'snow', level: 'danger', text: 'צפוי שלג — הדרכים והשבילים עלולים להיסגר. כדאי לבדוק לפני היציאה.' });
   } else if (summary.feelsMin <= 0) {
     warnings.push({ id: 'frost', level: 'warn', text: 'קור של מתחת לאפס — חשש לקרה ולקרח על השביל.' });
   }
@@ -318,7 +341,7 @@ export function adviseDay(bundle: WeatherBundle, dayIndex: number, todayIndex: n
   if (summary.gustMax >= 60) {
     warnings.push({ id: 'wind', level: 'danger', text: `משבי רוח חזקים מאוד (עד ${summary.gustMax} קמ״ש) — מסוכן ליד מצוקים ובקטעים חשופים.` });
   } else if (summary.gustMax >= 45) {
-    warnings.push({ id: 'wind', level: 'warn', text: `משבי רוח חזקים (עד ${summary.gustMax} קמ״ש) — להיזהר בקטעים חשופים.` });
+    warnings.push({ id: 'wind', level: 'warn', text: `משבי רוח חזקים (עד ${summary.gustMax} קמ״ש) — כדאי להיזהר בקטעים חשופים.` });
   }
 
   if (summary.popMax >= 60 || summary.precipSum >= 2) {
@@ -336,18 +359,18 @@ export function adviseDay(bundle: WeatherBundle, dayIndex: number, todayIndex: n
   }
 
   if (isHike && endHour > sunsetH) {
-    warnings.push({ id: 'dark', level: 'danger', text: `לפי הקצב המשוער תסיימו אחרי השקיעה (${hhmm(sunset)}) — לצאת מוקדם יותר או לקצר.` });
+    warnings.push({ id: 'dark', level: 'danger', text: `לפי הקצב המשוער הסיום יהיה אחרי השקיעה (${hhmm(sunset)}) — כדאי לצאת מוקדם יותר או לקצר.` });
   } else if (isHike && endHour > sunsetH - 0.5) {
-    warnings.push({ id: 'dark', level: 'warn', text: `תסיימו קרוב לשקיעה (${hhmm(sunset)}) — לקחת פנס ולא להתעכב.` });
+    warnings.push({ id: 'dark', level: 'warn', text: `הסיום יהיה קרוב לשקיעה (${hhmm(sunset)}) — כדאי לקחת פנס ולא להתעכב.` });
   }
 
   if (visMin < 1000) {
-    warnings.push({ id: 'fog', level: 'info', text: 'צפוי ערפל — הנוף עלול להיות מוסתר, ולהקפיד על הסימון.' });
+    warnings.push({ id: 'fog', level: 'info', text: 'צפוי ערפל — הנוף עלול להיות מוסתר, וכדאי להקפיד על הסימון.' });
   }
 
   // ── A cooler start ──
-  // When the default start walks into real heat, try every quarter hour from
-  // first light and offer the start that keeps the worst hour coolest.
+  // When the start walks into real heat, try every quarter hour from first
+  // light and offer the start that keeps the worst hour coolest.
   let suggestedStart: number | null = null;
   if (isHike && heat.level >= 3) {
     const first = Math.ceil(hourOf(sunrise) * 4) / 4;
@@ -362,7 +385,10 @@ export function adviseDay(bundle: WeatherBundle, dayIndex: number, todayIndex: n
   }
 
   // ── What to take ──
-  const water = isHike ? waterFor(trip.hours, heat.level) : null;
+  // The heat-load index is a shade figure. Walking in strong sun is a step
+  // harder than it says, so the water — not the label — goes up one step.
+  const sunStep = summary.uvMax >= 6 && summary.feelsMax >= 20 ? 1 : 0;
+  const water = isHike ? waterFor(trip.hours, Math.min(5, heat.level + sunStep), isSummer(date)) : null;
   const clothing = isHike ? clothingFor(summary, {
     rainy: summary.popMax >= 40 || summary.precipSum >= 1,
     muddy: warnings.some((w) => w.id === 'mud'),
@@ -376,9 +402,9 @@ export function adviseDay(bundle: WeatherBundle, dayIndex: number, todayIndex: n
   const reliability: Reliability = daysAhead <= 2 ? 'high' : daysAhead <= 4 ? 'medium' : 'low';
 
   return {
-    date, daysAhead, startHour, endHour,
+    date, daysAhead, startHour, defaultStart, startChosen, endHour,
     sunrise: hhmm(sunrise), sunset: hhmm(sunset),
-    suggestedStart, hours, summary, water, clothing, warnings, rating, reliability,
+    suggestedStart, blocks, summary, water, clothing, warnings, rating, reliability,
   };
 }
 

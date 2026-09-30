@@ -76,11 +76,15 @@ check('12 km + 900 m → hard (21 equivalent km)', steep.level === 'hard', steep
 
 // ── Water ────────────────────────────────────────────────────────────────────
 console.log('water');
-check('2 h cool day → 1.5 L (the floor)', waterFor(2, 0).liters === 1.5, waterFor(2, 0));
-check('5 h heavy heat → 5.5 L', waterFor(5, 4).liters === 5.5, waterFor(5, 4));
-check('3 h moderate heat → at least 3 L', waterFor(3, 2).liters >= 3, waterFor(3, 2));
-check('5 h heavy heat → electrolytes', waterFor(5, 4).electrolytes, waterFor(5, 4));
-check('2 h cool day → no electrolytes', !waterFor(2, 0).electrolytes, waterFor(2, 0));
+check('2 h cool winter day → 1.5 L (the floor)', waterFor(2, 0, false).liters === 1.5, waterFor(2, 0, false));
+check('winter reserve is half a litre', waterFor(2, 0, false).reserve === 0.5, waterFor(2, 0, false));
+check('summer reserve is a full litre', waterFor(2, 0, true).reserve === 1, waterFor(2, 0, true));
+check('4 h mild summer day → 4×0.5 + 1 = 3 L', waterFor(4, 1, true).liters === 3, waterFor(4, 1, true));
+check('5 h heavy heat → 5 + 1 = 6 L', waterFor(5, 4, true).liters === 6, waterFor(5, 4, true));
+check('real heat in winter still gets the full litre', waterFor(5, 4, false).reserve === 1, waterFor(5, 4, false));
+check('3 h moderate heat → at least 3 L', waterFor(3, 2, false).liters >= 3, waterFor(3, 2, false));
+check('5 h heavy heat → electrolytes', waterFor(5, 4, true).electrolytes, waterFor(5, 4, true));
+check('2 h cool day → no electrolytes', !waterFor(2, 0, false).electrolytes, waterFor(2, 0, false));
 
 // ── A hot Judean Desert day ──────────────────────────────────────────────────
 console.log('hot day, Judean Desert, 5 hours');
@@ -96,6 +100,16 @@ console.log('hot day, Judean Desert, 5 hours');
   check('no flood warning on a dry day', !has(day, 'flood'), ids(day));
   check('offers an earlier start', day.suggestedStart != null && day.suggestedStart < 7, day.suggestedStart);
   check('rated a bad day', day.rating === 'bad', day.rating);
+  check('whole day in four blocks, 07–20', day.blocks.length === 4 && day.blocks[0].from === 7 && day.blocks[3].to === 20, day.blocks.map((b) => `${b.from}-${b.to}`));
+  check('07:00–12:00 walk covers the first two blocks', day.blocks.filter((b) => b.inWalk).length === 2, day.blocks.map((b) => b.inWalk));
+
+  const late = adviseDay(hot, TODAY, TODAY, { kind: 'hike', hours: 5, isDesert: true, startHour: 11 });
+  check('start chosen at 11:00 is used', late.startHour === 11 && late.startChosen && late.defaultStart === 7, late);
+  check('leaving at 11 is hotter than at 7', late.summary.tMax > day.summary.tMax, [late.summary.tMax, day.summary.tMax]);
+  check('leaving at 11 needs at least as much water', late.water.liters >= day.water.liters, [late.water, day.water]);
+  const sunny = adviseDay(bundle([point('start', 800, () => ({ temp: 24, feels: 25, rh: 30, uv: 8 }))]), TODAY, TODAY, { kind: 'hike', hours: 7, isDesert: true });
+  check('strong sun, no heat load: one step more water (0.5 L/h, not 0.4)', sunny.summary.heat.level === 0 && sunny.water.perHour === 0.5, sunny.water);
+  check('leaving at 11 still suggests an earlier start', late.suggestedStart != null && late.suggestedStart < 11, late.suggestedStart);
 }
 
 // ── A cold, wet, windy day on Meron ──────────────────────────────────────────
@@ -113,7 +127,7 @@ console.log('cold wet day, Meron, 4 hours, after a rainy week');
   check('reports the top separately', day.summary.high?.ele === 1150, day.summary.high);
   check('warm layer, rain coat, boots, windbreaker', ['warm', 'rain', 'boots', 'windbreaker'].every((c) => wear(day).includes(c)), wear(day));
   check('no heat warning', !has(day, 'heat'), ids(day));
-  check('water stays at the floor', day.water.liters <= 2.5, day.water);
+  check('water stays low (4×0.4 + 1 → 3 L)', day.water.liters <= 3, day.water);
   check('no hat when there is no sun', !wear(day).includes('hat'), wear(day));
 }
 
