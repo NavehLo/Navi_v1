@@ -23,11 +23,13 @@ export interface DiscoveredPOI {
   grounding?: 'wikipedia' | 'osm';
 }
 
-// The version is part of the prefix: lists saved before the server started
-// keeping only points with something to say about them still hold the generic
-// ones, and would keep the guide stopping at them for as long as the cache
-// lived.
-const PREFIX = 'navi:pois:v2:';
+// The version is part of the prefix, so a change to what counts as a guide
+// point takes effect on phones that already hold a list instead of being
+// masked by it. v2 kept only points with something to say; v3 fixed the test
+// for what "something" is, which had been strict enough to reject a memorial
+// naming the person it commemorates — so every v2 list is shorter than it
+// should be and is discarded rather than shown.
+const PREFIX = 'navi:pois:v3:';
 const MAX_ENTRIES = 20;
 
 interface CacheEntry {

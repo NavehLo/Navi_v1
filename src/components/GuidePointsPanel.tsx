@@ -1,4 +1,4 @@
-import { X, Play, Headphones, Download, Trash2, Loader2, CloudOff, Map as MapIcon } from "lucide-react";
+import { X, Play, Headphones, Download, Trash2, Loader2, CloudOff, RotateCw, Map as MapIcon } from "lucide-react";
 import { TrailData, TrailPOI } from "../hooks/useTrailData";
 import { PoiSource } from "../hooks/useTrailPOIs";
 import type { OfflinePhase } from "../hooks/useOfflineTrail";
@@ -52,6 +52,8 @@ interface GuidePointsPanelProps {
   // to say whether it is the trail's real one or all that could be had.
   poiSource?: PoiSource;
   poiDiscoveryFailed?: boolean;
+  // Ask OpenStreetMap again after a failure — usually all it takes.
+  onRetryDiscovery?: () => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -69,6 +71,7 @@ export default function GuidePointsPanel({
   offline,
   poiSource = "live",
   poiDiscoveryFailed = false,
+  onRetryDiscovery,
 }: GuidePointsPanelProps) {
   const acc = trail.accumulatedDistances;
 
@@ -98,22 +101,34 @@ export default function GuidePointsPanel({
           </button>
         </div>
 
-        <p className="text-zinc-500 text-xs px-6 pb-3 shrink-0">
+        <p className="text-white/90 text-xs px-6 pb-3 shrink-0">
           {pois.length} נקודות במסלול הזה שיש עליהן מידע ייחודי. כשהמדריכה מופעלת היא מקריינת
           אותן בהגעה לכל נקודה, ואפשר להשמיע כל אחת גם מכאן.
         </p>
 
         {/* A short list after a failed discovery is not the same as a short
             trail. Saying which one this is stops an OpenStreetMap outage from
-            reading as "my points were deleted". */}
+            reading as "this trail has nothing worth hearing" — and the retry
+            matters, because the service usually answers the very next request. */}
         {poiDiscoveryFailed && (
-          <div className="mx-6 mb-3 shrink-0 flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-300 text-[11px]">
-            <CloudOff size={13} className="shrink-0 mt-0.5" />
-            <span>
-              {poiSource === "cache"
-                ? "לא ניתן לרענן כרגע את נקודות העניין מ-OpenStreetMap — מוצגת הרשימה האחרונה שנשמרה במכשיר."
-                : "לא ניתן לטעון כרגע את נקודות העניין מ-OpenStreetMap. הקריינויות שהורדו לא נמחקו — סגור ופתח את המסלול שוב בעוד רגע."}
-            </span>
+          <div className="mx-6 mb-3 shrink-0 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-200 text-xs">
+            <div className="flex items-start gap-2">
+              <CloudOff size={14} className="shrink-0 mt-0.5" />
+              <span>
+                {poiSource === "cache"
+                  ? "לא ניתן לרענן כרגע את נקודות העניין מ-OpenStreetMap — מוצגת הרשימה האחרונה שנשמרה במכשיר."
+                  : "לא ניתן לטעון כרגע את נקודות העניין מ-OpenStreetMap. זו תקלה זמנית בשירות, לא סימן שאין במסלול מה לספר. הקריינויות שהורדו לא נמחקו."}
+              </span>
+            </div>
+            {onRetryDiscovery && (
+              <button
+                onClick={onRetryDiscovery}
+                className="mt-2.5 w-full flex items-center justify-center gap-1.5 bg-amber-500/20 text-amber-100 font-bold rounded-lg py-2 border border-amber-400/40 hover:bg-amber-500/30 transition-colors"
+              >
+                <RotateCw size={14} />
+                נסה שוב
+              </button>
+            )}
           </div>
         )}
 
@@ -218,10 +233,15 @@ export default function GuidePointsPanel({
 
         <div className="overflow-y-auto px-6 pb-6 flex flex-col gap-2">
           {pois.length === 0 && (
-            <div className="text-zinc-500 text-sm text-center py-6 leading-relaxed">
-              {poiSource === "pending" && !poiDiscoveryFailed
-                ? "מחפשת נקודות במסלול..."
-                : "לא נמצאו במסלול הזה נקודות שיש עליהן מידע ייחודי, ולכן למדריכה אין מה לספר כאן."}
+            <div className="text-white text-sm text-center py-6 leading-relaxed">
+              {poiDiscoveryFailed
+                // The banner above already explains the failure and offers the
+                // retry; repeating "nothing was found" underneath it would
+                // contradict it.
+                ? "הרשימה תתמלא ברגע שהטעינה תצליח."
+                : poiSource === "pending"
+                  ? "מחפשת נקודות במסלול..."
+                  : "לא נמצאו במסלול הזה נקודות שיש עליהן מידע ייחודי, ולכן למדריכה אין מה לספר כאן."}
             </div>
           )}
 
@@ -245,19 +265,19 @@ export default function GuidePointsPanel({
                   <div className="text-white text-sm font-bold truncate">
                     {poi.name || poi.type}
                   </div>
-                  <div className="text-zinc-500 text-[11px]">
+                  <div className="text-white/80 text-xs">
                     {poi.name ? `${poi.type} · ` : ""}
                     ק״מ {km.toFixed(1)}
                   </div>
                 </div>
 
-                <div className="shrink-0 text-[11px] font-bold">
+                <div className="shrink-0 text-xs font-bold">
                   {state === "saved" ? (
                     <span className="text-sky-400" title="שמור לשימוש בלי קליטה">✓ אופליין</span>
                   ) : state === "missing" ? (
-                    <span className="text-zinc-500" title="עדיין לא הורד למכשיר">⬇ להורדה</span>
+                    <span className="text-white/80" title="עדיין לא הורד למכשיר">⬇ להורדה</span>
                   ) : (
-                    <span className="text-zinc-600" title="ינוגן אוטומטית בהגעה לנקודה">● בשטח</span>
+                    <span className="text-white/80" title="ינוגן אוטומטית בהגעה לנקודה">● בשטח</span>
                   )}
                 </div>
               </div>

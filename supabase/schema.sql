@@ -168,6 +168,27 @@ alter table public.narration_audio enable row level security;
 -- אין policy בכוונה: service_role עוקף RLS, ולקוחות לא ניגשים לטבלאות האלה
 -- ישירות — הם מקבלים טקסט ו-URL מ-/api/tour-guide.
 
+-- ── cache קבוע לנקודות שהתגלו במסלול ────────────────────────────────────────
+-- הגילוי פונה ל-Overpass, שירות ציבורי חינמי שעונה תוך שנייה או נכשל בשגיאת
+-- שער אחרי שמונה שניות, פחות או יותר באקראי. הגילוי המוצלח הראשון של מסלול
+-- נשמר כאן, וכל מי שיפתח את אותו מסלול אחר כך — מכל מכשיר — יקבל את התשובה
+-- בלי ש-Overpass מעורב בכלל. תלות הפכפכה הופכת לעלות חד-פעמית.
+--
+-- trail_key = sha1 של נקודות המסלול לאחר דילול (אותו חישוב שב-/api/pois).
+-- discovery_version מאפשר לפסול את כל ה-cache כששינוי בסינון אמור לחול גם
+-- על מסלולים שכבר התגלו.
+create table if not exists public.trail_pois (
+  trail_key text not null,
+  discovery_version int not null,
+  pois jsonb not null,
+  discovered_at timestamptz not null default now(),
+  primary key (trail_key, discovery_version)
+);
+
+alter table public.trail_pois enable row level security;
+-- אין policy, מאותה סיבה: הכתיבה והקריאה נעשות רק מהשרת עם service_role,
+-- והלקוח מקבל את הרשימה מ-/api/pois.
+
 -- bucket ציבורי לקריאה. קבצי ה-mp3 מוגשים ישירות ממנו, כך שה-Service Worker
 -- והדפדפן יכולים לשמור אותם, ואפשר להוריד מסלול שלם לשימוש בלי קליטה.
 insert into storage.buckets (id, name, public)

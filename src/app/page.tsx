@@ -380,8 +380,17 @@ export default function TrailApp() {
 
   // The trail's guide points: real places along it with something of their own
   // to be said. Best-effort; empty until discovery answers.
-  const { pois: enrichedPois, source: poiSource, discoveryFailed: poiDiscoveryFailed } =
+  const { pois: enrichedPois, source: poiSource, discoveryFailed: poiDiscoveryFailed, retry: retryPoiDiscovery } =
     useTrailPOIs(isDrive ? null : trail);
+
+  // Why there is nothing to narrate, when there is nothing. Discovery failing
+  // is not the same as the trail having nothing worth hearing, and only one of
+  // the two is worth offering a retry for.
+  const noPointsState: 'searching' | 'failed' | 'empty' | 'skipped' =
+    poiDiscoveryFailed ? 'failed'
+      : poiSource === 'pending' ? 'searching'
+      : poiSource === 'skipped' ? 'skipped'
+      : 'empty';
 
   // Where each narration point sits along the route, in kilometres — the
   // ordering key the geofence needs so point N+1 cannot speak before point N.
@@ -1313,6 +1322,7 @@ export default function TrailApp() {
           offlineStateFor={(poi) => (offlineTrail.isSaved(poi) ? 'saved' : 'missing')}
           poiSource={poiSource}
           poiDiscoveryFailed={poiDiscoveryFailed}
+          onRetryDiscovery={retryPoiDiscovery}
           offline={{
             savedCount: offlineTrail.savedCount,
             total: offlineTrail.total,
@@ -1350,7 +1360,9 @@ export default function TrailApp() {
             voiceFromDevice={currentFromDevice}
           />}
           <div className="flex items-center gap-2">
-          {!isDrive && !isLoading && !currentScript && enrichedPois.length === 0 && <NoGuidePointsHint />}
+          {!isDrive && !isLoading && !currentScript && enrichedPois.length === 0 && (
+            <NoGuidePointsHint state={noPointsState} onRetry={retryPoiDiscovery} />
+          )}
           <MemoizedBottomBar
             hasTrail={!!trail}
             trailKind={trail.kind}

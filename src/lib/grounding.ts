@@ -280,21 +280,35 @@ function osmFactsFrom(tags: Record<string, string>): string[] {
   return facts;
 }
 
-// A description has to be long enough to carry a fact or two. "מוצב על
-// פסגת ההר" is a caption, and a model given only a caption pads it out with
-// what a military post usually is — which is the generic narration this
-// filter exists to keep out.
-const MIN_DESCRIPTION_CHARS = 80;
-const MIN_INSCRIPTION_CHARS = 60;
+// What makes a description worth narrating is not its length but whether it
+// says something true of this place and no other.
+//
+// An eighty-character floor, which is what this used to be, threw away the
+// best material on the trail: "לזכר נחמיה אפרים, לוחם בסיירת מטכ״ל, שנהרג
+// במקום כשנפל מהצוק" is seventy characters and names a person, a unit and an
+// event. Meanwhile "אין מים" is short *and* generic. So: a line long enough to
+// carry a fact, or a short one carrying an unmistakable mark of specificity —
+// a number, a year, or a dedication to someone by name.
+const MIN_DESCRIPTION_CHARS = 25;
+const MIN_INSCRIPTION_CHARS = 20;
+const MIN_SPECIFIC_CHARS = 12;
+const SPECIFIC_MARK = /\d|לזכר|זכרו|זכרה|ז"ל|ז״ל|הי"ד|הי״ד|על שם|נקרא על/;
+
+function saysSomething(text: string, minChars: number): boolean {
+  if (text.length >= minChars) return true;
+  return text.length >= MIN_SPECIFIC_CHARS && SPECIFIC_MARK.test(text);
+}
 
 // Whether the element's own tags say something specific about it — a written
 // description, or the text carved on a memorial. A height in metres is not a
-// story.
+// story, which is why `ele` is colour for the prompt but never a reason to
+// stop here.
 export function hasOwnFacts(tags: Record<string, string> | null | undefined): boolean {
   if (!tags) return false;
   const description = (tags['description:he'] || tags.description || '').trim();
   const inscription = (tags.inscription || '').trim();
-  return description.length >= MIN_DESCRIPTION_CHARS || inscription.length >= MIN_INSCRIPTION_CHARS;
+  return saysSomething(description, MIN_DESCRIPTION_CHARS)
+    || saysSomething(inscription, MIN_INSCRIPTION_CHARS);
 }
 
 export interface GroundingInput {

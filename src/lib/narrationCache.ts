@@ -1,5 +1,6 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { SupabaseClient } from '@supabase/supabase-js';
 import { PROMPT_VERSION } from './poiKey';
+import { serviceClient } from './supabaseService';
 
 // Durable narration cache.
 //
@@ -11,9 +12,8 @@ import { PROMPT_VERSION } from './poiKey';
 //
 // The cache is global rather than per-user — the narration for a spring is the
 // same narration whoever is standing next to it — so it needs write access
-// that isn't tied to a signed-in user. The rest of the project deliberately
-// avoids a service-role key (see lib/supabaseServer), so this module holds the
-// only use of it, server-side, and everything here degrades to null when the
+// that isn't tied to a signed-in user. That access comes from the service-role
+// client in lib/supabaseService, and everything here degrades to null when the
 // key is missing. Without it the app still works; it just pays again.
 
 export const NARRATION_BUCKET = 'narrations';
@@ -22,18 +22,6 @@ export const NARRATION_BUCKET = 'narrations';
 // the same clip without pulling this module (and the service-role key with it)
 // into the client bundle.
 export { PROMPT_VERSION, poiKeyFor, type PoiIdentity } from './poiKey';
-
-let cachedClient: SupabaseClient | null | undefined;
-
-function serviceClient(): SupabaseClient | null {
-  if (cachedClient !== undefined) return cachedClient;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  cachedClient = url && key
-    ? createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
-    : null;
-  return cachedClient;
-}
 
 export function isNarrationCacheConfigured(): boolean {
   return serviceClient() !== null;

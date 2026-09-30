@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { TrailData, TrailPOI } from './useTrailData';
 import { getDistance } from '../utils/trailUtils';
 import {
@@ -26,8 +26,13 @@ export interface TrailPOIsResult {
   pois: TrailPOI[];
   source: PoiSource;
   // Set when discovery could not be done at all, as opposed to being done and
-  // finding nothing.
+  // finding nothing. The difference is the whole point: "nothing is known
+  // about this trail" and "I could not find out" are different sentences, and
+  // only one of them is worth a retry button.
   discoveryFailed: boolean;
+  // Ask again. Overpass fails one request and answers the next, so a retry is
+  // usually all it takes.
+  retry: () => void;
 }
 
 // The trail's guide points: real places along it (waterfalls, springs,
@@ -44,6 +49,8 @@ export function useTrailPOIs(trail: TrailData | null): TrailPOIsResult {
   const [pois, setPois] = useState<TrailPOI[]>([]);
   const [source, setSource] = useState<PoiSource>('pending');
   const [discoveryFailed, setDiscoveryFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
   useEffect(() => {
     setPois([]);
@@ -98,9 +105,9 @@ export function useTrailPOIs(trail: TrailData | null): TrailPOIsResult {
     })();
 
     return () => controller.abort();
-  }, [trail]);
+  }, [trail, attempt]);
 
-  return { pois, source, discoveryFailed };
+  return { pois, source, discoveryFailed, retry };
 }
 
 // Snaps discovered points onto the trail line, orders them along it, spaces

@@ -1,4 +1,4 @@
-import { Volume2, Loader2, StopCircle, X, Smartphone, ChevronUp, ChevronDown, Minus, MessageSquareText, Headphones, HeadphoneOff } from "lucide-react";
+import { Volume2, Loader2, StopCircle, X, Smartphone, ChevronUp, ChevronDown, Minus, MessageSquareText, Headphones, HeadphoneOff, RotateCw, CloudOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { type PlayingVoice } from "../hooks/useAIGuide";
 import { voiceNameFor } from "../lib/voicePrefs";
@@ -183,31 +183,82 @@ export default function AIAssistantUI({
   );
 }
 
-// "No guide points on this trail", as an icon the size of a button. Tapped, it
-// says so in a bubble that goes away by itself — the full-width pill that used
-// to say it permanently sat on top of the trail card.
-export function NoGuidePointsHint() {
+// Why the guide has nothing to offer on this trail, as an icon the size of a
+// button. Tapped, it says so in a bubble that goes away by itself — the
+// full-width pill that used to say it permanently sat on top of the trail card.
+//
+// Which of the three things it says matters. OpenStreetMap's public service
+// answers one request and returns a gateway error for the next, so an empty
+// list is very often an outage rather than a fact about the trail; saying
+// "nothing worth hearing here" about Yehiam fortress, which has a Wikipedia
+// article of its own, is simply wrong. A failure says so and offers to ask
+// again.
+export function NoGuidePointsHint({
+  state,
+  onRetry,
+}: {
+  state: 'searching' | 'failed' | 'empty' | 'skipped';
+  onRetry?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   const show = () => {
     setOpen(true);
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setOpen(false), 3500);
+    // A message with a button in it must not vanish while it is being reached
+    // for; only the two that are purely informational time out.
+    if (state !== 'failed') timer.current = setTimeout(() => setOpen(false), 3500);
   };
+
+  const label =
+    state === 'searching'
+      ? 'מחפשת נקודות למדריכה במסלול'
+      : state === 'failed'
+        ? 'לא הצלחתי לטעון את נקודות המדריכה'
+        : state === 'skipped'
+          ? 'המסלול ארוך מדי לחיפוש נקודות'
+          : 'אין נקודות למדריכה במסלול';
+
   return (
     <div className="pointer-events-auto relative" dir="rtl">
       <button
         onClick={show}
-        aria-label="אין נקודות למדריכה במסלול"
-        title="אין נקודות למדריכה במסלול"
-        className="w-10 h-10 flex items-center justify-center bg-zinc-900/90 text-zinc-300 rounded-full border border-white/10 backdrop-blur-md shadow-xl"
+        aria-label={label}
+        title={label}
+        className={`w-10 h-10 flex items-center justify-center rounded-full border backdrop-blur-md shadow-xl ${
+          state === 'failed'
+            ? 'bg-amber-500/20 text-amber-300 border-amber-400/40'
+            : 'bg-zinc-900/90 text-white border-white/10'
+        }`}
       >
-        <HeadphoneOff className="w-4 h-4" />
+        {state === 'searching' ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : state === 'failed' ? (
+          <CloudOff className="w-4 h-4" />
+        ) : (
+          <HeadphoneOff className="w-4 h-4" />
+        )}
       </button>
       {open && (
-        <div role="tooltip" className="absolute bottom-full mb-2 right-0 w-56 bg-zinc-900 text-white text-xs leading-relaxed rounded-xl border border-white/15 shadow-2xl px-3 py-2">
-          אין נקודות למדריכה במסלול — לא נמצאו בו מקומות שיש עליהם מידע ייחודי.
+        <div role="tooltip" className="absolute bottom-full mb-2 right-0 w-60 bg-zinc-900 text-white text-xs leading-relaxed rounded-xl border border-white/15 shadow-2xl px-3 py-2.5">
+          {state === 'searching' && 'מחפשת במסלול מקומות שיש עליהם מידע ייחודי...'}
+          {state === 'empty' && 'אין נקודות למדריכה במסלול — לא נמצאו בו מקומות שיש עליהם מידע ייחודי.'}
+          {state === 'skipped' && 'המסלול ארוך מכדי לחפש בו נקודות עניין, ולכן לא חיפשתי. זה לא אומר שאין בו מה לספר.'}
+          {state === 'failed' && (
+            <>
+              <div>לא הצלחתי לטעון את נקודות המדריכה מ-OpenStreetMap. זו תקלה זמנית בשירות, לא סימן שאין במסלול מה לספר.</div>
+              {onRetry && (
+                <button
+                  onClick={() => { setOpen(false); onRetry(); }}
+                  className="mt-2 w-full flex items-center justify-center gap-1.5 bg-amber-500/20 text-amber-200 font-bold rounded-lg py-1.5 border border-amber-400/40 hover:bg-amber-500/30 transition-colors"
+                >
+                  <RotateCw className="w-3.5 h-3.5" />
+                  נסה שוב
+                </button>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>
