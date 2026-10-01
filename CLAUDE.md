@@ -11,3 +11,10 @@ Every piece of text — explanations, notes, numbers, hints — must be clearly 
 - Minimum size for readable text is `text-xs` (12px); body text in panels is `text-sm`.
   `text-[10px]` / `text-[11px]` only for tiny labels that are not essential.
 - When touching an existing panel, fix any low-contrast text in the part you changed.
+
+# Local testing with the real map
+
+`.env.local` (gitignored) holds the owner's public Mapbox token as
+`NEXT_PUBLIC_MAPBOX_TOKEN`, so the local dev server renders the real map and
+map features can be clicked through in the preview browser. Use it for testing;
+never commit the token or copy it into tracked files.
