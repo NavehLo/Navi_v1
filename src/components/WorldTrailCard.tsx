@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, ExternalLink, BookOpen, Download, Loader2, TrendingUp, TrendingDown, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, ExternalLink, BookOpen, BookOpenText, Download, Loader2, TrendingUp, TrendingDown, ChevronDown, ChevronUp } from 'lucide-react';
 import type { WorldTrailSelection } from '../hooks/useWorldTrails';
 import { groupLabel, wikipediaUrl } from '../lib/waymarked';
 import { englishFromTags, needsEnglish, usefulEnglish } from '../lib/trailNames';
@@ -32,17 +32,21 @@ function useEnglishName(id: number, name: string | undefined, tags: Record<strin
 // route it describes can be looked at on the map — on a phone the open card
 // covers much of it. A new card always opens unfolded.
 export default function WorldTrailCard({
-  selection, onClose, onLoad,
+  selection, onClose, onLoad, onShowInfo,
 }: {
   selection: WorldTrailSelection;
   onClose: () => void;
   onLoad: () => void;
+  // Opens "על המסלול", the Hebrew description written from the trail's sources.
+  onShowInfo: () => void;
 }) {
   const d = selection.details;
   const name = d?.name ?? selection.summary?.name ?? 'מסלול מסומן';
   const english = useEnglishName(selection.id, d?.name ?? selection.summary?.name, d?.tags);
   const group = d?.group ?? selection.summary?.group ?? '';
   const wiki = wikipediaUrl(d?.wikipedia);
+  // OSM puts a route's site under `website` as often as under `url`.
+  const site = d?.url ?? d?.tags?.website ?? null;
   const canLoad = selection.status === 'ok' && selection.coords.length >= 2;
   const elevationPending = selection.status === 'ok' && selection.elevationStatus === 'loading';
   const hasElevation = selection.elevationStatus === 'ok' && selection.gain != null;
@@ -190,20 +194,24 @@ export default function WorldTrailCard({
             {d.symbol_description && <div><span className="text-zinc-200 font-bold">סימון:</span> {d.symbol_description}</div>}
           </div>
 
-          {(wiki || d.url) && (
-            <div className="flex flex-wrap gap-2">
-              {wiki && (
-                <a href={wiki} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs font-bold text-zinc-200 bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-full transition-colors">
-                  <BookOpen className="w-3.5 h-3.5" /> ויקיפדיה
-                </a>
-              )}
-              {d.url && (
-                <a href={d.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs font-bold text-zinc-200 bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-full transition-colors">
-                  <ExternalLink className="w-3.5 h-3.5" /> אתר המסלול
-                </a>
-              )}
-            </div>
-          )}
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={onShowInfo}
+              className="flex items-center gap-1.5 text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 px-3 py-1.5 rounded-full transition-colors"
+            >
+              <BookOpenText className="w-3.5 h-3.5" /> על המסלול
+            </button>
+            {wiki && (
+              <a href={wiki} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs font-bold text-zinc-200 bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-full transition-colors">
+                <BookOpen className="w-3.5 h-3.5" /> ויקיפדיה
+              </a>
+            )}
+            {site && (
+              <a href={site} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs font-bold text-zinc-200 bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-full transition-colors">
+                <ExternalLink className="w-3.5 h-3.5" /> אתר המסלול
+              </a>
+            )}
+          </div>
 
           {loadButton(false)}
 

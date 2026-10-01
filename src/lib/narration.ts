@@ -134,7 +134,17 @@ export function ttsPreferenceFor(engine: TextEngine | null): TextProvider {
 const TEXT_TEMPERATURE = 0.3;
 
 // ── Text generation, one function per provider ────────────────────────────────
-async function generateTextOpenAI(system: string, user: string): Promise<string> {
+// Options for callers other than the narration: the trail description asks
+// for a JSON answer and a longer one, and must not hang on a slow provider.
+export interface TextOptions {
+  json?: boolean;
+  maxTokens?: number;
+  timeoutMs?: number;
+  // Overrides OPENAI_TEXT_MODEL for this call only.
+  openaiModel?: string;
+}
+
+async function generateTextOpenAI(system: string, user: string, opts: TextOptions = {}): Promise<string> {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -142,13 +152,16 @@ async function generateTextOpenAI(system: string, user: string): Promise<string>
       'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_TEXT_MODEL || 'gpt-4o-mini',
+      model: opts.openaiModel || process.env.OPENAI_TEXT_MODEL || 'gpt-4o-mini',
       temperature: TEXT_TEMPERATURE,
+      ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
+      ...(opts.json ? { response_format: { type: 'json_object' } } : {}),
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user },
       ],
     }),
+    ...(opts.timeoutMs ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || 'OpenAI text error');
@@ -157,7 +170,7 @@ async function generateTextOpenAI(system: string, user: string): Promise<string>
 
 // Shared by both Gemini keys: the paid project key and the free-tier one,
 // which differ only in the key and the model they are allowed to drive.
-async function generateTextGemini(system: string, user: string, free = false): Promise<string> {
+async function generateTextGemini(system: string, user: string, free = false, opts: TextOptions = {}): Promise<string> {
   // gemini-2.5-flash was retired for new users in September 2026 (the API
   // answers "no longer available"); 3.6 is what Google points to instead.
   const model = free ? GEMINI_FREE_MODEL : (process.env.GEMINI_TEXT_MODEL || 'gemini-3.6-flash');
@@ -170,8 +183,13 @@ async function generateTextGemini(system: string, user: string, free = false): P
       body: JSON.stringify({
         system_instruction: { parts: [{ text: system }] },
         contents: [{ role: 'user', parts: [{ text: user }] }],
-        generationConfig: { temperature: TEXT_TEMPERATURE },
+        generationConfig: {
+          temperature: TEXT_TEMPERATURE,
+          ...(opts.maxTokens ? { maxOutputTokens: opts.maxTokens } : {}),
+          ...(opts.json ? { responseMimeType: 'application/json' } : {}),
+        },
       }),
+      ...(opts.timeoutMs ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
     }
   );
   const data = await res.json();
@@ -180,7 +198,7 @@ async function generateTextGemini(system: string, user: string, free = false): P
   return data.candidates[0].content.parts.map((p: any) => p.text).join('');
 }
 
-async function generateTextClaude(system: string, user: string): Promise<string> {
+async function generateTextClaude(system: string, user: string, opts: TextOptions = {}): Promise<string> {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -190,21 +208,22 @@ async function generateTextClaude(system: string, user: string): Promise<string>
     },
     body: JSON.stringify({
       model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
-      max_tokens: 1024,
+      max_tokens: opts.maxTokens ?? 1024,
       system,
       messages: [{ role: 'user', content: user }],
     }),
+    ...(opts.timeoutMs ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || 'Claude text error');
   return data.content.map((b: any) => (b.type === 'text' ? b.text : '')).join('');
 }
 
-function generateText(engine: TextEngine, system: string, user: string): Promise<string> {
-  if (engine === 'gemini') return generateTextGemini(system, user);
-  if (engine === 'gemini-free') return generateTextGemini(system, user, true);
-  if (engine === 'claude') return generateTextClaude(system, user);
-  return generateTextOpenAI(system, user);
+function generateText(engine: TextEngine, system: string, user: string, opts?: TextOptions): Promise<string> {
+  if (engine === 'gemini') return generateTextGemini(system, user, false, opts);
+  if (engine === 'gemini-free') return generateTextGemini(system, user, true, opts);
+  if (engine === 'claude') return generateTextClaude(system, user, opts);
+  return generateTextOpenAI(system, user, opts);
 }
 
 // Walks the chain until one engine answers. A provider that is out of credit,
@@ -214,12 +233,13 @@ function generateText(engine: TextEngine, system: string, user: string): Promise
 export async function generateTextWithFallback(
   chain: TextEngine[],
   system: string,
-  user: string
+  user: string,
+  opts?: TextOptions
 ): Promise<{ text: string; engine: TextEngine }> {
   let lastError: unknown = new Error('no text provider configured');
   for (const engine of chain) {
     try {
-      const text = (await generateText(engine, system, user)).trim();
+      const text = (await generateText(engine, system, user, opts)).trim();
       if (text) return { text, engine };
       lastError = new Error(`${engine} returned empty text`);
     } catch (e) {

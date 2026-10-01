@@ -13,6 +13,8 @@ import SettingsActions from "@/components/SettingsActions";
 import PersonalArea from "@/components/PersonalArea";
 import GuidePointsPanel from "@/components/GuidePointsPanel";
 import WorldTrailCard from "@/components/WorldTrailCard";
+import TrailInfoPanel from "@/components/TrailInfoPanel";
+import { nakebIdFromUrl, trailInfoKey, type TrailInfoRequest } from "@/lib/trailInfo/types";
 import DrivePlanner, { type DriveRequest, type DrivePlan } from "@/components/DrivePlanner";
 import PlaceSearchBox from "@/components/PlaceSearchBox";
 import MeasureTool, { type MeasureWaypoint } from "@/components/MeasureTool";
@@ -160,6 +162,22 @@ export default function TrailApp() {
   const { trail, setTrail, trailSource, loadTrailFile, loadTrailFromUrl, loadTrailFromText, loadTrailFromCoords, trailError, trailLoading } = useTrailData();
   // Marked hiking routes from OSM, worldwide, as an overlay anyone can tap.
   const worldTrails = useWorldTrails(map, styleRev, { onLoadTrail: loadTrailFromCoords });
+
+  // "על המסלול": which trail's description is open, if any.
+  const [infoRequest, setInfoRequest] = useState<TrailInfoRequest | null>(null);
+  // The open trail's description, when it is one the app knows the source
+  // of: a world trail by its OSM relation, an Israeli one by its Nakeb id.
+  const openTrailInfo = useMemo<TrailInfoRequest | null>(() => {
+    if (!trail || !trailSource || trail.kind === 'drive') return null;
+    const url = trailSource.kind === 'url' ? trailSource.url : trailSource.kind === 'pack' ? trailSource.sourceUrl : null;
+    const wmtId = trailSource.kind === 'wmt' ? trailSource.id : Number(/^wmt:(\d+)$/.exec(url ?? '')?.[1] ?? NaN);
+    if (Number.isFinite(wmtId)) return { kind: 'wmt', id: wmtId, name: trail.name };
+    const nakebId = nakebIdFromUrl(url);
+    if (nakebId == null) return null;
+    const start = trail.start;
+    return { kind: 'nakeb', id: nakebId, name: trail.name, ...(start ? { lat: start[0], lon: start[1] } : {}) };
+  }, [trail, trailSource]);
+  const showOpenTrailInfo = useCallback(() => setInfoRequest(openTrailInfo), [openTrailInfo]);
 
   // Hiking trails or a road trip — the home screen's two faces.
   const appMode = useSyncExternalStore(subscribeAppMode, readAppMode, () => 'trails' as AppMode);
@@ -1177,7 +1195,7 @@ export default function TrailApp() {
 
       {/* Stats UI Layer */}
       {trail && !uiHidden && !isMeasuring && (
-        <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} water={water} waterStatus={waterStatus} userPos={userOnTrail} weather={tripWeather} waypoints={activeWaypoints} />
+        <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} water={water} waterStatus={waterStatus} userPos={userOnTrail} weather={tripWeather} waypoints={activeWaypoints} onShowInfo={openTrailInfo ? showOpenTrailInfo : undefined} />
       )}
 
       {/* Measuring: the floating pin and its panel. Keyed by the trail so
@@ -1268,8 +1286,14 @@ export default function TrailApp() {
           selection={worldTrails.selection}
           onClose={worldTrails.clearSelection}
           onLoad={worldTrails.loadSelected}
+          onShowInfo={() => setInfoRequest({
+            kind: 'wmt',
+            id: worldTrails.selection!.id,
+            name: worldTrails.selection!.details?.name ?? worldTrails.selection!.summary?.name,
+          })}
         />
       )}
+      {infoRequest && <TrailInfoPanel key={trailInfoKey(infoRequest)} request={infoRequest} onClose={() => setInfoRequest(null)} />}
       {worldTrails.hint && (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 bg-zinc-900/90 text-white text-xs font-bold px-4 py-2 rounded-full border border-white/10 backdrop-blur-md shadow-xl pointer-events-none" dir="rtl">
           {worldTrails.hint}

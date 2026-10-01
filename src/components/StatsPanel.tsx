@@ -1,7 +1,7 @@
 import { TrailData } from "../hooks/useTrailData";
 import { SUN_MAX, SHADE_MIN, BAR_COLUMNS, type ShadeResult, type WaterResult } from "../lib/summerConditions";
 import type { WaterStatus } from "../hooks/useSummerConditions";
-import { ArrowRight, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Navigation } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Navigation, BookOpenText } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { computeElevationGain, sliceTrail } from "../utils/trailUtils";
 import { formatDuration } from "./DrivePlanner";
@@ -23,7 +23,7 @@ export interface UserOnTrail {
 // somewhere else, not partway along this trail.
 const ON_TRAIL_MAX_M = 300;
 
-export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus, userPos, weather, waypoints }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus, userPos?: UserOnTrail | null, weather?: TripWeather, waypoints?: { label: string; km: number }[] | null }) {
+export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus, userPos, weather, waypoints, onShowInfo }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus, userPos?: UserOnTrail | null, weather?: TripWeather, waypoints?: { label: string; km: number }[] | null, onShowInfo?: () => void }) {
   const [collapsed, setCollapsed] = useState(true);
   const cardRef = useRef<HTMLDivElement>(null);
   // A drive has a road, a length and a time; none of the hiking readouts
@@ -190,13 +190,25 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
             {userLine && <div className="text-[11px]">{userLine}</div>}
           </div>
         </div>
-        <button
-          onClick={() => setCollapsed(false)}
-          className="text-[11px] bg-white/10 text-white px-2.5 py-1.5 rounded-full hover:bg-white/20 shrink-0 flex items-center gap-1 font-bold"
-        >
-          <ChevronUp className="w-3 h-3" />
-          נתונים
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {onShowInfo && (
+            <button
+              onClick={onShowInfo}
+              className="p-1.5 bg-sky-600 hover:bg-sky-500 rounded-full transition-colors"
+              title="על המסלול"
+              aria-label="על המסלול"
+            >
+              <BookOpenText className="w-4 h-4 text-white" />
+            </button>
+          )}
+          <button
+            onClick={() => setCollapsed(false)}
+            className="text-[11px] bg-white/10 text-white px-2.5 py-1.5 rounded-full hover:bg-white/20 flex items-center gap-1 font-bold"
+          >
+            <ChevronUp className="w-3 h-3" />
+            נתונים
+          </button>
+        </div>
       </div>
     );
   }
@@ -218,6 +230,14 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           <ChevronDown className="w-4 h-4 text-zinc-300" />
         </button>
       </div>
+      {onShowInfo && (
+        <button
+          onClick={onShowInfo}
+          className="mt-3 w-full flex items-center justify-center gap-2 text-sm font-bold text-white bg-sky-600 hover:bg-sky-500 px-4 py-2 rounded-2xl transition-colors"
+        >
+          <BookOpenText className="w-4 h-4" /> על המסלול: תיאור, הגעה, קטעים ומקורות
+        </button>
+      )}
       {userPos && (
         <div className="mt-3 flex items-center justify-between gap-2 rounded-xl bg-sky-500/10 border border-sky-500/20 px-3 py-2 text-xs">
           {userLine}

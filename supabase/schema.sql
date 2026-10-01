@@ -224,6 +224,22 @@ create table if not exists public.trail_country (
 alter table public.trail_country enable row level security;
 -- אין policy: רק השרת עם service_role קורא וכותב.
 
+-- ── "על המסלול": תיאור מילולי של מסלול ─────────────────────────────────────
+-- תיאור בעברית שנכתב ממקורות (אתר רשמי, נאקב, ויקיפדיה, חיפוש ברשת) על ידי
+-- מודל שפה. נכתב פעם אחת לכל מסלול ומשמש את כולם; מתחדש אחרי 90 יום.
+-- trail_key = 'wmt:<relation id>' או 'nakeb:<מזהה נאקב>'.
+-- info_version מאפשר לפסול את כל התיאורים כשההנחיות למודל משתנות.
+create table if not exists public.trail_info (
+  trail_key text not null,
+  info_version int not null,
+  info jsonb not null,
+  created_at timestamptz not null default now(),
+  primary key (trail_key, info_version)
+);
+
+alter table public.trail_info enable row level security;
+-- אין policy: רק השרת עם service_role קורא וכותב.
+
 -- bucket ציבורי לקריאה. קבצי ה-mp3 מוגשים ישירות ממנו, כך שה-Service Worker
 -- והדפדפן יכולים לשמור אותם, ואפשר להוריד מסלול שלם לשימוש בלי קליטה.
 insert into storage.buckets (id, name, public)
