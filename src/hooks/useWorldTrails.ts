@@ -4,12 +4,15 @@ import type { Coordinate3D } from '../utils/trailUtils';
 import { computeElevationGain } from '../utils/trailUtils';
 import {
   lonLatToMercator,
+  mercatorToLonLat,
   wmtRouteToCoords,
   type WmtElevation,
   type WmtRouteDetails,
   type WmtRouteSummary,
 } from '../lib/waymarked';
 import type { TrailSource } from './useTrailData';
+import { needsEnglish } from '../lib/trailNames';
+import { translateWorldTrails } from '../lib/worldTrailSearch';
 
 // The world trails overlay: every marked hiking route in OpenStreetMap, drawn
 // from Waymarked Trails' tiles, with a tap on a route opening its card.
@@ -121,6 +124,7 @@ export function useWorldTrails(map: mapboxgl.Map | null, styleRev: number, { onL
   const selectSeq = useRef(0);
 
   const toggle = useCallback(() => { writeEnabled(!readEnabled()); }, []);
+  const enable = useCallback(() => { if (!readEnabled()) writeEnabled(true); }, []);
 
   const showHint = useCallback((text: string) => {
     setHint(text);
@@ -181,7 +185,9 @@ export function useWorldTrails(map: mapboxgl.Map | null, styleRev: number, { onL
   }, [map, enabled, styleRev]);
 
   // ── Selecting a route ─────────────────────────────────────────────────────
-  const select = useCallback(async (id: number, summary: WmtRouteSummary | null) => {
+  // `fit`: the route was picked from a search, not tapped where it lies, so
+  // the map goes to it once its extent is known.
+  const select = useCallback(async (id: number, summary: WmtRouteSummary | null, opts?: { fit?: boolean }) => {
     const seq = ++selectSeq.current;
     popupRef.current?.remove();
     setSelection({
@@ -198,6 +204,7 @@ export function useWorldTrails(map: mapboxgl.Map | null, styleRev: number, { onL
     setSelection((s) =>
       s && s.id === id ? deriveSelection({ ...s, details: details.body!.data, status: 'ok' }) : s
     );
+    if (opts?.fit && map) fitToRoute(map, details.body.data.bbox);
 
     const elevation = await getJson<{ data: WmtElevation }>(`/api/world-trails?id=${id}&elevation=1`);
     if (seq !== selectSeq.current) return;
@@ -206,7 +213,7 @@ export function useWorldTrails(map: mapboxgl.Map | null, styleRev: number, { onL
       if (!elevation.body) return { ...s, elevationStatus: elevation.status };
       return deriveSelection({ ...s, elevation: elevation.body.data, elevationStatus: 'ok' });
     });
-  }, []);
+  }, [map]);
 
   const clearSelection = useCallback(() => {
     selectSeq.current++;
@@ -268,13 +275,13 @@ export function useWorldTrails(map: mapboxgl.Map | null, styleRev: number, { onL
       popupRef.current?.remove();
       const html = `
         <div class="p-2 flex flex-col gap-1 bg-zinc-900/95 backdrop-blur-md text-white rounded-2xl shadow-xl border border-white/10" dir="rtl" style="min-width: 180px;">
-          <div class="text-[10px] text-zinc-500 font-bold px-2 pt-1">מסלולים בנקודה זו</div>
+          <div class="text-xs text-white font-bold px-2 pt-1">מסלולים בנקודה זו</div>
           ${results
             .map(
               (r) =>
-                `<button type="button" data-id="${r.id}" class="text-right px-3 py-2 rounded-xl text-sm font-bold text-orange-400 hover:bg-white/10 transition-colors">${
+                `<button type="button" data-id="${r.id}" class="text-right px-3 py-2 rounded-xl text-sm font-bold text-orange-400 hover:bg-white/10 transition-colors flex flex-col">${
                   escapeHtml(r.name ?? `מסלול ${r.id}`)
-                }</button>`
+                }<span data-en="${r.id}" dir="ltr" class="text-xs font-semibold text-sky-200 text-right empty:hidden"></span></button>`
             )
             .join('')}
         </div>`;
@@ -289,6 +296,20 @@ export function useWorldTrails(map: mapboxgl.Map | null, styleRev: number, { onL
         });
       });
       popupRef.current = popup;
+
+      // English names for the ones in a script the reader may not read, filled
+      // in when they arrive rather than holding the list back for them.
+      const foreign = results.filter((r) => needsEnglish(r.name)).map((r) => r.id);
+      if (foreign.length) {
+        translateWorldTrails(foreign).then((names) => {
+          const el = popup.getElement();
+          if (!el || popupRef.current !== popup) return;
+          for (const [id, en] of names) {
+            const span = el.querySelector<HTMLSpanElement>(`span[data-en="${id}"]`);
+            if (span) span.textContent = en;
+          }
+        });
+      }
     };
 
     map.on('click', onClick);
@@ -301,7 +322,24 @@ export function useWorldTrails(map: mapboxgl.Map | null, styleRev: number, { onL
 
   useEffect(() => () => { if (hintTimer.current) clearTimeout(hintTimer.current); }, []);
 
-  return { enabled, toggle, selection, select, clearSelection, loadSelected, loadById, hint };
+  return { enabled, toggle, enable, selection, select, clearSelection, loadSelected, loadById, hint };
+}
+
+// The route's extent comes in Web Mercator metres, like everything else from
+// Waymarked Trails. Room is left at the bottom for the card that opens over
+// the map on a phone.
+function fitToRoute(map: mapboxgl.Map, bbox: [number, number, number, number] | undefined) {
+  if (!bbox || bbox.some((n) => !Number.isFinite(n))) return;
+  const [west, south] = mercatorToLonLat(bbox[0], bbox[1]);
+  const [east, north] = mercatorToLonLat(bbox[2], bbox[3]);
+  const narrow = map.getContainer().clientWidth < 768;
+  try {
+    map.fitBounds([[west, south], [east, north]], {
+      padding: narrow ? { top: 120, bottom: 300, left: 40, right: 40 } : { top: 80, bottom: 80, left: 80, right: 440 },
+      maxZoom: 15,
+      duration: 1200,
+    });
+  } catch {}
 }
 
 function escapeHtml(s: string): string {

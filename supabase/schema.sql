@@ -189,6 +189,28 @@ alter table public.trail_pois enable row level security;
 -- אין policy, מאותה סיבה: הכתיבה והקריאה נעשות רק מהשרת עם service_role,
 -- והלקוח מקבל את הרשימה מ-/api/pois.
 
+-- ── שמות באנגלית למסלולי עולם ──────────────────────────────────────────────
+-- מסלולים מ-Waymarked Trails ששמם בכתב לא-לטיני (יוונית, קירילית, יפנית…)
+-- מקבלים שם באנגלית לצד המקורי: מתגיות OSM (name:en / int_name) כשיש,
+-- ואחרת תרגום של מודל שפה. כל שם נשמר כאן פעם אחת ומשמש את כולם — וגם
+-- משמש אינדקס לחיפוש לפי השם האנגלי, ש-Waymarked Trails עצמו לא מחפש בו.
+-- source: 'osm' גובר על 'ai' ולא נדרס על ידו.
+create extension if not exists pg_trgm;
+
+create table if not exists public.trail_name_en (
+  relation_id bigint primary key,
+  name text not null,
+  name_en text not null,
+  source text not null check (source in ('osm', 'ai')),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists trail_name_en_trgm
+  on public.trail_name_en using gin (name_en gin_trgm_ops);
+
+alter table public.trail_name_en enable row level security;
+-- אין policy: רק השרת עם service_role קורא וכותב.
+
 -- bucket ציבורי לקריאה. קבצי ה-mp3 מוגשים ישירות ממנו, כך שה-Service Worker
 -- והדפדפן יכולים לשמור אותם, ואפשר להוריד מסלול שלם לשימוש בלי קליטה.
 insert into storage.buckets (id, name, public)

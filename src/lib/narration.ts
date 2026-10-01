@@ -211,7 +211,7 @@ function generateText(engine: TextEngine, system: string, user: string): Promise
 // rate limited or having an outage costs one failed call and the next one is
 // tried; only when every engine has refused does the caller see an error, and
 // then it is the last real reason rather than the first.
-async function generateTextWithFallback(
+export async function generateTextWithFallback(
   chain: TextEngine[],
   system: string,
   user: string

@@ -1,6 +1,28 @@
+import { useEffect, useState } from 'react';
 import { X, ExternalLink, BookOpen, Download, Loader2, TrendingUp, TrendingDown } from 'lucide-react';
 import type { WorldTrailSelection } from '../hooks/useWorldTrails';
 import { groupLabel, wikipediaUrl } from '../lib/waymarked';
+import { englishFromTags, needsEnglish, usefulEnglish } from '../lib/trailNames';
+import { knownEnglish, translateWorldTrails } from '../lib/worldTrailSearch';
+
+// The trail's English name, when its own is in a script the reader may not
+// read: OSM's, if a mapper wrote one, else a translation from the server.
+function useEnglishName(id: number, name: string | undefined, tags: Record<string, string> | undefined) {
+  const fromTags = englishFromTags(tags);
+  const foreign = needsEnglish(name);
+  const [translated, setTranslated] = useState<{ id: number; en: string | null } | null>(null);
+  // Only once the details are in, so their tags get the first say.
+  const ask = foreign && !!tags && !fromTags;
+  useEffect(() => {
+    if (!ask) return;
+    let live = true;
+    translateWorldTrails([id]).then((names) => { if (live) setTranslated({ id, en: names.get(id) ?? null }); });
+    return () => { live = false; };
+  }, [id, ask]);
+  if (!foreign) return null;
+  const en = fromTags ?? (translated?.id === id ? translated.en : null) ?? knownEnglish(id) ?? null;
+  return usefulEnglish(name, en);
+}
 
 // The card that opens when a route in the world trails overlay is tapped.
 // Sits where the stats card sits, so the two never share the screen — a
@@ -14,6 +36,7 @@ export default function WorldTrailCard({
 }) {
   const d = selection.details;
   const name = d?.name ?? selection.summary?.name ?? 'מסלול מסומן';
+  const english = useEnglishName(selection.id, d?.name ?? selection.summary?.name, d?.tags);
   const group = d?.group ?? selection.summary?.group ?? '';
   const wiki = wikipediaUrl(d?.wikipedia);
   const canLoad = selection.status === 'ok' && selection.coords.length >= 2;
@@ -29,6 +52,11 @@ export default function WorldTrailCard({
         <div className="flex-1 min-w-0">
           <div className="text-[10px] text-orange-400 font-bold uppercase tracking-widest">{groupLabel(group)}</div>
           <div className="text-lg font-extrabold text-white leading-tight break-words">{name}</div>
+          {english && (
+            <div className="text-sm font-semibold text-sky-200 leading-snug break-words mt-0.5" dir="ltr" style={{ textAlign: 'right' }}>
+              {english}
+            </div>
+          )}
         </div>
         <button onClick={onClose} className="p-2 bg-white/5 hover:bg-white/10 rounded-full transition-colors flex-shrink-0" title="סגור">
           <X className="w-4 h-4 text-zinc-300" />
@@ -36,7 +64,7 @@ export default function WorldTrailCard({
       </div>
 
       {selection.status === 'loading' && (
-        <div className="flex items-center gap-2 text-sm text-zinc-400">
+        <div className="flex items-center gap-2 text-sm text-white">
           <Loader2 className="w-4 h-4 animate-spin" /> טוען פרטים…
         </div>
       )}

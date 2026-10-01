@@ -1134,6 +1134,13 @@ export default function TrailApp() {
           // Clear of the left rail, which is at its widest with the button
           // labels showing, and of the trail panel on a wide screen.
           className="top-[60px] left-[124px] right-4 md:top-[68px] md:left-20 md:right-[412px]"
+          // Trails are found by name only where trails are being looked for.
+          // A route picked from the list should be visible on the map, so the
+          // world trails layer is switched on with it.
+          onPickTrail={appMode === 'trails' ? (t) => {
+            worldTrails.enable();
+            worldTrails.select(t.id, t, { fit: true });
+          } : undefined}
         />
       )}
 
