@@ -15,10 +15,12 @@ const lists: Cache = new Map();
 const DETAILS_MAX = 40;
 const LISTS_MAX = 300;
 
-export async function fetchWmt(path: string, timeoutMs = 20000): Promise<unknown | null> {
+// `remember: false` for answers that are both large and unlikely to be asked
+// for again in the same form — route outlines fetched for a set of ids.
+export async function fetchWmt(path: string, timeoutMs = 20000, remember = true): Promise<unknown | null> {
   const isDetails = path.startsWith('/details');
   const cache = isDetails ? details : lists;
-  const hit = cache.get(path);
+  const hit = remember ? cache.get(path) : undefined;
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.body;
   try {
     const res = await fetch(`${BASE}${path}`, {
@@ -30,6 +32,7 @@ export async function fetchWmt(path: string, timeoutMs = 20000): Promise<unknown
       return null;
     }
     const body = await res.json();
+    if (!remember) return body;
     if (cache.size >= (isDetails ? DETAILS_MAX : LISTS_MAX)) cache.delete(cache.keys().next().value!);
     cache.set(path, { at: Date.now(), body });
     return body;

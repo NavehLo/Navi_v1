@@ -4,6 +4,7 @@ import { fetchWmt } from '../../../lib/wmtServer';
 import { lookupEnglish, saveEnglish, searchEnglish } from '../../../lib/trailNameCache';
 import { englishFromTags, needsEnglish } from '../../../lib/trailNames';
 import type { WmtRouteDetails, WmtRouteSummary } from '../../../lib/waymarked';
+import { countriesFor } from '../../../lib/trailCountry';
 
 // Proxy for the Waymarked Trails API (marked hiking routes from OSM, worldwide).
 // Four reads, all GET:
@@ -37,8 +38,18 @@ function parseBbox(raw: string | null): [number, number, number, number] | null 
 
 // A search result, with the English name attached when one is already known.
 // `needs_en` says the name is in a script the reader may not read and an
-// English one is worth asking /api/world-trails/translate for.
-type SearchResult = WmtRouteSummary & { name_en: string | null; needs_en: boolean };
+// English one is worth asking /api/world-trails/translate for. `countries`
+// are ISO codes, the one holding most of the route first; empty when it could
+// not be placed in time.
+type SearchResult = WmtRouteSummary & { name_en: string | null; needs_en: boolean; countries: string[] };
+
+// The country is a help in telling results apart, not a reason to keep them
+// waiting: past this, the list goes without it.
+const COUNTRY_WAIT_MS = 2500;
+
+function withinTime<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([work, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
+}
 
 // By name: Waymarked Trails' own search (the route's name and its name:xx
 // tags, forgiving of half-typed words) and, beside it, the English names this
@@ -64,16 +75,22 @@ async function search(query: string): Promise<{ status: Status; results: SearchR
   }
   if (!wmt && results.length === 0) return { status: 'unavailable', results: [] };
 
+  const shown = results.slice(0, MAX_SEARCH);
   const english = new Map(ours.map((r) => [r.relation_id, r.name_en]));
-  const unknown = results.filter((r) => needsEnglish(r.name) && !english.has(r.id)).map((r) => r.id);
-  for (const [id, en] of await lookupEnglish(unknown)) english.set(id, en);
+  const unknown = shown.filter((r) => needsEnglish(r.name) && !english.has(r.id)).map((r) => r.id);
+  const [known, countries] = await Promise.all([
+    lookupEnglish(unknown),
+    withinTime(countriesFor(shown.map((r) => r.id)), COUNTRY_WAIT_MS, new Map<number, string[]>()),
+  ]);
+  for (const [id, en] of known) english.set(id, en);
 
   return {
     status: 'ok',
-    results: results.slice(0, MAX_SEARCH).map((r) => ({
+    results: shown.map((r) => ({
       ...r,
       name_en: english.get(r.id) ?? null,
       needs_en: needsEnglish(r.name),
+      countries: countries.get(r.id) ?? [],
     })),
   };
 }

@@ -211,6 +211,19 @@ create index if not exists trail_name_en_trgm
 alter table public.trail_name_en enable row level security;
 -- אין policy: רק השרת עם service_role קורא וכותב.
 
+-- ── המדינה של כל מסלול עולם ────────────────────────────────────────────────
+-- תוצאות החיפוש של Waymarked Trails מגיעות בלי מיקום. השרת מושך קו מפושט של
+-- המסלול, ממקם נקודות לאורכו במדינות (country-coder, בלי רשת) ושומר כאן את
+-- התוצאה — פעם אחת לכל מסלול. countries = קודי ISO, המדינה העיקרית ראשונה.
+create table if not exists public.trail_country (
+  relation_id bigint primary key,
+  countries text[] not null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.trail_country enable row level security;
+-- אין policy: רק השרת עם service_role קורא וכותב.
+
 -- bucket ציבורי לקריאה. קבצי ה-mp3 מוגשים ישירות ממנו, כך שה-Service Worker
 -- והדפדפן יכולים לשמור אותם, ואפשר להוריד מסלול שלם לשימוש בלי קליטה.
 insert into storage.buckets (id, name, public)

@@ -8,6 +8,19 @@ export interface WorldTrailHit extends WmtRouteSummary {
   // The name is in a non-Latin script and has no English name yet; worth
   // asking translateWorldTrails for one.
   needs_en: boolean;
+  // ISO 3166-1 codes, the country holding most of the route first. Empty when
+  // the server could not place it in time.
+  countries: string[];
+}
+
+let regionNames: Intl.DisplayNames | null | undefined;
+
+// "GR" → "יוון". Falls back to the code where the browser has no names.
+export function countryName(code: string): string {
+  if (regionNames === undefined) {
+    try { regionNames = new Intl.DisplayNames(['he'], { type: 'region' }); } catch { regionNames = null; }
+  }
+  try { return regionNames?.of(code) ?? code; } catch { return code; }
 }
 
 export async function searchWorldTrails(query: string, signal?: AbortSignal): Promise<WorldTrailHit[]> {

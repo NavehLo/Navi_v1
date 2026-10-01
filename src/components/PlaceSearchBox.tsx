@@ -11,7 +11,7 @@ import { describeSearchOrDirectionsError } from '../lib/mapboxDirections';
 import { nameMatches, normalizeName } from '../lib/osmPlaces';
 import { groupLabel } from '../lib/waymarked';
 import { usefulEnglish } from '../lib/trailNames';
-import { searchWorldTrails, translateWorldTrails, type WorldTrailHit } from '../lib/worldTrailSearch';
+import { countryName, searchWorldTrails, translateWorldTrails, type WorldTrailHit } from '../lib/worldTrailSearch';
 
 // "Where do I want to look?" — a country, a city, a nature reserve, a wadi —
 // answered by moving the map there. It is the home screen's own search, and it
@@ -369,7 +369,15 @@ function TrailRow({ t, english }: { t: WorldTrailHit; english: string | null }) 
             {english}
           </span>
         )}
-        <span className="text-xs text-zinc-200 font-medium truncate">{groupLabel(t.group)}</span>
+        {/* Where it is, first: of two routes with one name, the country is
+            what tells them apart. */}
+        <span className="text-xs text-zinc-200 font-medium truncate">
+          {t.countries?.length > 0 && (
+            <span className="text-white font-bold">{t.countries.map(countryName).join(' · ')}</span>
+          )}
+          {t.countries?.length > 0 && ' · '}
+          {groupLabel(t.group)}
+        </span>
       </span>
     </>
   );
