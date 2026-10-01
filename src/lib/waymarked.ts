@@ -11,6 +11,9 @@
 //   - the ways inside `route.main` are already oriented along the route, so
 //     concatenating them in order gives a continuous line. `direction` is the
 //     OSM oneway flag, not an instruction to reverse anything.
+//   - a long trail mapped as a relation of its stages (a "super-route", e.g.
+//     the Menalon Trail) nests: each entry in `route.main` is then a whole
+//     stage with its own `main`, and has no `ways` at all.
 
 import type { Coordinate3D } from '../utils/trailUtils';
 
@@ -38,7 +41,9 @@ export interface WmtSegment {
   route_type: string;
   start: number;
   length: number;
-  ways: WmtWay[];
+  // A plain segment has `ways`; a stage of a super-route has `main` instead.
+  ways?: WmtWay[];
+  main?: WmtSegment[];
 }
 
 export interface WmtRouteDetails extends WmtRouteSummary {
@@ -162,10 +167,47 @@ function elevationsForWay(
   return out;
 }
 
-function segmentToCoords(segment: WmtSegment, elevation?: WmtElevation | null): { coords: Coordinate3D[]; withEle: boolean } {
+// Super-routes nest stages inside `main`; flatten down to the segments that
+// actually hold ways, in route order.
+function leafSegments(segments: WmtSegment[]): WmtSegment[] {
+  return segments.flatMap((s) => (s.ways ? [s] : leafSegments(s.main ?? [])));
+}
+
+function wayEnds(segment: WmtSegment): [[number, number], [number, number]] | null {
+  const ways = (segment.ways ?? []).filter((w) => w.geometry?.coordinates?.length);
+  if (ways.length === 0) return null;
+  const first = ways[0].geometry.coordinates;
+  const last = ways[ways.length - 1].geometry.coordinates;
+  return [first[0], last[last.length - 1]];
+}
+
+// Consecutive stages that meet end to start are one walk. Web Mercator metres,
+// so this is a few tens of real metres at hiking latitudes.
+const JOIN_GAP = 50;
+
+// Group leaf segments into runs that join up, each run a walkable piece.
+function chainSegments(leaves: WmtSegment[]): WmtSegment[][] {
+  const chains: WmtSegment[][] = [];
+  let prevEnd: [number, number] | null = null;
+  for (const leaf of leaves) {
+    const ends = wayEnds(leaf);
+    if (!ends) continue;
+    const joins = prevEnd && segmentDistance(prevEnd, ends[0]) <= JOIN_GAP;
+    if (joins) chains[chains.length - 1].push(leaf);
+    else chains.push([leaf]);
+    prevEnd = ends[1];
+  }
+  return chains;
+}
+
+function chainLength(chain: WmtSegment[]): number {
+  return chain.reduce((sum, s) => sum + (s.length ?? 0), 0);
+}
+
+function chainToCoords(chain: WmtSegment[], elevation?: WmtElevation | null): { coords: Coordinate3D[]; withEle: boolean } {
   const coords: Coordinate3D[] = [];
   let withEle = false;
-  for (const way of segment.ways) {
+  for (const way of chain.flatMap((s) => s.ways ?? [])) {
     const pts = way.geometry?.coordinates ?? [];
     const eles = elevation ? elevationsForWay(way, elevation.segments[String(way.id)]) : null;
     if (eles) withEle = true;
@@ -181,17 +223,11 @@ function segmentToCoords(segment: WmtSegment, elevation?: WmtElevation | null): 
 }
 
 export function wmtRouteToCoords(details: WmtRouteDetails, elevation?: WmtElevation | null): WmtCoordsResult {
-  const segments = details.route?.main ?? [];
-  if (segments.length === 0) return { coords: [], partial: false, segmentCount: 0, hasElevation: false };
-
-  const continuous = details.linear !== 'no' && segments.length === 1;
-  if (continuous) {
-    const { coords, withEle } = segmentToCoords(segments[0], elevation);
-    return { coords, partial: false, segmentCount: 1, hasElevation: withEle };
-  }
+  const chains = chainSegments(leafSegments(details.route?.main ?? []));
+  if (chains.length === 0) return { coords: [], partial: false, segmentCount: 0, hasElevation: false };
 
   // Disconnected pieces: the longest one is the walk worth offering.
-  const longest = segments.reduce((a, b) => (b.length > a.length ? b : a), segments[0]);
-  const { coords, withEle } = segmentToCoords(longest, elevation);
-  return { coords, partial: segments.length > 1, segmentCount: segments.length, hasElevation: withEle };
+  const longest = chains.reduce((a, b) => (chainLength(b) > chainLength(a) ? b : a), chains[0]);
+  const { coords, withEle } = chainToCoords(longest, elevation);
+  return { coords, partial: chains.length > 1, segmentCount: chains.length, hasElevation: withEle };
 }

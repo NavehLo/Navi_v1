@@ -87,7 +87,16 @@ async function getJson<T>(url: string): Promise<{ status: WorldTrailStatus; body
 
 function deriveSelection(sel: WorldTrailSelection): WorldTrailSelection {
   if (!sel.details) return sel;
-  const { coords, partial, segmentCount, hasElevation } = wmtRouteToCoords(sel.details, sel.elevation);
+  // This runs inside a state update, where a throw takes down the whole page.
+  // A route shape we have not met yet should cost one card, not the app.
+  let result: ReturnType<typeof wmtRouteToCoords>;
+  try {
+    result = wmtRouteToCoords(sel.details, sel.elevation);
+  } catch (e) {
+    console.error('World trail geometry failed:', sel.id, e);
+    return { ...sel, details: null, status: 'unavailable' };
+  }
+  const { coords, partial, segmentCount, hasElevation } = result;
   const eles = coords.map((c) => c[2]);
   const { gain, loss } = hasElevation ? computeElevationGain(eles) : { gain: null, loss: null };
   return {
