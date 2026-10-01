@@ -18,6 +18,7 @@ import {
 } from './niqqud';
 
 export type { NiqqudProvider, NiqqudOutcome } from './niqqud';
+import { geminiTokens, recordAiUsage } from './aiUsage';
 
 // Text-to-speech, one voice chosen per request.
 //
@@ -215,6 +216,8 @@ async function synthesizeOpenAI(text: string, voice: TtsVoice): Promise<{ buffer
       console.error('OpenAI TTS error:', res.status, await res.text());
       return null;
     }
+    // The speech endpoint reports no usage; the cost is estimated from length.
+    await recordAiUsage({ kind: 'voice', provider: 'openai', model: voice.model, chars: text.length });
     return { buffer: Buffer.from(await res.arrayBuffer()), format: 'mp3' };
   } catch (e) {
     console.error('OpenAI TTS failed:', e);
@@ -243,6 +246,7 @@ async function synthesizeGemini(text: string, voice: TtsVoice): Promise<{ buffer
       return null;
     }
     const data = await res.json();
+    await recordAiUsage({ kind: 'voice', provider: 'gemini', model: voice.model, chars: text.length, ...geminiTokens(data) });
     const part = data.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
     if (!part) return null;
     // Gemini returns raw PCM (e.g. audio/L16;rate=24000) — wrap in a WAV header

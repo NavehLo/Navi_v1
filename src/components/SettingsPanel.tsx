@@ -1,21 +1,15 @@
 import type React from "react";
 import { useState, useEffect, useMemo, useRef } from "react";
-import { X, Sparkles, Volume2, Loader2, RotateCcw, AlertTriangle, Type, WifiOff, SlidersHorizontal, ChevronDown } from "lucide-react";
+import { X, Sparkles, Volume2, Loader2, RotateCcw, AlertTriangle, Type, WifiOff, SlidersHorizontal, ChevronDown, Receipt } from "lucide-react";
 import { AI_PROVIDER_STORAGE_KEY } from "../hooks/useAIGuide";
 import { type VoicePrefs, readVoicePrefs, rememberVoiceNames, writeVoicePrefs } from "../lib/voicePrefs";
 import { readSimulateOffline, setSimulateOffline, storageEstimate } from "../lib/offlineMap";
 import OffRouteSetting from "./OffRouteSetting";
-import { supabase } from "../lib/supabase";
-
-// The signed-in user's token, for the admin-only tools below. The server
+import AiUsagePanel from "./AiUsagePanel";
+// The admin-only tools below carry the signed-in user's token. The server
 // decides who the admin is (ADMIN_EMAILS in Vercel); the page only carries
 // the proof of who is asking.
-async function authHeaders(): Promise<Record<string, string>> {
-  if (!supabase) return {};
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+import { authHeaders } from "../lib/authHeaders";
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -115,6 +109,7 @@ const VOICE_SLIDERS: Array<{ key: keyof VoicePrefs; label: string; hint: string;
 
 export default function SettingsPanel({ onClose, children, help }: SettingsPanelProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showUsage, setShowUsage] = useState(false);
   // "מתקדם" is the site admin's alone. Unknown (no answer yet, no reception,
   // not signed in) counts as no.
   const [isAdmin, setIsAdmin] = useState(false);
@@ -737,6 +732,21 @@ export default function SettingsPanel({ onClose, children, help }: SettingsPanel
           )}
           </div>
         )}
+
+        {/* What the AI behind all this costs, across every user. */}
+        <button
+          onClick={() => setShowUsage((v) => !v)}
+          aria-expanded={showUsage}
+          className="w-full flex items-center justify-between gap-2 text-right rounded-xl bg-white/5 hover:bg-white/10 p-3 transition-colors mt-2"
+        >
+          <span className="flex items-center gap-2 text-white font-bold text-sm">
+            <Receipt size={16} className="text-zinc-100" />
+            שימוש ועלויות AI
+            <span className="font-normal text-zinc-100 text-xs">כמה, במה ועל ידי מי</span>
+          </span>
+          <ChevronDown size={16} className={`text-white shrink-0 transition-transform ${showUsage ? "rotate-180" : ""}`} />
+        </button>
+        {showUsage && <AiUsagePanel />}
         </>)}
       </div>
     </div>

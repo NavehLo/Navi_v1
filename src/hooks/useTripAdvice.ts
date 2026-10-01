@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { adviceKey, fallbackAdvice, type AdviceInput } from '../lib/tripAdvice';
+import { authHeaders } from '../lib/authHeaders';
 
 export type AdviceSource = 'ai' | 'saved' | 'plain';
 // Why the plain sentences are showing: switched off (the default), no free
@@ -94,7 +95,7 @@ export function useTripAdvice(input: AdviceInput | null): TripAdvice {
       try {
         const res = await fetch('/api/trip-advice', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
           body: JSON.stringify({ input }),
           signal: controller.signal,
         });

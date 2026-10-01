@@ -1,3 +1,5 @@
+import { recordAiUsage } from './aiUsage';
+
 // ElevenLabs text-to-speech.
 //
 // Hebrew is only supported by Eleven v3 (`eleven_v3`, 70+ languages). The
@@ -295,6 +297,8 @@ async function synthesizeWithVoice(text: string, voice: VoiceSignature): Promise
       });
 
       if (res.ok) {
+        // Billed by the character sent, vowel points included.
+        await recordAiUsage({ kind: 'voice', provider: 'elevenlabs', model: voice.model, chars: text.length });
         return {
           ok: true,
           result: {

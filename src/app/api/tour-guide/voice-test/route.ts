@@ -3,6 +3,7 @@ import { isAdminRequest } from '../../../../lib/supabaseServer';
 import { rateLimit, clientIp } from '../../../../lib/rateLimit';
 import { resolveTtsVoice, audioKey, synthesize, voiceStamp } from '../../../../lib/tts';
 import { classifyElevenLabsError } from '../../../../lib/elevenlabsErrors';
+import { withAiUsage } from '../../../../lib/aiUsage';
 
 // Speaks one fixed sentence so a voice can be judged in the app, in Hebrew,
 // without editing an environment variable and redeploying.
@@ -18,7 +19,7 @@ import { classifyElevenLabsError } from '../../../../lib/elevenlabsErrors';
 const SAMPLE_TEXT =
   'שלום, אני המדריכה של נָבִי. לפנינו מעיין עין חמד, ומעליו מתנשאת חורבת סעדים מהתקופה הביזנטית.';
 
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   // One of the admin's tuning tools (settings → מתקדם); see isAdminRequest.
   if (!(await isAdminRequest(request))) {
     return NextResponse.json({ error: 'זמין למנהל האתר בלבד.' }, { status: 403 });
@@ -124,3 +125,9 @@ const sampleCache = new Map<
   string,
   { buffer: Buffer; format: string; spokenText: string; niqqudProvider: string | null; niqqudError: string | null }
 >();
+
+// Every AI call made while answering is logged under this area and the caller
+// (see lib/aiUsage).
+export function POST(request: Request) {
+  return withAiUsage(request, 'voice_test', () => handlePost(request));
+}

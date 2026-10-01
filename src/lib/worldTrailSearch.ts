@@ -1,4 +1,5 @@
 import type { WmtRouteSummary } from './waymarked';
+import { authHeaders } from './authHeaders';
 
 // The browser's side of searching world trails by name and of their English
 // names. Both go through /api/world-trails (see the routes there).
@@ -54,7 +55,7 @@ export async function translateWorldTrails(ids: number[]): Promise<Map<number, s
       try {
         const res = await fetch('/api/world-trails/translate', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
           body: JSON.stringify({ ids: ask }),
         });
         const body = await res.json();

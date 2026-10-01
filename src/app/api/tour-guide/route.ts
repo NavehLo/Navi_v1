@@ -13,6 +13,7 @@ import {
   generateNarration,
 } from '../../../lib/narration';
 import { resolveTtsVoice, voiceStamp } from '../../../lib/tts';
+import { withAiUsage } from '../../../lib/aiUsage';
 
 // The daily quota is a character budget: characters are what TTS bills for, so
 // counting them is the only way the limit reflects real spend. Cache hits cost
@@ -75,7 +76,7 @@ export async function GET(request: Request) {
   });
 }
 
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   try {
     // Burst protection for everyone: 20 requests/min per IP, regardless of login
     if (!(await rateLimit(`guide:${clientIp(request)}`, 20, 60_000))) {
@@ -176,4 +177,10 @@ export async function POST(request: Request) {
     console.error('AI Guide Error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+}
+
+// Every AI call made while answering is logged under this area and the caller
+// (see lib/aiUsage).
+export function POST(request: Request) {
+  return withAiUsage(request, 'guide', () => handlePost(request));
 }

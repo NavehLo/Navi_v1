@@ -33,16 +33,21 @@ export async function isAdminRequest(request: Request): Promise<boolean> {
   if (admins.length === 0) return false;
   const token = bearerToken(request);
   if (!token) return false;
+  const email = (await userFromToken(token))?.email?.toLowerCase();
+  return !!email && admins.includes(email);
+}
+
+// Who a token belongs to. Asks Supabase rather than reading the token, so a
+// forged or expired one gets no answer and an address cannot simply be claimed.
+export async function userFromToken(token: string): Promise<{ id: string; email: string | null } | null> {
   const client = userScopedClient(token);
-  if (!client) return false;
+  if (!client) return null;
   try {
-    // Asks Supabase who the token belongs to — a forged or expired token
-    // gets no answer, so the address cannot simply be claimed.
     const { data, error } = await client.auth.getUser(token);
-    const email = data.user?.email?.toLowerCase();
-    return !error && !!email && admins.includes(email);
+    if (error || !data.user) return null;
+    return { id: data.user.id, email: data.user.email ?? null };
   } catch {
-    return false;
+    return null;
   }
 }
 

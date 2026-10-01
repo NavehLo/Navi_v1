@@ -10,6 +10,7 @@
 // disagree, and so the reader can see where each fact came from.
 
 import type { SourceTier, TrailInfoRequest } from './types';
+import { recordAiUsage } from '../aiUsage';
 import { crawlSite, fetchHtml, htmlToText, decodeEntities } from './crawl';
 import { fetchWmt } from '../wmtServer';
 import type { WmtRouteDetails } from '../waymarked';
@@ -192,6 +193,7 @@ async function webSearch(query: string): Promise<WebResult[]> {
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
     body: JSON.stringify({ query, search_depth: 'basic', max_results: 6, include_raw_content: 'text' }),
   });
+  if (data) await recordAiUsage({ kind: 'search', provider: 'tavily', model: 'search-basic', searches: 1 });
   return (data?.results ?? [])
     .map((r: { url?: string; title?: string; raw_content?: string; content?: string }) => ({
       url: r.url ?? '',

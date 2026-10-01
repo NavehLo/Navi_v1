@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { rateLimit, clientIp } from '../../../lib/rateLimit';
 import type { AdviceInput } from '../../../lib/tripAdvice';
+import { geminiTokens, recordAiUsage, withAiUsage } from '../../../lib/aiUsage';
 
 // A few sentences on what the trip day will be like, from the conclusions the
 // app already reached (lib/hikeAdvice.ts). Off by default in the panel — the
@@ -86,6 +87,7 @@ async function generate(user: string): Promise<string> {
   );
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || `Gemini ${res.status}`);
+  await recordAiUsage({ kind: 'text', provider: 'gemini-free', model: MODEL, ...geminiTokens(data) });
   const parts: Array<{ text?: string }> = data.candidates?.[0]?.content?.parts ?? [];
   return parts.map((p) => p.text ?? '').join('').trim();
 }
@@ -93,7 +95,7 @@ async function generate(user: string): Promise<string> {
 const cache = new Map<string, string>();
 const MAX_BODY = 6000;
 
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   try {
     if (!KEY) return NextResponse.json({ status: 'not-configured' satisfies Status });
 
@@ -123,4 +125,10 @@ export async function POST(request: Request) {
     console.error('Trip advice error:', error);
     return NextResponse.json({ status: 'unavailable' satisfies Status });
   }
+}
+
+// Every AI call made while answering is logged under this area and the caller
+// (see lib/aiUsage).
+export function POST(request: Request) {
+  return withAiUsage(request, 'trip_advice', () => handlePost(request));
 }

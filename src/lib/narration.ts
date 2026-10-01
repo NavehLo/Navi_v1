@@ -24,6 +24,7 @@ import {
   isWorthNarrating,
   sourcesForStorage,
 } from './grounding';
+import { geminiTokens, recordAiUsage } from './aiUsage';
 
 // One narration for one point of interest, produced in two halves so the
 // caller can put a quota check between them: `lookupNarration` is free and
@@ -145,6 +146,7 @@ export interface TextOptions {
 }
 
 async function generateTextOpenAI(system: string, user: string, opts: TextOptions = {}): Promise<string> {
+  const model = opts.openaiModel || process.env.OPENAI_TEXT_MODEL || 'gpt-4o-mini';
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -152,7 +154,7 @@ async function generateTextOpenAI(system: string, user: string, opts: TextOption
       'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
     },
     body: JSON.stringify({
-      model: opts.openaiModel || process.env.OPENAI_TEXT_MODEL || 'gpt-4o-mini',
+      model,
       temperature: TEXT_TEMPERATURE,
       ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
       ...(opts.json ? { response_format: { type: 'json_object' } } : {}),
@@ -165,6 +167,10 @@ async function generateTextOpenAI(system: string, user: string, opts: TextOption
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || 'OpenAI text error');
+  await recordAiUsage({
+    kind: 'text', provider: 'openai', model: data.model || model,
+    inputTokens: data.usage?.prompt_tokens, outputTokens: data.usage?.completion_tokens,
+  });
   return data.choices[0].message.content;
 }
 
@@ -194,11 +200,13 @@ async function generateTextGemini(system: string, user: string, free = false, op
   );
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || 'Gemini text error');
+  await recordAiUsage({ kind: 'text', provider: free ? 'gemini-free' : 'gemini', model, ...geminiTokens(data) });
   if (!data.candidates?.[0]?.content?.parts) throw new Error('Gemini returned no text');
   return data.candidates[0].content.parts.map((p: any) => p.text).join('');
 }
 
 async function generateTextClaude(system: string, user: string, opts: TextOptions = {}): Promise<string> {
+  const model = process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001';
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -207,7 +215,7 @@ async function generateTextClaude(system: string, user: string, opts: TextOption
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
+      model,
       max_tokens: opts.maxTokens ?? 1024,
       system,
       messages: [{ role: 'user', content: user }],
@@ -216,6 +224,10 @@ async function generateTextClaude(system: string, user: string, opts: TextOption
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || 'Claude text error');
+  await recordAiUsage({
+    kind: 'text', provider: 'claude', model: data.model || model,
+    inputTokens: data.usage?.input_tokens, outputTokens: data.usage?.output_tokens,
+  });
   return data.content.map((b: any) => (b.type === 'text' ? b.text : '')).join('');
 }
 

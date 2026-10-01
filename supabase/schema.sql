@@ -302,3 +302,54 @@ end;
 $$;
 
 grant execute on function public.increment_guide_usage(int, int) to authenticated;
+
+-- ── יומן שימוש ב-AI ─────────────────────────────────────────────────────────
+-- שורה לכל קריאה בתשלום לשירות AI (כתיבת טקסט, הקראה, חיפוש ברשת), עבור
+-- עמוד "שימוש ועלויות AI" של המנהל. נכתב רק מהשרת (src/lib/aiUsage.ts),
+-- רק על קריאות שהצליחו. העלות היא הערכה לפי מחירון בזמן הקריאה
+-- (src/lib/aiPricing.ts), ונשמרת עם השורה.
+-- area = מאיפה באפליקציה (guide, guide_offline, trail_info…), kind = text | voice | search.
+create table if not exists public.ai_usage (
+  id bigint generated always as identity primary key,
+  created_at timestamptz not null default now(),
+  area text not null,
+  kind text not null,
+  provider text not null,
+  model text not null,
+  user_id uuid references auth.users (id) on delete set null,
+  user_email text,
+  input_tokens int not null default 0,
+  output_tokens int not null default 0,
+  chars int not null default 0,
+  searches int not null default 0,
+  cost_usd numeric(12, 6) not null default 0
+);
+
+create index if not exists ai_usage_created_at_idx on public.ai_usage (created_at);
+
+alter table public.ai_usage enable row level security;
+-- אין policy: רק השרת עם service_role קורא וכותב.
+
+-- סיכום לפי אזור, סוג, מודל ומשתמש מאז p_since (null = הכול). עמוד המנהל
+-- מקבץ מזה את הסיכומים לפי שימוש, לפי מודל ולפי משתמש.
+create or replace function public.ai_usage_summary(p_since timestamptz)
+returns table(
+  area text, kind text, provider text, model text,
+  user_id uuid, user_email text,
+  calls bigint, input_tokens bigint, output_tokens bigint,
+  chars bigint, searches bigint, cost_usd numeric, last_at timestamptz
+)
+language sql
+stable
+set search_path = public
+as $$
+  select area, kind, provider, model, user_id, user_email,
+         count(*), sum(input_tokens), sum(output_tokens),
+         sum(chars), sum(searches), sum(cost_usd), max(created_at)
+  from public.ai_usage
+  where p_since is null or created_at >= p_since
+  group by area, kind, provider, model, user_id, user_email;
+$$;
+
+revoke execute on function public.ai_usage_summary(timestamptz) from public, anon, authenticated;
+grant execute on function public.ai_usage_summary(timestamptz) to service_role;

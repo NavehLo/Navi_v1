@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { trailInfoKey, type TrailInfo, type TrailInfoRequest, type TrailInfoStatus } from '../lib/trailInfo/types';
+import { authHeaders } from '../lib/authHeaders';
 
 // The "על המסלול" description of one trail: from this device if it was read
 // here before (so it opens in the field without signal), else from the server.
@@ -64,11 +65,12 @@ export function useTrailInfo(request: TrailInfoRequest): { state: TrailInfoState
     if (!loading) return;
     let live = true;
     const timers = STEPS.slice(1).map(([at, step]) => setTimeout(() => live && setState({ status: 'loading', step }), at));
-    fetch('/api/trail-info', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request),
-    })
+    authHeaders()
+      .then((auth) => fetch('/api/trail-info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...auth },
+        body: JSON.stringify(request),
+      }))
       .then((r) => r.json() as Promise<{ status?: TrailInfoStatus; info?: TrailInfo }>)
       .then((body) => {
         if (!live) return;

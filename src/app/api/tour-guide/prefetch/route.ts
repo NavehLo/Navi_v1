@@ -11,6 +11,7 @@ import {
   generateNarration,
 } from '../../../../lib/narration';
 import { isNarrationCacheConfigured } from '../../../../lib/narrationCache';
+import { withAiUsage } from '../../../../lib/aiUsage';
 
 // Prepares a whole trail's narration in one go, so it can be downloaded to the
 // device and played in the field with no reception. Points already in the
@@ -56,7 +57,7 @@ interface PrefetchPoi {
   tags?: Record<string, string> | null;
 }
 
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   try {
     if (!(await rateLimit(`prefetch:${clientIp(request)}`, 12, 60_000))) {
       return NextResponse.json({ error: 'יותר מדי בקשות. נסה שוב בעוד רגע.' }, { status: 429 });
@@ -224,4 +225,10 @@ export async function POST(request: Request) {
     console.error('Prefetch error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+}
+
+// Every AI call made while answering is logged under this area and the caller
+// (see lib/aiUsage).
+export function POST(request: Request) {
+  return withAiUsage(request, 'guide_offline', () => handlePost(request));
 }

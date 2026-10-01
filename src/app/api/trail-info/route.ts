@@ -4,6 +4,7 @@ import { collectSources } from '../../../lib/trailInfo/sources';
 import { summarizeTrail } from '../../../lib/trailInfo/summarize';
 import { readTrailInfo, writeTrailInfo } from '../../../lib/trailInfo/cache';
 import { trailInfoKey, type TrailInfo, type TrailInfoRequest, type TrailInfoStatus } from '../../../lib/trailInfo/types';
+import { withAiUsage } from '../../../lib/aiUsage';
 
 // "על המסלול": a Hebrew description of a trail, written from its official
 // site, Nakeb, Wikipedia and — when those say too little — a web search.
@@ -45,7 +46,7 @@ async function generate(req: TrailInfoRequest): Promise<TrailInfo | 'no-sources'
   return summarizeTrail(collected);
 }
 
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   let req: TrailInfoRequest | null = null;
   let debug = false;
   let refresh = false;
@@ -95,4 +96,10 @@ export async function POST(request: Request) {
       ? NextResponse.json({ status: 'ok', info: cached.info, cached: true } satisfies Body)
       : NextResponse.json({ status: 'unavailable' } satisfies Body);
   }
+}
+
+// Every AI call made while answering is logged under this area and the caller
+// (see lib/aiUsage).
+export function POST(request: Request) {
+  return withAiUsage(request, 'trail_info', () => handlePost(request));
 }
