@@ -23,6 +23,7 @@ export interface WmtRouteSummary {
   type: 'relation';
   id: number;
   name?: string;
+  ref?: string;
   group: WmtGroup;
   linear: 'yes' | 'no' | 'sorted';
   symbol_id?: string;

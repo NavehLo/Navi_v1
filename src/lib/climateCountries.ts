@@ -29,6 +29,7 @@ export interface CountryMonth {
 
 export interface CountriesByMonth {
   version: number;
+  countries: string[];                       // every country the grid covers
   months: CountryMonth[][];                  // 12 lists, the biggest share first
 }
 
@@ -75,6 +76,6 @@ export function countriesByMonth(): CountriesByMonth {
       .sort((a, b) => b.share - a.share || b.goodCells - a.goodCells)
   );
 
-  cached = { version: CLIMATE_VERSION, months };
+  cached = { version: CLIMATE_VERSION, countries: [...totals.keys()].sort(), months };
   return cached;
 }

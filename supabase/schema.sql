@@ -360,5 +360,24 @@ $$;
 revoke execute on function public.ai_usage_summary(timestamptz) from public, anon, authenticated;
 grant execute on function public.ai_usage_summary(timestamptz) to service_role;
 
+-- ── מסלולי עולם לפי מדינה, עם 12 החודשים ───────────────────────────────────
+-- "מסלולים בעולם לפי חודש": לכל מדינה רשימת המסלולים המסומנים שלה מ-Waymarked
+-- Trails, ולכל מסלול דירוג של 12 החודשים לפי האקלים (src/lib/countryTrails.ts).
+-- בניית מדינה לוקחת עשרות שניות, ולכן היא נשמרת כאן לכולם ל-30 יום, או עד
+-- שכללי הדירוג משתנים (climate_version). good_by_month = כמה מסלולים בעונה
+-- מומלצת בכל חודש, לרשימת המדינות בלי למשוך את כל הרשימה.
+create table if not exists public.country_trails (
+  country text primary key,
+  climate_version int not null,
+  built_at timestamptz not null default now(),
+  partial boolean not null default false,
+  good_by_month int[] not null default '{}',
+  trails jsonb not null
+);
+
+alter table public.country_trails enable row level security;
+-- אין policy: רק השרת עם service_role קורא וכותב.
+grant select, insert, update on public.country_trails to service_role;
+
 -- PostgREST מכיר פונקציה חדשה רק אחרי רענון של מטמון הסכמה.
 notify pgrst, 'reload schema';

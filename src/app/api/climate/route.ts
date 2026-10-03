@@ -1,14 +1,16 @@
 import { NextResponse } from 'next/server';
 import { rateLimit, clientIp } from '../../../lib/rateLimit';
 import { climateAt } from '../../../lib/climateGrid';
-import { rateMonths, CLIMATE_VERSION, type MonthVerdict } from '../../../lib/climate';
+import { rateMonths, rateLongWalk, CLIMATE_VERSION, MULTI_DAY_KM, type MonthVerdict } from '../../../lib/climate';
 import { countriesByMonth } from '../../../lib/climateCountries';
 
 // "מתי כדאי ללכת": the twelve months for one trail, from the climate grid that
 // ships with the server (see climateGrid.ts) — no outside service, nothing paid.
 //
-//   POST { low: {lat, lon, ele}, high: {lat, lon, ele}, hours }
+//   POST { low: {lat, lon, ele}, high: {lat, lon, ele}, hours, km?, samples? }
 //        → { status, version, months: MonthVerdict[12] }
+//        A walk longer than a day (km over MULTI_DAY_KM, with points along
+//        it in `samples`) is rated section by section — see rateLongWalk.
 //   GET  ?countries=1
 //        → { status, version, months: CountryMonth[][12] } — where it is in
 //          season, month by month, for the month-first world list
@@ -37,13 +39,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: 'rate-limited' satisfies Status }, { status: 429 });
   }
   try {
-    const body = (await request.json()) as { low?: unknown; high?: unknown; hours?: unknown };
+    const body = (await request.json()) as { low?: unknown; high?: unknown; hours?: unknown; km?: unknown; samples?: unknown };
     const low = point(body.low);
     const high = point(body.high) ?? low;
     const hours = Number(body.hours);
     if (!low || !high || !Number.isFinite(hours) || hours <= 0) {
       return NextResponse.json({ error: 'low, high and hours required' }, { status: 400 });
     }
+    const samples = Array.isArray(body.samples) ? body.samples.slice(0, 12).map(point).filter((p): p is Point => p != null) : [];
+    if (Number(body.km) > MULTI_DAY_KM && samples.length >= 2) {
+      const points = samples
+        .map((p) => ({ c: climateAt(p.lat, p.lon, p.ele), lat: p.lat }))
+        .filter((p) => p.c != null)
+        .map((p) => ({ months: p.c!.months, lat: p.lat }));
+      if (points.length === 0) return NextResponse.json({ status: 'unavailable' satisfies Status });
+      return NextResponse.json({ status: 'ok' satisfies Status, version: CLIMATE_VERSION, months: rateLongWalk(points) });
+    }
+
     const lowClimate = climateAt(low.lat, low.lon, low.ele);
     const highClimate = climateAt(high.lat, high.lon, high.ele);
     if (!lowClimate || !highClimate) return NextResponse.json({ status: 'unavailable' satisfies Status });

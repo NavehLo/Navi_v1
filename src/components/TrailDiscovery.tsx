@@ -7,6 +7,8 @@ import {
   type ShadeFilter, type WaterFilter, type TrailSummer,
 } from '../lib/summerFilters';
 import GPXLoader from './GPXLoader';
+import WorldByMonth from './WorldByMonth';
+import type { WmtRouteSummary } from '../lib/waymarked';
 import InfoButton from './help/InfoButton';
 import { useOutsideTap } from '../hooks/useOutsideTap';
 
@@ -36,13 +38,16 @@ interface TrailDiscoveryProps {
   offlinePacks?: MapPack[];
   onSelectPack?: (pack: MapPack) => void;
   online?: boolean;
+  // A world trail picked from "בעולם לפי חודש": opens its card, as the search
+  // box does.
+  onPickWorldTrail?: (summary: WmtRouteSummary) => void;
 }
 
 function packDaysLeft(pack: MapPack): number {
   return Math.ceil((pack.expiresAt - Date.now()) / (24 * 60 * 60 * 1000));
 }
 
-export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading, error, styleRev, offlinePacks = [], onSelectPack, online = true }: TrailDiscoveryProps) {
+export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading, error, styleRev, offlinePacks = [], onSelectPack, online = true, onPickWorldTrail }: TrailDiscoveryProps) {
   const [trails, setTrails] = useState<TrailInfo[]>([]);
   const [filterRegion, setFilterRegion] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<string | null>(null);
@@ -52,6 +57,8 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [filterShade, setFilterShade] = useState<ShadeFilter | null>(null);
   const [filterWater, setFilterWater] = useState<WaterFilter | null>(null);
+  // The packaged Israeli trails, or marked trails abroad chosen by month.
+  const [scope, setScope] = useState<'israel' | 'world'>('israel');
 
   // Open, the list covers the side buttons (see the z-index below); a tap
   // anywhere else folds it back to its title bar.
@@ -313,6 +320,25 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
       </div>
       
       <div className={`flex-col gap-4 md:flex overflow-hidden ${isExpanded ? 'flex flex-1 mt-2 md:mt-0' : 'hidden'}`}>
+        {onPickWorldTrail && (
+          <div className="flex rounded-xl bg-white/5 border border-white/10 p-0.5 shrink-0" role="tablist">
+            {([['israel', 'מסלולים בארץ'], ['world', 'בעולם לפי חודש']] as const).map(([v, label]) => (
+              <button
+                key={v}
+                role="tab"
+                aria-selected={scope === v}
+                onClick={() => setScope(v)}
+                className={`flex-1 rounded-lg py-2 text-sm font-bold transition-colors ${scope === v ? 'bg-orange-500 text-white' : 'text-white hover:bg-white/10'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {scope === 'world' && onPickWorldTrail ? (
+          <WorldByMonth onPickTrail={onPickWorldTrail} />
+        ) : (<>
         <div className="relative shrink-0">
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-300" size={16} />
           <input
@@ -469,6 +495,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
             העלה קובץ GPX או KML אישי
           </button>
         </div>
+        </>)}
       </div>
 
       {loading && (

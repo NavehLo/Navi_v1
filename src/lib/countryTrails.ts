@@ -1,0 +1,407 @@
+import { iso1A2Code } from '@rapideditor/country-coder';
+import { serviceClient } from './supabaseService';
+import { fetchWmt } from './wmtServer';
+import { lonLatToMercator, mercatorToLonLat, type WmtRouteSummary } from './waymarked';
+import { countryCells, climateAt } from './climateGrid';
+import { rateMonths, rateLongWalk, CLIMATE_VERSION, MULTI_DAY_KM, type MonthRating } from './climate';
+import { estimateHike } from './hikeEffort';
+import { lookupEnglish } from './trailNameCache';
+import { needsEnglish } from './trailNames';
+
+// A country's marked trails with the twelve months rated for each — the list
+// behind "מסלולים בעולם לפי חודש". Server only.
+//
+// Waymarked Trails cannot list a country: an area query answers 100 routes at
+// most, the most important first (international, national, regional, local).
+// A whole-country query would be all long-distance paths. So the country is
+// cut into up to MAX_TILES squares where its land is, sized to the country,
+// and each square is asked for its 100: in a small country that reaches the
+// local walks, in a large one the regional and national trails, which is what
+// somebody choosing a country for a trip looks at first.
+//
+// For each route, Waymarked's outline clipped to the square gives its length
+// in this country and a few points along it; Open-Meteo gives those points'
+// heights (free, 100 to a request); the climate grid and the same rateMonths
+// as the trail card do the rest.
+//
+// Building a country takes tens of seconds and a few dozen requests to two
+// community services, so it is done once: kept in memory and in
+// public.country_trails (when the table exists) for 30 days, or until the
+// rating rules change (CLIMATE_VERSION). Two people asking for the same new
+// country share one build.
+
+export interface CountryTrail {
+  id: number;
+  name: string;
+  name_en: string | null;
+  group: string;
+  linear: WmtRouteSummary['linear'];
+  km: number;               // length inside this country, as far as the squares saw it
+  crossesBorder: boolean;   // it goes on into a neighbour, so km is only this country's part
+  multiDay: boolean;
+  lat: number;              // a point on it, for the map
+  lon: number;
+  months: MonthRating[];    // 12
+}
+
+export interface CountryTrailList {
+  country: string;
+  version: number;
+  builtAt: number;
+  partial: boolean;         // the build ran out of time; rebuilt sooner
+  trails: CountryTrail[];
+}
+
+const MAX_TILES = 12;
+const TILE_SIZES = [1, 2, 3, 4, 6, 8, 12, 16, 24];
+const MAX_TRAILS = 600;
+const SAMPLES = 5;
+const BUILD_BUDGET_MS = 40_000;
+const FRESH_MS = 30 * 24 * 60 * 60 * 1000;
+const PARTIAL_FRESH_MS = 24 * 60 * 60 * 1000;
+
+const KEY = process.env.OPEN_METEO_API_KEY;
+const ELEVATION_URL = KEY ? 'https://customer-api.open-meteo.com/v1/elevation' : 'https://api.open-meteo.com/v1/elevation';
+
+const GROUP_ORDER: Record<string, number> = { INT: 0, NAT: 1, REG: 2, LOC: 3 };
+
+// ── Geometry ─────────────────────────────────────────────────────────────────
+
+type Line = Array<[number, number]>; // [lon, lat]
+
+function haversineKm(a: [number, number], b: [number, number]): number {
+  const toRad = Math.PI / 180;
+  const dLat = (b[1] - a[1]) * toRad;
+  const dLon = (b[0] - a[0]) * toRad;
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * toRad) * Math.cos(b[1] * toRad) * Math.sin(dLon / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(s));
+}
+
+function lineKm(line: Line): number {
+  let km = 0;
+  for (let i = 1; i < line.length; i++) km += haversineKm(line[i - 1], line[i]);
+  return km;
+}
+
+function evenly<T>(items: T[], count: number): T[] {
+  if (items.length <= count) return items;
+  return Array.from({ length: count }, (_, i) => items[Math.round((i * (items.length - 1)) / (count - 1 || 1))]);
+}
+
+// ── Squares ──────────────────────────────────────────────────────────────────
+
+interface Tile {
+  west: number; south: number; east: number; north: number;
+  cells: number;
+}
+
+function tilesFor(country: string): Tile[] {
+  const cells = countryCells(country);
+  if (cells.length === 0) return [];
+  for (const size of TILE_SIZES) {
+    const counts = new Map<string, number>();
+    for (const [lat, lon] of cells) {
+      const k = `${Math.floor(lat / size)},${Math.floor(lon / size)}`;
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    if (counts.size > MAX_TILES && size !== TILE_SIZES[TILE_SIZES.length - 1]) continue;
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, MAX_TILES)
+      .map(([k, n]) => {
+        const [r, c] = k.split(',').map(Number);
+        return { south: r * size, north: (r + 1) * size, west: c * size, east: (c + 1) * size, cells: n };
+      });
+  }
+  return [];
+}
+
+function mercatorBox(t: Tile): string {
+  const [minx, miny] = lonLatToMercator(t.west, Math.max(-85, t.south));
+  const [maxx, maxy] = lonLatToMercator(t.east, Math.min(85, t.north));
+  return [minx, miny, maxx, maxy].map((n) => n.toFixed(0)).join(',');
+}
+
+interface Found {
+  summary: WmtRouteSummary;
+  lines: Line[];
+}
+
+type Feature = { id?: number; properties?: { id?: number }; geometry?: { type: string; coordinates: unknown } };
+
+async function readTile(tile: Tile, found: Map<number, Found>): Promise<boolean> {
+  const bbox = mercatorBox(tile);
+  const list = (await fetchWmt(`/list/by_area?bbox=${bbox}&limit=100`, 12_000, false)) as
+    | { results?: WmtRouteSummary[] }
+    | null;
+  if (!list) return false;
+  const routes = (list.results ?? []).filter((r) => r?.id);
+  if (routes.length === 0) return true;
+  const outlines = (await fetchWmt(
+    `/list/segments?bbox=${bbox}&relations=${routes.map((r) => r.id).join(',')}`,
+    25_000,
+    false,
+  )) as { features?: Feature[] } | null;
+  if (!outlines) return false;
+  const byId = new Map(routes.map((r) => [r.id, r]));
+  for (const f of outlines.features ?? []) {
+    const id = Number(f.id ?? f.properties?.id);
+    const summary = byId.get(id);
+    if (!summary || !f.geometry) continue;
+    const raw = f.geometry.type === 'LineString'
+      ? [f.geometry.coordinates as number[][]]
+      : f.geometry.type === 'MultiLineString' ? (f.geometry.coordinates as number[][][]) : [];
+    const lines: Line[] = raw
+      .map((l) => l.filter((p) => Number.isFinite(p?.[0]) && Number.isFinite(p?.[1])).map((p) => mercatorToLonLat(p[0], p[1])))
+      .filter((l) => l.length > 1);
+    const entry = found.get(id) ?? { summary, lines: [] };
+    entry.lines.push(...lines);
+    found.set(id, entry);
+  }
+  return true;
+}
+
+// ── Heights ──────────────────────────────────────────────────────────────────
+
+async function elevations(points: Array<[number, number]>): Promise<Array<number | null>> {
+  const out: Array<number | null> = points.map(() => null);
+  const batches: number[][] = [];
+  for (let i = 0; i < points.length; i += 100) batches.push(Array.from({ length: Math.min(100, points.length - i) }, (_, j) => i + j));
+  await pool(batches, 3, async (idx) => {
+    const params = new URLSearchParams({
+      latitude: idx.map((i) => points[i][1].toFixed(4)).join(','),
+      longitude: idx.map((i) => points[i][0].toFixed(4)).join(','),
+    });
+    if (KEY) params.set('apikey', KEY);
+    try {
+      const res = await fetch(`${ELEVATION_URL}?${params}`, { signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) return;
+      const body = (await res.json()) as { elevation?: number[] };
+      body.elevation?.forEach((e, j) => { if (Number.isFinite(e)) out[idx[j]] = e; });
+    } catch {
+      // No heights: the grid's own is used, which only blurs mountain trails.
+    }
+  });
+  return out;
+}
+
+async function pool<T>(items: T[], size: number, work: (item: T) => Promise<unknown>): Promise<void> {
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(size, items.length) }, async () => {
+    while (next < items.length) await work(items[next++]);
+  }));
+}
+
+// ── Rating ───────────────────────────────────────────────────────────────────
+
+interface Sample { lon: number; lat: number; ele: number | null }
+
+function rateTrail(samples: Sample[], km: number, multiDay: boolean): MonthRating[] | null {
+  if (!multiDay) {
+    // A day walk: like the trail card, heat at its lowest point and cold at
+    // its highest, for the time it takes.
+    const known = samples.filter((s) => s.ele != null);
+    const low = known.length ? known.reduce((a, b) => (b.ele! < a.ele! ? b : a)) : samples[0];
+    const high = known.length ? known.reduce((a, b) => (b.ele! > a.ele! ? b : a)) : samples[0];
+    const lowC = climateAt(low.lat, low.lon, low.ele);
+    const highC = climateAt(high.lat, high.lon, high.ele);
+    if (!lowC || !highC) return null;
+    const relief = known.length ? Math.max(0, high.ele! - low.ele!) : 0;
+    const hours = estimateHike(km, relief, relief).totalHours;
+    return rateMonths({ low: lowC.months, high: highC.months, lat: (low.lat + high.lat) / 2, hours }).map((m) => m.rating);
+  }
+  // A walk of days: point by point, as rateLongWalk explains.
+  const points = samples
+    .map((s) => ({ c: climateAt(s.lat, s.lon, s.ele), lat: s.lat }))
+    .filter((p): p is { c: NonNullable<typeof p.c>; lat: number } => p.c != null)
+    .map((p) => ({ months: p.c.months, lat: p.lat }));
+  return points.length ? rateLongWalk(points).map((m) => m.rating) : null;
+}
+
+// ── Building ─────────────────────────────────────────────────────────────────
+
+async function build(country: string): Promise<CountryTrailList | null> {
+  const started = Date.now();
+  const tiles = tilesFor(country);
+  if (tiles.length === 0) return null;
+
+  const found = new Map<number, Found>();
+  let answered = 0, partial = false;
+  await pool(tiles, 4, async (tile) => {
+    if (Date.now() - started > BUILD_BUDGET_MS / 2) { partial = true; return; }
+    if (await readTile(tile, found)) answered++;
+    else partial = true;
+  });
+  if (answered === 0) return null;
+
+  // Each route: its length here, and a few points on it that are in this
+  // country (a square at a border holds the neighbour's trails too).
+  const candidates: Array<{ summary: WmtRouteSummary; km: number; crossesBorder: boolean; samples: Sample[] }> = [];
+  for (const { summary, lines } of found.values()) {
+    const sampled = evenly(lines.flat(), 30);
+    const inside = sampled.filter(([lon, lat]) => iso1A2Code([lon, lat]) === country);
+    if (inside.length === 0) continue;
+    // The squares reach over the border; only the share inside counts.
+    const km = lines.reduce((s, l) => s + lineKm(l), 0) * (inside.length / sampled.length);
+    if (km < 0.5) continue;
+    candidates.push({ summary, km, crossesBorder: inside.length < sampled.length, samples: evenly(inside, SAMPLES).map(([lon, lat]) => ({ lon, lat, ele: null })) });
+  }
+  candidates.sort((a, b) => (GROUP_ORDER[a.summary.group] ?? 4) - (GROUP_ORDER[b.summary.group] ?? 4) || b.km - a.km);
+  const chosen = candidates.slice(0, MAX_TRAILS);
+
+  const allSamples = chosen.flatMap((c) => c.samples);
+  const heights = await elevations(allSamples.map((s) => [s.lon, s.lat]));
+  allSamples.forEach((s, i) => { s.ele = heights[i]; });
+
+  const english = await lookupEnglish(chosen.filter((c) => needsEnglish(c.summary.name)).map((c) => c.summary.id));
+
+  const trails: CountryTrail[] = [];
+  for (const c of chosen) {
+    const multiDay = c.km > MULTI_DAY_KM || c.summary.group === 'INT' || c.summary.group === 'NAT';
+    const months = rateTrail(c.samples, c.km, multiDay);
+    if (!months) continue;
+    const mid = c.samples[Math.floor(c.samples.length / 2)];
+    trails.push({
+      id: c.summary.id,
+      name: c.summary.name || c.summary.ref || `מסלול ${c.summary.id}`,
+      name_en: english.get(c.summary.id) ?? null,
+      group: c.summary.group,
+      linear: c.summary.linear,
+      km: Math.round(c.km * 10) / 10,
+      crossesBorder: c.crossesBorder,
+      multiDay,
+      lat: Math.round(mid.lat * 1e4) / 1e4,
+      lon: Math.round(mid.lon * 1e4) / 1e4,
+      months,
+    });
+  }
+  return { country, version: CLIMATE_VERSION, builtAt: Date.now(), partial, trails };
+}
+
+// ── Remembering ──────────────────────────────────────────────────────────────
+
+const memory = new Map<string, CountryTrailList>();
+const inFlight = new Map<string, Promise<CountryTrailList | null>>();
+let tableMissing = false;
+
+function noteError(where: string, e: unknown): void {
+  const code = (e as { code?: string })?.code;
+  const message = String((e as { message?: string })?.message ?? e);
+  if (code === '42P01' || code === 'PGRST205' || /does not exist|schema cache/i.test(message)) {
+    if (!tableMissing) {
+      console.error(
+        `Country trails cache disabled: table public.country_trails is missing. ` +
+          `Run the country_trails section of supabase/schema.sql to enable it. (${message})`
+      );
+    }
+    tableMissing = true;
+    return;
+  }
+  console.error(`Country trails cache ${where} failed:`, e);
+}
+
+function isFresh(list: CountryTrailList | null | undefined): list is CountryTrailList {
+  if (!list || list.version !== CLIMATE_VERSION) return false;
+  return Date.now() - list.builtAt < (list.partial ? PARTIAL_FRESH_MS : FRESH_MS);
+}
+
+async function readTable(country: string): Promise<CountryTrailList | null> {
+  const client = serviceClient();
+  if (!client || tableMissing) return null;
+  try {
+    const { data, error } = await client
+      .from('country_trails')
+      .select('country, climate_version, built_at, partial, trails')
+      .eq('country', country)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return {
+      country: data.country,
+      version: data.climate_version,
+      builtAt: new Date(data.built_at).getTime(),
+      partial: !!data.partial,
+      trails: data.trails ?? [],
+    };
+  } catch (e) {
+    noteError('read', e);
+    return null;
+  }
+}
+
+async function writeTable(list: CountryTrailList): Promise<void> {
+  const client = serviceClient();
+  if (!client || tableMissing) return;
+  try {
+    const { error } = await client.from('country_trails').upsert({
+      country: list.country,
+      climate_version: list.version,
+      built_at: new Date(list.builtAt).toISOString(),
+      partial: list.partial,
+      good_by_month: goodByMonth(list),
+      trails: list.trails,
+    });
+    if (error) throw error;
+  } catch (e) {
+    noteError('write', e);
+  }
+}
+
+export function goodByMonth(list: CountryTrailList): number[] {
+  return Array.from({ length: 12 }, (_, m) => list.trails.filter((t) => t.months[m] === 'good').length);
+}
+
+// The country's list from memory or the table, or null when it has not been
+// built (or is out of date). Cheap; never builds.
+export async function storedCountryTrails(country: string): Promise<CountryTrailList | null> {
+  const mem = memory.get(country);
+  if (isFresh(mem)) return mem;
+  const stored = await readTable(country);
+  if (isFresh(stored)) {
+    memory.set(country, stored);
+    return stored;
+  }
+  return null;
+}
+
+// The list, building it if need be. Null when it could not be built.
+export async function countryTrails(country: string): Promise<CountryTrailList | null> {
+  const stored = await storedCountryTrails(country);
+  if (stored) return stored;
+  const running = inFlight.get(country);
+  if (running) return running;
+  const work = (async () => {
+    try {
+      const list = await build(country);
+      if (list) {
+        memory.set(country, list);
+        await writeTable(list);
+      }
+      return list;
+    } finally {
+      inFlight.delete(country);
+    }
+  })();
+  inFlight.set(country, work);
+  return work;
+}
+
+// How many trails are good in each month, for every country already built —
+// so the month-first list can say "23 מסלולים" beside a country it knows.
+export async function builtCountryCounts(): Promise<Record<string, number[]>> {
+  const out: Record<string, number[]> = {};
+  for (const [c, list] of memory) if (isFresh(list)) out[c] = goodByMonth(list);
+  const client = serviceClient();
+  if (!client || tableMissing) return out;
+  try {
+    const { data, error } = await client
+      .from('country_trails')
+      .select('country, climate_version, good_by_month')
+      .eq('climate_version', CLIMATE_VERSION);
+    if (error) throw error;
+    for (const row of data ?? []) if (!out[row.country] && Array.isArray(row.good_by_month)) out[row.country] = row.good_by_month;
+  } catch (e) {
+    noteError('counts', e);
+  }
+  return out;
+}

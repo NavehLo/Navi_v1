@@ -15,7 +15,7 @@
 
 import { heatLoad } from './hikeAdvice';
 
-export const CLIMATE_VERSION = 1;
+export const CLIMATE_VERSION = 2;
 
 export type MonthRating = 'good' | 'fair' | 'bad';
 
@@ -177,6 +177,29 @@ export function rateMonths({ low, high, lat, hours }: ClimateInput): MonthVerdic
       ppt: Math.round(wet.ppt),
       daylight: Math.round(daylight * 2) / 2,
     };
+  });
+}
+
+// ── A walk of days ───────────────────────────────────────────────────────────
+// Longer than a day's walk, a trail crosses climates — a desert end and a
+// mountain end would make every month bad if judged as one walk. So points
+// along it are each rated as a full day's walking on their own, and a month
+// goes by most of them (the worse on a tie). The trail card and the
+// world-trail lists both use this, so they agree.
+export const MULTI_DAY_KM = 25;
+
+export function rateLongWalk(points: Array<{ months: MonthClimate[]; lat: number }>): MonthVerdict[] {
+  const per = points.map((p) => rateMonths({ low: p.months, high: p.months, lat: p.lat, hours: MAX_DAY_HOURS }));
+  return Array.from({ length: 12 }, (_, m) => {
+    const votes: Record<MonthRating, number> = { good: 0, fair: 0, bad: 0 };
+    for (const v of per) votes[v[m].rating]++;
+    const top = Math.max(votes.good, votes.fair, votes.bad);
+    const rating = (['good', 'fair', 'bad'] as const).filter((r) => votes[r] === top).reduce<MonthRating>((a, b) => worse(a, b), 'good');
+    const typical = per.find((v) => v[m].rating === rating)![m];
+    const note = per.length > 1 && votes[rating] < per.length
+      ? [{ rating, text: `מסלול של כמה ימים: כך ברוב הקטעים (${votes[rating]} מתוך ${per.length})` }]
+      : [];
+    return { ...typical, reasons: [...typical.reasons, ...note] };
   });
 }
 

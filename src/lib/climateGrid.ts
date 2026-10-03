@@ -210,3 +210,24 @@ export function forEachCell(visit: (lat: number, lon: number, country: string, y
     }
   }
 }
+
+// The centres of a country's land cells, [lat, lon] — where to look for its
+// trails. Empty for a code the grid does not know.
+export function countryCells(code: string): Array<[number, number]> {
+  const g = load();
+  if (!g) return [];
+  const idx = g.countries.indexOf(code);
+  if (idx <= 0) return [];
+  const out: Array<[number, number]> = [];
+  for (let r = 0; r < g.rows; r++) {
+    let k = g.rowStart[r];
+    const end = g.rowStart[r + 1];
+    if (k === end) continue;
+    for (let c = 0; c < g.cols && k < end; c++) {
+      const bit = r * g.cols + c;
+      if (!(g.mask[bit >> 3] & (1 << (bit & 7)))) continue;
+      if (g.country[k++] === idx) out.push([g.lat0 - (r + 0.5) * g.res, g.lon0 + (c + 0.5) * g.res]);
+    }
+  }
+  return out;
+}

@@ -31,6 +31,18 @@ function extremes(coords: TrailData['coords'], hasElevation: boolean) {
   };
 }
 
+// Points spread along the trail, for a walk of several days — rated section
+// by section on the server (see rateLongWalk in lib/climate).
+const LONG_WALK_SAMPLES = 7;
+
+function samplesAlong(coords: TrailData['coords'], hasElevation: boolean) {
+  const n = Math.min(LONG_WALK_SAMPLES, coords.length);
+  return Array.from({ length: n }, (_, i) => {
+    const [lat, lon, ele] = coords[Math.round((i * (coords.length - 1)) / Math.max(1, n - 1))];
+    return { lat, lon, ele: hasElevation ? Math.round(ele) : null };
+  });
+}
+
 // The twelve months for the open trail ("מתי כדאי ללכת"). `hours` is the
 // walk's length with breaks, the same figure the forecast works from.
 //
@@ -58,7 +70,12 @@ export function useTrailClimate(trail: TrailData | null, hours: number): TrailCl
         const res = await fetch('/api/climate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...extremes(trail.coords, trail.maxEle > trail.minEle), hours }),
+          body: JSON.stringify({
+            ...extremes(trail.coords, trail.maxEle > trail.minEle),
+            hours,
+            km: trail.totalDistance,
+            samples: samplesAlong(trail.coords, trail.maxEle > trail.minEle),
+          }),
           signal: controller.signal,
         });
         const data = await res.json();

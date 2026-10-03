@@ -45,6 +45,7 @@ import { useSummerConditions } from "@/hooks/useSummerConditions";
 import { useTripWeather } from "@/hooks/useTripWeather";
 import { useTrailClimate } from "@/hooks/useTrailClimate";
 import { useWorldTrails } from "@/hooks/useWorldTrails";
+import type { WmtRouteSummary } from "@/lib/waymarked";
 import {
   saveTrail, recordTour, SavedTrail, describeSupabaseError, clearPersonalCache,
   listSavedTrails, listTourHistory, listTrailNotes, cachePersonalData, warmSavedTrailFiles,
@@ -166,6 +167,13 @@ export default function TrailApp() {
   const { trail, setTrail, trailSource, loadTrailFile, loadTrailFromUrl, loadTrailFromText, loadTrailFromCoords, trailError, trailLoading } = useTrailData();
   // Marked hiking routes from OSM, worldwide, as an overlay anyone can tap.
   const worldTrails = useWorldTrails(map, styleRev, { onLoadTrail: loadTrailFromCoords, focused: !!trail });
+  // A world trail chosen from "בעולם לפי חודש" opens its card, as one picked
+  // in the search box does — with the layer on, so it can be seen.
+  const { enable: enableWorldTrails, select: selectWorldTrail } = worldTrails;
+  const pickWorldTrail = useCallback((summary: WmtRouteSummary) => {
+    enableWorldTrails();
+    selectWorldTrail(summary.id, summary, { fit: true });
+  }, [enableWorldTrails, selectWorldTrail]);
 
   // "על המסלול": which trail's description is open, if any.
   const [infoRequest, setInfoRequest] = useState<TrailInfoRequest | null>(null);
@@ -1211,6 +1219,7 @@ export default function TrailApp() {
             offlinePacks={mapPacks}
             onSelectPack={openPack}
             online={online}
+            onPickWorldTrail={pickWorldTrail}
           />
         </div>
       )}

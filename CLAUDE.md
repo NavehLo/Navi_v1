@@ -68,7 +68,9 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
 - **The month ratings are pinned.** "מתי כדאי ללכת" is decided only in
   `src/lib/climate.ts`; after changing a rule or threshold there, run
   `node scripts/checkClimate.mjs` and bump `CLIMATE_VERSION` (it is in every
-  cache key, on the device and on the server). The grid
+  cache key: on the device, and in `country_trails` on the server). The trail
+  card and the world-trail lists must keep rating through the same functions
+  (`rateMonths`, `rateLongWalk`) so they never disagree. The grid
   (`src/data/climate-grid.bin.gz`) is rebuilt only with
   `scripts/buildClimateGrid.mjs`, and any route that reads it must be listed in
   `outputFileTracingIncludes` in `next.config.ts`.
