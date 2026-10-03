@@ -1,6 +1,27 @@
 # Navi
 
-תלת-ממד למסלולי טיול בישראל, עם מדריכה קולית בעברית.
+מסלולי טיול בתלת־ממד, בישראל ובעולם, עם מדריכה קולית בעברית. אפליקציית Next.js
+שרצה ב-Vercel (`navi-v1.vercel.app`), עם עטיפת אנדרואיד ב-`android-app/`.
+
+## מה יש באפליקציה
+
+| יכולת | בקצרה | איפה בקוד |
+|---|---|---|
+| מסלולים בישראל | 83 מסלולים ארוזים (קבצי GPX מנאקב), חיפוש וסינון לפי אזור, סוג, צל ומים, והעלאת GPX אישי | `public/trails`, `src/components/TrailDiscovery.tsx` |
+| מסלולים בעולם | שכבת מסלולים מסומנים מכל העולם מ-Waymarked Trails, חיפוש בתיבת החיפוש עם שם באנגלית ומדינה | `src/hooks/useWorldTrails.ts`, `src/lib/waymarked.ts`, `docs/plan-drive-and-trails.md` |
+| "על המסלול" | תיאור בעברית לכל מסלול, שמודל שפה כותב ממקורות מדורגים (אתר רשמי, נאקב, ויקיפדיה, חיפוש ברשת) | `src/app/api/trail-info`, `src/lib/trailInfo/` |
+| סיור וירטואלי | טיסה לאורך המסלול במהירות x1–x5 | `src/components/Map.tsx` |
+| המדריכה הקולית | קריינות בנקודות שיש עליהן מידע ייחודי, נכתבת ממקורות ומוקראת ב-ElevenLabs, נשמרת לתמיד | `src/lib/narration.ts`, `src/lib/grounding.ts`, `src/app/api/tour-guide` |
+| הורדה לשטח | המפה והקריינות נשמרות במכשיר ל-30 יום ועובדות בלי קליטה | `public/sw.js`, `src/lib/offlineMap.ts` |
+| כרטיס המסלול | גבהים, מזג אוויר ליום ולשעת היציאה, כמות מים מומלצת, מים וצל לאורך הדרך | `src/components/StatsPanel.tsx`, `TripWeatherSection.tsx`, `docs/plan-summer-water-shade.md` |
+| מיקום חי והתראת סטייה | מעקב על המפה, התראה קולית בסטייה מהמסלול, צליל ועוצמה לבחירה | `src/lib/offRouteAlert.ts`, `src/components/OffRouteSetting.tsx` |
+| מדידה וניווט | מרחק הליכה בין כמה נקודות, צמוד לשבילים, והפיכת המדידה למסלול | `src/components/MeasureTool.tsx`, `src/lib/pathSnap.ts` |
+| נסיעה בכביש | מוצא, יעד ועצירות, עד שלוש דרכים לבחירה (Mapbox Directions) | `src/components/DrivePlanner.tsx`, `src/lib/mapboxDirections.ts` |
+| חיפוש מקומות | תיבת חיפוש בעברית ובאנגלית (Mapbox ו-OpenStreetMap) | `src/components/PlaceSearchBox.tsx`, `src/lib/mapboxSearch.ts`, `src/lib/osmPlaces.ts` |
+| אזור אישי | התחברות עם Google, מסלולים שמורים, הערות ודירוג, היסטוריה | `src/components/PersonalArea.tsx`, `src/lib/personalArea.ts` |
+| הדרכה למשתמשים חדשים | סיור פתיחה, טיפים חד-פעמיים, כפתורי ⓘ ו"איך זה עובד" בהגדרות | `src/components/help/`, `src/lib/onboarding.ts` |
+| כלי המנהל | ספק ה-AI, הקול, הניקוד, בדיקה בלי קליטה, שימוש ועלויות AI וקרדיטים של ElevenLabs | `src/components/SettingsPanel.tsx`, `AiUsagePanel.tsx`, `ElevenLabsCredits.tsx` |
+| אפליקציית אנדרואיד | מיקום והתראת סטייה גם כשהמסך כבוי | `android-app/`, `src/lib/native.ts` |
 
 ## הגדרה — איפה שמים את המפתחות
 
@@ -32,25 +53,57 @@ Development). משתנה חדש נכנס לתוקף רק ב-deploy הבא — א
 
 ### מה למלא
 
-| משתנה | חובה? | מאיפה משיגים |
+**בסיס — מפה, התחברות ושמירה**
+
+| משתנה | חובה? | מאיפה משיגים / מה עושה |
 |---|---|---|
-| `NEXT_PUBLIC_MAPBOX_TOKEN` | לא, אבל בלעדיו כל משתמש חדש נדרש להזין טוקן אישי | mapbox.com → Account → Tokens (הגבל ל-URL של האתר) |
-| `ELEVENLABS_API_KEY` | לקול טוב בעברית | elevenlabs.io → Profile → API Keys |
-| `ELEVENLABS_VOICE_ID` | יחד עם המפתח | elevenlabs.io → Voices → הקול → Copy Voice ID |
-| `GEMINI_API_KEY` | לפחות ספק אחד | aistudio.google.com → Get API key |
-| `OPENAI_API_KEY` | חלופה ל-Gemini | platform.openai.com → API keys |
-| `NEXT_PUBLIC_SUPABASE_URL` | להתחברות ול-cache | Supabase → Settings → API |
+| `NEXT_PUBLIC_MAPBOX_TOKEN` | לא, אבל בלעדיו כל משתמש נדרש להזין טוקן אישי | mapbox.com → Account → Tokens (הגבל ל-URL של האתר; הרשאות Search ו-Directions) |
+| `NEXT_PUBLIC_SUPABASE_URL` | להתחברות, לאזור האישי ולמטמונים | Supabase → Settings → API |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | " | Supabase → Settings → API |
-| `SUPABASE_SERVICE_ROLE_KEY` | ל-cache הקבוע | Supabase → Settings → API → service_role |
-| `NIQQUD_PROVIDER` | לא | `dicta` (ברירת מחדל) או `lexicon` — ראה "ניקוד לפני ההקראה" |
-| `DICTA_NAKDAN_URL` | לא | כתובת ה-API של Nakdan, אם DICTA העבירו אותה לגרסה חדשה |
+| `SUPABASE_SERVICE_ROLE_KEY` | למטמונים הקבועים וליומן השימוש ב-AI | Supabase → Settings → API → service_role |
+| `ADMIN_EMAILS` | לכלי המנהל | כתובות מופרדות בפסיק. מי שמתחבר עם אחת מהן רואה את "מתקדם" ואת "שימוש ועלויות AI" |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | מומלץ | upstash.com. הגבלת קצב שמשותפת לכל השרתים; בלעדיהם ההגבלה נשמרת בזיכרון של כל שרת לחוד |
+| `CRON_SECRET` | מומלץ | נועל את `/api/keepalive` (ראה "Keeping Supabase awake") |
+
+**כתיבת טקסט (מודלי שפה)** — לפחות אחד. הסדר שבו הם נוסים מתואר ב"המדריכה הקולית".
+
+| משתנה | מה עושה |
+|---|---|
+| `GEMINI_FREE_API_KEY` | מפתח מפרויקט AI Studio **בלי חיוב**. ראשון בתור לקריינות, ל"על המסלול" ולתרגום, והיחיד שמשמש את הסבר מזג האוויר |
+| `OPENAI_API_KEY` | OpenAI. קריינות ותרגום ב-`gpt-4o-mini`, "על המסלול" ב-`gpt-4.1-mini` |
+| `GEMINI_API_KEY` | Gemini בתשלום (`gemini-3.6-flash`), וגם קול גיבוי של Gemini |
+| `ANTHROPIC_API_KEY` | Claude (`claude-haiku-4-5`), אחרון בתור |
+| `AI_PROVIDER` | ספק ראשון בתור: `gemini-free`, `openai`, `gemini` או `claude` |
+| `OPENAI_TEXT_MODEL`, `TRAIL_INFO_OPENAI_MODEL`, `GEMINI_TEXT_MODEL`, `GEMINI_FREE_TEXT_MODEL`, `GEMINI_ADVICE_MODEL`, `ANTHROPIC_MODEL` | החלפת מודל בלי שינוי קוד |
+
+**קול**
+
+| משתנה | מה עושה |
+|---|---|
+| `ELEVENLABS_API_KEY` | elevenlabs.io → Profile → API Keys. הרשאות: Text to Speech, Voices → Read, ו-User → Read (לקרדיטים) |
+| `ELEVENLABS_VOICE_ID` | קול ברירת המחדל. בתוכנית החינמית רק קולות premade (ראה למטה) |
+| `ELEVENLABS_FALLBACK_VOICE_ID` | קול שמחליף קול שהחשבון לא רשאי להשמיע (ברירת מחדל: Sarah) |
+| `ELEVENLABS_MODEL_ID`, `ELEVENLABS_OUTPUT_FORMAT`, `ELEVENLABS_STABILITY`, `ELEVENLABS_SIMILARITY`, `ELEVENLABS_STYLE`, `ELEVENLABS_SPEED` | כוונון הקול. עברית נתמכת רק ב-`eleven_v3` |
+| `OPENAI_TTS_MODEL`, `OPENAI_TTS_VOICE`, `GEMINI_TTS_MODEL`, `GEMINI_TTS_VOICE` | קולות הגיבוי כש-ElevenLabs לא מוגדר |
+| `NIQQUD_PROVIDER` | `dicta` (ברירת מחדל) או `lexicon` — ראה "ניקוד לפני ההקראה" |
+| `DICTA_NAKDAN_URL` | כתובת ה-API של Nakdan, אם DICTA העבירו אותה |
+| `GUIDE_DAILY_CHARS_PER_USER` | מכסת תווים יומית חדשים למשתמש מחובר (ברירת מחדל 12,000) |
+| `GUIDE_DAILY_MISSES_ANON` | מכסת קריינויות חדשות ביום למי שלא מחובר, לפי IP (ברירת מחדל 8) |
+
+**מידע ונתונים**
+
+| משתנה | מה עושה |
+|---|---|
+| `TAVILY_API_KEY` | tavily.com. חיפוש ברשת ל"על המסלול" כשאין מספיק מקורות. 1,000 חיפושים בחודש חינם |
+| `OPEN_METEO_API_KEY` | לא חובה. בלעדיו מזג האוויר מגיע מהשירות החינמי של Open-Meteo (לשימוש לא מסחרי) |
 
 `SUPABASE_SERVICE_ROLE_KEY` הוא **סוד אמיתי**: הוא עוקף RLS ומאפשר גישה מלאה
 לבסיס הנתונים. לעולם אל תיתן לו קידומת `NEXT_PUBLIC_` — כל משתנה עם הקידומת
 הזו נארז לתוך ה-JavaScript שרץ בדפדפן של כל מבקר.
 
-הטוקן של Mapbox הוא היוצא מן הכלל: הוא מוזן דרך מסך הפתיחה של האפליקציה
-ונשמר ב-localStorage של הדפדפן, לא כמשתנה סביבה.
+הטוקן של Mapbox הוא ציבורי מטבעו (הוא נשלח לדפדפן בכל מקרה) ולכן מותר לו
+`NEXT_PUBLIC_`. כשהוא מוגדר כל המשתמשים משתמשים בו; רק בלעדיו האפליקציה מבקשת
+מכל משתמש להזין טוקן אישי, שנשמר ב-localStorage של הדפדפן.
 
 **הרשאות הטוקן של Mapbox.** תיבת החיפוש שעל מסך הבית ותכנון הנסיעה בכביש
 פונים ל-Search Box API ול-Directions API, ולכן הטוקן צריך את ההרשאות
@@ -58,10 +111,22 @@ Development). משתנה חדש נכנס לתוקף רק ב-deploy הבא — א
 חיפוש המקומות בעברית ונקודות העניין (שמורות, נחלים, פסגות) מגיע מ-OpenStreetMap
 דרך Photon — שירות חינמי שאינו דורש מפתח כלל.
 
+## המדריכה הקולית
+
+נקודה הופכת לנקודת מדריכה רק כשידוע עליה משהו ספציפי: ערך בוויקיפדיה העברית
+*על הנקודה עצמה*, או תיאור של ממש בתגיות OpenStreetMap שלה (`src/lib/grounding.ts`).
+נקודה שאין מה לומר עליה לא מופיעה בכלל. הנקודות מתגלות דרך Overpass ונשמרות
+בטבלה `trail_pois`, כי Overpass נכשל לעתים קרובות ובאקראי.
+
+הקריינות נכתבת על ידי מודל שפה רק מתוך המקורות, ונשמרת בטבלה `poi_narration`;
+האודיו נשמר ב-bucket `narrations`. משלמים פעם אחת לכל נקודה, וכל המשתמשים
+שומעים את אותה קריינות. הספקים נוסים לפי הסדר: הבחירה בהגדרות, `AI_PROVIDER`,
+ואחר כך Gemini החינמי → OpenAI → Gemini בתשלום → Claude. ספק שנכשל מושהה ל-10 דקות.
+
 ### בחירת קול — בלי deploy
 
 `ELEVENLABS_VOICE_ID` הוא רק ברירת המחדל של השרת. כדי לנסות קולות, פתח
-באפליקציה **הגדרות → הקול של המדריכה**: בחר מהרשימה, כוונן את המחוונים,
+באפליקציה **הגדרות → מתקדם → הקול של המדריכה** (למנהל האתר בלבד, ראה "כלי המנהל"): בחר מהרשימה, כוונן את המחוונים,
 ולחץ "השמע משפט לדוגמה".
 
 **הרשאות המפתח.** מפתחות ה-API של ElevenLabs מוגבלים בהרשאות: מפתח יכול להיות
@@ -115,7 +180,7 @@ Library חסומים ל-API ומחזירים 402 `paid_plan_required`, גם כש
 `NIQQUD_VERSION` וזהות המנקד הם חלק מחתימת הקול, ולכן שינוי כאן מייצר אודיו
 חדש במקום להגיש את ההקראה הישנה מה-cache.
 
-**בדיקה.** בהגדרות → **בדיקת ניקוד** אפשר להזין כל משפט ולראות מה כל אחד משני
+**בדיקה.** בהגדרות → מתקדם → **בדיקת ניקוד** אפשר להזין כל משפט ולראות מה כל אחד משני
 המנקדים עושה לו, בלי לייצר קול ובלי לצרוך קרדיטים. זו גם הדרך היחידה לוודא
 ש*השרת* מצליח להגיע ל-Nakdan: התשובה כוללת את הכתובת שאליה פנה ואת השגיאה
 המדויקת אם נכשל. אם Nakdan חסום מהפרודקשן, הקריינות תמשיך לעבוד — היא פשוט
@@ -163,21 +228,110 @@ Library חסומים ל-API ומחזירים 402 `paid_plan_required`, גם כש
 כדי שהדפדפן לא יפנה אותו בלחץ מקום. **באייפון**, למי שמשתמש: חובה להוסיף את Navi למסך
 הבית ולפתוח משם — Safari מוחק אחסון של אתר רגיל אחרי שבעה ימים בלי שימוש.
 
-**בדיקה בבית.** הגדרות → "בדיקת מצב שטח" → "דמה אובדן קליטה" → רענון. המפה, הקריינות
+**בדיקה בבית.** הגדרות → מתקדם → "בדיקה בלי קליטה" → "דמה אובדן קליטה" → רענון. המפה, הקריינות
 והמסלולים מגיעים רק ממה שנשמר. הבדיקה עובדת על build ייצור (`npm run build` ואז
 `npx next start`); ב-`next dev` הדף לא עובר hydration בלי רשת — עניין של Turbopack
 בפיתוח, לא של האפליקציה.
 
-### בסיס הנתונים
+## "על המסלול"
+
+כפתור בכרטיס המסלול שפותח תיאור בעברית: סיכום, נתונים, וסעיפים (גישה, מים,
+עונה וכו') עם הפניה למקורות. המקורות מדורגים: אתר רשמי של המסלול, נאקב (במסלולים
+בישראל — המספר בסוף שם קובץ ה-GPX הוא המזהה בנאקב), ויקיפדיה, ורק אם אין
+מספיק — חיפוש ברשת ב-Tavily. התיאור נכתב פעם אחת לכל מסלול, נשמר בטבלה
+`trail_info` לכולם ומתחדש אחרי 90 יום.
+
+## תחזית ליום הטיול
+
+בכרטיס המסלול → "נתונים": תחזית לפי יום ושעת יציאה, בבלוקים לאורך היום, עם כמות
+מים מומלצת (טווח, כולל רזרבה בקיץ), ביגוד ואזהרות. החישובים כולם בכללים קבועים
+(`src/lib/hikeAdvice.ts`). אפשר להפעיל גם הסבר במילים שמודל שפה כותב
+(`/api/trip-advice`): הוא כבוי כברירת מחדל, משתמש רק ב-`GEMINI_FREE_API_KEY`
+ולעולם לא במפתח בתשלום, ואסור לו לשנות אף מספר.
+
+## מסלולים בעולם
+
+שכבת מסלולים מסומנים מכל העולם מ-[Waymarked Trails](https://hiking.waymarkedtrails.org).
+מסלול ששמו בכתב שאינו לטיני מקבל שם באנגלית — מתגיות OSM כשיש, ואחרת בתרגום של
+מודל שפה — ונשמר בטבלה `trail_name_en`, שמשמשת גם לחיפוש לפי השם האנגלי. המדינה
+של כל מסלול מחושבת פעם אחת ונשמרת בטבלה `trail_country`.
+
+## כלי המנהל
+
+מי שמתחבר עם כתובת שמופיעה ב-`ADMIN_EMAILS` רואה בהגדרות שני סעיפים נוספים.
+השרת הוא שמחליט מי מנהל, והכלים עצמם חסומים לכל השאר, לא רק מוסתרים.
+
+- **מתקדם** — ספק ה-AI של המדריכה, בחירת הקול וכוונון שלו, בדיקת ניקוד, ובדיקה בלי קליטה.
+- **שימוש ועלויות AI** — כל קריאה בתשלום לשירות AI, מכל המשתמשים, עם עלות משוערת:
+  סיכום לתקופה, ופירוט לפי שימוש, לפי מודל ולפי משתמש. נרשם בטבלה `ai_usage`
+  (`src/lib/aiUsage.ts`), והמחירון ב-`src/lib/aiPricing.ts`. נרשמות רק קריאות שהצליחו.
+- **קרדיטים של ElevenLabs** — בראש אותו סעיף: כמה נוצל ונשאר, מתי מתחדש, קצב
+  יומי, מתי ייגמרו בקצב הזה ואיזו תוכנית מתאימה לצפי החודשי. כשנשארו מעט (90%,
+  או צפי שייגמרו לפני החידוש) וכשהם נגמרים, מופיעה התראה על מסך המפה — רק למנהל.
+  דורש את הרשאת User → Read במפתח של ElevenLabs.
+
+## עלויות — כמה כל אזור עולה
+
+נכון ל-2026-10-03, לפי המחירונים של הספקים. כמעט כל מה שמודל כותב או מקריא נשמר
+ומשמש את כולם: משלמים פעם אחת לכל נקודה או מסלול, לא לכל משתמש.
+
+| אזור | מתי משלמים | עלות משוערת |
+|---|---|---|
+| **המדריכה, הקראה (ElevenLabs)** | פעם אחת לכל נקודה. החלפת קול או הגדרות קול מייצרת מחדש | כ-500–900 תווים לנקודה. בתוכנית החינמית (10,000 תווים בחודש) — אין חיוב; כשנגמרים, נקודות חדשות מוקראות בקול של הטלפון עד החידוש. בתשלום: כ-0.04–0.07 דולר לנקודה |
+| המדריכה, כתיבת הקריינות | פעם אחת לכל נקודה | חינם עם Gemini החינמי (ראשון בתור). ב-OpenAI: פחות מעשירית סנט |
+| הורדת מסלול לשטח | אותה קריינות ואותו מטמון כמו המדריכה | כמו המדריכה; נקודה שכבר נוצרה לא עולה שוב |
+| "על המסלול", סיכום המידע | פעם אחת לכל מסלול, מתחדש אחרי 90 יום | חינם עם Gemini החינמי. ב-gpt-4.1-mini: כסנט עד 1.5 סנט למסלול |
+| "על המסלול", חיפוש ברשת (Tavily) | חיפוש אחד למסלול, רק כשאין מספיק מקורות | 1,000 בחודש חינם, אחר כך 0.8 סנט לחיפוש |
+| תרגום שמות של מסלולי עולם | פעם אחת לכל מסלול | זניח: חינם ב-Gemini, או כ-0.02 סנט ל-10 שמות |
+| הסבר מזג האוויר ליום הטיול | רק במפתח החינמי, אף פעם לא עובר לבתשלום | 0 |
+| בדיקת קול בהגדרות | רק קול או הגדרה חדשים | כ-100–150 תווים לבדיקה |
+| **המפה (Mapbox)** | כל פתיחה של האפליקציה | 50,000 בחודש חינם, אחר כך חצי סנט לפתיחה |
+| הורדת מפה לשטח (Mapbox) | כל הורדה | מאות עד אלפי אריחים להורדה. 200,000 אריחי מפה ו-750,000 אריחי לוויין בחודש חינם, אחר כך כ-0.1–1 דולר להורדה |
+| חיפוש מקומות (Mapbox) | כל חיפוש | 500 בחודש חינם, אחר כך 0.3 סנט לחיפוש |
+| מסלולי נסיעה והליכה (Mapbox) | כל חישוב | 100,000 בחודש חינם, אחר כך 0.2 סנט |
+| מזג אוויר (Open-Meteo) | מנוי חודשי קבוע, רק אם הוגדר `OPEN_METEO_API_KEY` | בלי מפתח — חינם לשימוש לא מסחרי |
+
+**חינמיים לגמרי:** נקודות העניין (Overpass), ויקיפדיה, Waymarked Trails, נאקב,
+Photon (חיפוש OpenStreetMap) והניקוד של DICTA.
+
+**במסלול חינמי:** Supabase, Vercel ו-Upstash — עולים כסף רק מעבר למכסה החינמית,
+וגם אז במחיר חודשי קבוע ולא לפי קריאה. ב-Supabase בתוכנית החינמית הפרויקט נעצר
+אחרי שבוע בלי פעילות (ראה "Keeping Supabase awake").
+
+**תוכניות ElevenLabs** (תו אחד = קרדיט אחד): Free — 10,000 בחודש · Starter — 30,000
+($6) · Creator — 121,000 ($22) · Pro — 600,000 ($99). הצפי החודשי בכלי המנהל אומר
+איזו מהן מתאימה לקצב השימוש בפועל.
+
+בעמוד "שימוש ועלויות AI" נמדדים שירותי ה-AI ו-Tavily בלבד. את Mapbox רואים בלוח
+הבקרה של Mapbox.
+
+## בסיס הנתונים
 
 הרץ את `supabase/schema.sql` ב-**Supabase → SQL Editor → New query**.
 אפשר להריץ את הקובץ כולו שוב ושוב בבטחה — כל פקודה בו idempotent.
+**אחרי כל שינוי בקובץ צריך להריץ אותו שוב** — הוא לא רץ אוטומטית ב-deploy.
 
+| טבלה | מה יש בה |
+|---|---|
+| `saved_trails`, `tour_history`, `trail_notes` | האזור האישי, כל משתמש רואה רק את שלו |
+| `guide_usage` | מכסת התווים היומית של המדריכה, לכל משתמש |
+| `poi_narration`, `narration_audio` (+ bucket `narrations`) | הקריינות והאודיו, משותפים לכולם |
+| `trail_pois` | נקודות העניין שהתגלו לכל מסלול |
+| `trail_name_en`, `trail_country` | שם באנגלית ומדינה למסלולי עולם |
+| `trail_info` | התיאורים של "על המסלול" |
+| `ai_usage` | יומן השימוש ב-AI לעמוד המנהל |
+
+**הרשאות.** בפרויקט הזה אין הרשאות ברירת מחדל לטבלאות חדשות, ולכן כל טבלה מקבלת
+`grant` מפורש בקובץ. בלעדיו PostgREST דוחה כל בקשה ב-42501, עוד לפני ה-RLS.
 **אם האזור האישי מציג "חסרות הרשאות לטבלאות"** (או, בגרסאות ישנות, "החיבור פג
-תוקף" גם מיד אחרי התחברות) — זה בדיוק המקרה להריץ את הקובץ שוב: הוא מעניק ל-role
-`authenticated` הרשאות על `saved_trails`, `tour_history` ו-`trail_notes`. בלי
-ה-grant, PostgREST דוחה כל בקשה ב-42501 עוד לפני שה-RLS מופעל, ומחזיר את זה
-כ-401 — אותו קוד כמו טוקן שפג, ולכן ההודעה הישנה הטעתה.
+תוקף" גם מיד אחרי התחברות) — זה בדיוק המקרה להריץ את הקובץ שוב. אותו דבר אם
+עמוד "שימוש ועלויות AI" מציג שגיאה של Supabase.
+
+## אפליקציית אנדרואיד
+
+`android-app/` היא מעטפת Capacitor שפותחת את האתר, ומוסיפה מיקום והתראת סטייה
+שממשיכים גם כשהמסך כבוי. רוב השינויים הם שינויי אתר — deploy והאפליקציה מקבלת
+אותם. בונים APK מחדש רק כשהצד המקורי משתנה; ההוראות ב-`android-app/README.md`.
 
 ## הרצה
 
@@ -186,7 +340,8 @@ npm install
 npm run dev
 ```
 
-ואז [http://localhost:3000](http://localhost:3000).
+ואז [http://localhost:3000](http://localhost:3000). בדיקה של מצב בלי קליטה רק על
+build ייצור: `npm run build` ואז `npx next start`.
 
 ## Keeping Supabase awake
 
@@ -211,17 +366,8 @@ Once a project is already paused, the cron can't revive it — unpause it from t
 Supabase dashboard (possible for 90 days after the pause; the project ref, URL
 and anon key stay the same, so no redeploy is needed).
 
-## Learn More
+## מסמכי תכנון
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `docs/plan-offline-maps.md` — מפות בלי קליטה, תנאי Mapbox ונוסח פנייה אליהם
+- `docs/plan-drive-and-trails.md` — נסיעה בכביש ושכבת מסלולי העולם
+- `docs/plan-summer-water-shade.md` — מים וצל בקיץ

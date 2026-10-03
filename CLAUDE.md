@@ -18,3 +18,55 @@ Every piece of text — explanations, notes, numbers, hints — must be clearly 
 `NEXT_PUBLIC_MAPBOX_TOKEN`, so the local dev server renders the real map and
 map features can be clicked through in the preview browser. Use it for testing;
 never commit the token or copy it into tracked files.
+
+# Keep the documentation current
+
+Every feature, setting, table or paid service added to the app is documented in
+the same change:
+
+- `README.md` — the feature table ("מה יש באפליקציה"), the env-var tables, the
+  cost table ("עלויות"), the database table list, and a section of its own for
+  anything non-obvious. The README is in Hebrew, for the owner.
+- `CLAUDE.md` — any new rule a future change must follow (the list below).
+
+# Project map
+
+The README's "מה יש באפליקציה" table says where each feature lives. In short:
+API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
+`src/components/*`, the database in `supabase/schema.sql`, the Android shell in
+`android-app/`, planning notes in `docs/`.
+
+# Rules learned the hard way
+
+- **Database changes are run by the owner.** The Supabase project is not
+  reachable from the tools here. Add every change to `supabase/schema.sql`
+  (idempotent: `if not exists`, `drop policy if exists`, `create or replace`)
+  and tell the owner to re-run the whole file. This project has **no default
+  table privileges**: every new table needs explicit `grant`s — to
+  `authenticated` for per-user tables, to `service_role` (and its identity
+  sequence) for server-only tables — or PostgREST answers 42501.
+- **Every paid AI or search call is logged.** Call `recordAiUsage` (from
+  `src/lib/aiUsage.ts`) after a successful call, wrap the route's handler in
+  `withAiUsage(request, area, …)`, give a new area/kind a Hebrew label in
+  `FEATURE_LABELS` (`src/components/AiUsagePanel.tsx`), and a new model a
+  price in `src/lib/aiPricing.ts`. Client requests to such routes send
+  `authHeaders()` (`src/lib/authHeaders.ts`) so usage is attributed to the user.
+- **Admin-only means server-side.** Gate with `isAdminRequest`
+  (`ADMIN_EMAILS`); hiding a button is not enough. The admin's tools live in
+  settings under "מתקדם" and "שימוש ועלויות AI".
+- **Free-only features never fall back to a paid key.** The trip-day weather
+  explanation uses `GEMINI_FREE_API_KEY` only.
+- **ElevenLabs is on the free plan**: only `premade` voices work over the API
+  (Voice Library voices → 402 `paid_plan_required`), and Hebrew only on
+  `eleven_v3`. Credits (10,000/month) are shown to the admin, who gets an alert
+  when they run low or out.
+- **Caches have versions.** Bump `DISCOVERY_VERSION` (`poiDiscoveryCache.ts`)
+  and `PREFIX` (`poiCache.ts`) when the guide-point filter changes, and
+  `INFO_VERSION` (`trailInfo/cache.ts`) when "על המסלול" changes. Bumping
+  `PROMPT_VERSION` (`poiKey.ts`) regenerates every narration and costs money —
+  only when the narration wording rules change.
+- **Offline is tested on the production build** (`prod` launch config);
+  `next dev` never hydrates without a network.
+- **Android**: web changes need only a deploy. Rebuild the APK
+  (`android-app/README.md`) only when the native side changes, on this Mac
+  (debug-signed).
