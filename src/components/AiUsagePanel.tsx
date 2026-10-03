@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { Loader2, RotateCcw } from "lucide-react";
 import { authHeaders } from "../lib/authHeaders";
+import { ElevenLabsCreditsCard } from "./ElevenLabsCredits";
 import type { UsageGroup, UsageReport, UsageTotals } from "../lib/aiUsageReport";
 
 // The admin's view of what the app's AI costs: every paid call logged by
@@ -118,6 +119,8 @@ export default function AiUsagePanel() {
       <p className="text-white text-sm mb-3 leading-6">
         כל פנייה בתשלום לשירות בינה מלאכותית, מכל המשתמשים. העלות היא הערכה לפי המחירון של כל ספק, לא חשבונית.
       </p>
+
+      <ElevenLabsCreditsCard />
 
       <div className="flex gap-1.5 mb-3" role="group" aria-label="תקופה">
         {PERIODS.map((p) => (

@@ -47,6 +47,7 @@ import {
   listSavedTrails, listTourHistory, listTrailNotes, cachePersonalData, warmSavedTrailFiles,
 } from "@/lib/personalArea";
 import type { TrailPOI, DrivePlace, TrailSource } from "@/hooks/useTrailData";
+import { ElevenLabsCreditsAlert } from "@/components/ElevenLabsCredits";
 
 // Which of the two worlds the home screen is in: hiking trails, or a drive
 // between two places. Not remembered: the app always opens on the trails, and
@@ -1212,6 +1213,9 @@ export default function TrailApp() {
       )}
 
       {/* Strayed off the route: said once, loudly, until back on it */}
+      {/* The admin's alone: the server answers 403 to everyone else. */}
+      <ElevenLabsCreditsAlert signedInAs={sessionLive ? user?.id ?? null : null} />
+
       {offRoute.alert && (
         <div className={`absolute top-16 inset-x-3 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-[400px] z-[55] bg-red-600 text-white rounded-2xl shadow-2xl border border-red-300/40 p-3 flex items-center gap-2 ${offRoute.alert.silenced ? '' : 'animate-pulse'}`} dir="rtl" role="alert">
           <TriangleAlert className="w-7 h-7 shrink-0" />

@@ -328,3 +328,67 @@ async function synthesizeWithVoice(text: string, voice: VoiceSignature): Promise
 
   return { ok: false, error: { status: lastStatus, detail: lastDetail, variantsTried: tried } };
 }
+
+// ── The account's character allowance ────────────────────────────────────────
+// What the plan allows this month, what has been used, and when it renews —
+// for the admin's credit card in settings and the alert when it runs out.
+// Needs the key's "User → Read" permission (user_read); without it the answer
+// is a 401 missing_permissions, passed on as such.
+
+export interface ElevenLabsCredits {
+  tier: string;
+  used: number;
+  limit: number;
+  // When the allowance renews, and so when the current period began.
+  resetAt: string | null;
+  periodStart: string | null;
+}
+
+export type CreditsOutcome =
+  | { ok: true; credits: ElevenLabsCredits }
+  | { ok: false; status: number | null; detail: string };
+
+let creditsCache: { at: number; outcome: CreditsOutcome } | null = null;
+// Fresh enough for an alert, and keeps every app open from asking ElevenLabs.
+const CREDITS_TTL_MS = 5 * 60_000;
+
+export async function elevenLabsCredits(): Promise<CreditsOutcome> {
+  if (!process.env.ELEVENLABS_API_KEY) {
+    return { ok: false, status: null, detail: 'ELEVENLABS_API_KEY is not set.' };
+  }
+  if (creditsCache && Date.now() - creditsCache.at < CREDITS_TTL_MS) return creditsCache.outcome;
+
+  let outcome: CreditsOutcome;
+  try {
+    const res = await fetch('https://api.elevenlabs.io/v1/user/subscription', {
+      headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY },
+      signal: AbortSignal.timeout(10_000),
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      outcome = { ok: false, status: res.status, detail: trimDetail(await res.text()) };
+    } else {
+      const d = await res.json();
+      const reset = typeof d.next_character_count_reset_unix === 'number'
+        ? new Date(d.next_character_count_reset_unix * 1000)
+        : null;
+      // The period is a calendar month ending at the reset.
+      const start = reset ? new Date(reset) : null;
+      start?.setUTCMonth(start.getUTCMonth() - 1);
+      outcome = {
+        ok: true,
+        credits: {
+          tier: String(d.tier ?? 'unknown'),
+          used: Number(d.character_count ?? 0),
+          limit: Number(d.character_limit ?? 0),
+          resetAt: reset?.toISOString() ?? null,
+          periodStart: start?.toISOString() ?? null,
+        },
+      };
+    }
+  } catch (e) {
+    outcome = { ok: false, status: null, detail: e instanceof Error ? e.message : String(e) };
+  }
+  creditsCache = { at: Date.now(), outcome };
+  return outcome;
+}
