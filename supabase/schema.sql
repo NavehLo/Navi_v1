@@ -329,6 +329,11 @@ create index if not exists ai_usage_created_at_idx on public.ai_usage (created_a
 
 alter table public.ai_usage enable row level security;
 -- אין policy: רק השרת עם service_role קורא וכותב.
+-- service_role עוקף RLS, אבל לא את ההרשאות ברמת הטבלה — ובפרויקט הזה אין
+-- הרשאות ברירת מחדל (ראו ההערה ליד ה-grant של saved_trails). בלי השורות
+-- האלה כל כתיבה לטבלה נכשלת ב-42501, והשימוש פשוט לא נרשם.
+grant select, insert on public.ai_usage to service_role;
+grant usage, select on sequence public.ai_usage_id_seq to service_role;
 
 -- סיכום לפי אזור, סוג, מודל ומשתמש מאז p_since (null = הכול). עמוד המנהל
 -- מקבץ מזה את הסיכומים לפי שימוש, לפי מודל ולפי משתמש.
@@ -341,6 +346,7 @@ returns table(
 )
 language sql
 stable
+security definer
 set search_path = public
 as $$
   select area, kind, provider, model, user_id, user_email,
@@ -353,3 +359,6 @@ $$;
 
 revoke execute on function public.ai_usage_summary(timestamptz) from public, anon, authenticated;
 grant execute on function public.ai_usage_summary(timestamptz) to service_role;
+
+-- PostgREST מכיר פונקציה חדשה רק אחרי רענון של מטמון הסכמה.
+notify pgrst, 'reload schema';

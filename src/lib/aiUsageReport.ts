@@ -23,7 +23,7 @@ export interface UsageGroup extends UsageTotals {
 }
 
 export type UsageReport =
-  | { status: 'not-configured' | 'no-table' | 'error' }
+  | { status: 'not-configured' | 'no-table' | 'error'; detail?: string }
   | {
       status: 'ok';
       days: number;

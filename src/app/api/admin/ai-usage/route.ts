@@ -92,7 +92,10 @@ export async function GET(request: Request) {
       `${summary.error.code} ${summary.error.message}`
     );
     console.error('AI usage summary failed:', summary.error);
-    return NextResponse.json({ status: missing ? 'no-table' : 'error' });
+    // The admin sees Supabase's own words: "error" alone could not be told
+    // apart from any other failure, and this page is closed to everyone else.
+    const detail = [summary.error.code, summary.error.message].filter(Boolean).join(': ');
+    return NextResponse.json({ status: missing ? 'no-table' : 'error', detail });
   }
 
   const rows = (summary.data ?? []) as Row[];

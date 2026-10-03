@@ -154,7 +154,12 @@ export default function AiUsagePanel() {
       {report?.status === "not-configured" && (
         <p className="text-amber-300 text-sm">המעקב לא פעיל: חסר מפתח השירות של Supabase בשרת.</p>
       )}
-      {report?.status === "error" && <p className="text-amber-300 text-sm">שגיאה בקריאת הנתונים מ-Supabase.</p>}
+      {report?.status === "error" && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-amber-300 text-sm leading-6">
+          שגיאה בקריאת הנתונים מ-Supabase.
+          {report.detail && <p className="text-white text-xs mt-1 break-words" dir="ltr">{report.detail}</p>}
+        </div>
+      )}
 
       {ok && (
         <div className={loading ? "opacity-60" : ""}>
