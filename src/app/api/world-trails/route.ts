@@ -3,7 +3,7 @@ import { rateLimit, clientIp } from '../../../lib/rateLimit';
 import { fetchWmt } from '../../../lib/wmtServer';
 import { lookupEnglish, saveEnglish, searchEnglish } from '../../../lib/trailNameCache';
 import { englishFromTags, needsEnglish } from '../../../lib/trailNames';
-import type { WmtRouteDetails, WmtRouteSummary } from '../../../lib/waymarked';
+import { wmtParents, wmtStages, type WmtElevation, type WmtRouteDetails, type WmtRouteSummary } from '../../../lib/waymarked';
 import { countriesFor } from '../../../lib/trailCountry';
 
 // Proxy for the Waymarked Trails API (marked hiking routes from OSM, worldwide).
@@ -12,6 +12,10 @@ import { countriesFor } from '../../../lib/trailCountry';
 //   ?q=<text>                   routes by name, for the search box
 //   ?id=<relation id>           one route: name, length, geometry
 //   ?id=<relation id>&elevation=1   DEM elevation samples along its ways
+//   ?id=<relation id>&stages=1      a long trail's stages, and the long
+//                                   trails it is itself a stage of — a few
+//                                   hundred bytes where the details are
+//                                   megabytes, for the open trail's card
 //
 // It goes through the server rather than straight from the browser for the
 // same reasons the Overpass calls do: a User-Agent that says who is asking, a
@@ -118,6 +122,7 @@ export async function GET(request: Request) {
   const bbox = parseBbox(url.searchParams.get('bbox'));
   const id = Number(url.searchParams.get('id'));
   const wantElevation = url.searchParams.get('elevation') === '1';
+  const wantStages = url.searchParams.get('stages') === '1';
 
   if (!bbox && !(Number.isInteger(id) && id > 0)) {
     return NextResponse.json({ error: 'bbox or id required' }, { status: 400 });
@@ -128,6 +133,7 @@ export async function GET(request: Request) {
   }
 
   try {
+    if (!bbox && wantStages) return NextResponse.json(await stagesOf(id));
     if (bbox) {
       const data = (await fetchWmt(
         `/list/by_area?bbox=${bbox.map((n) => n.toFixed(1)).join(',')}&limit=${MAX_LIST}&locale=he`
@@ -147,6 +153,23 @@ export async function GET(request: Request) {
     console.error('World trails error:', error);
     return NextResponse.json({ status: 'unavailable' satisfies Status });
   }
+}
+
+// The details and the elevation are both cached in fetchWmt, and the card
+// that asks has usually just had them fetched for the trail itself.
+async function stagesOf(id: number) {
+  const details = (await fetchWmt(`/details/relation/${id}?locale=he`)) as WmtRouteDetails | null;
+  if (!details) return { status: 'unavailable' satisfies Status };
+  const parents = wmtParents(details);
+  let stages = wmtStages(details);
+  if (stages.length) {
+    // Without elevation the list still stands, only without climb and descent.
+    const elevation = (await fetchWmt(`/details/relation/${id}/way-elevation?simplify=50`)) as WmtElevation | null;
+    if (elevation) {
+      try { stages = wmtStages(details, elevation); } catch (e) { console.error('Stage elevation failed:', id, e); }
+    }
+  }
+  return { status: 'ok' satisfies Status, stages, parents };
 }
 
 // A route opened here whose English name OSM already holds goes into the

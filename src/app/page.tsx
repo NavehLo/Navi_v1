@@ -45,12 +45,14 @@ import { useSummerConditions } from "@/hooks/useSummerConditions";
 import { useTripWeather } from "@/hooks/useTripWeather";
 import { useTrailClimate } from "@/hooks/useTrailClimate";
 import { useWorldTrails } from "@/hooks/useWorldTrails";
+import { useWmtStages } from "@/hooks/useWmtStages";
+import type { TrailStages } from "@/components/StatsPanel";
 import type { WmtRouteSummary } from "@/lib/waymarked";
 import {
   saveTrail, recordTour, SavedTrail, describeSupabaseError, clearPersonalCache,
   listSavedTrails, listTourHistory, listTrailNotes, cachePersonalData, warmSavedTrailFiles,
 } from "@/lib/personalArea";
-import type { TrailPOI, DrivePlace, TrailSource } from "@/hooks/useTrailData";
+import type { TrailPOI, DrivePlace, TrailSource, WmtParent } from "@/hooks/useTrailData";
 import { ElevenLabsCreditsAlert } from "@/components/ElevenLabsCredits";
 
 // Which of the two worlds the home screen is in: hiking trails, or a drive
@@ -190,6 +192,30 @@ export default function TrailApp() {
     return { kind: 'nakeb', id: nakebId, name: trail.name, ...(start ? { lat: start[0], lon: start[1] } : {}) };
   }, [trail, trailSource]);
   const showOpenTrailInfo = useCallback(() => setInfoRequest(openTrailInfo), [openTrailInfo]);
+
+  // A world trail made of stages lists them on its card, and a stage leads
+  // back to its long trail. Either opens as the trail, in place of this one.
+  const openWmtId = openTrailInfo?.kind === 'wmt' ? openTrailInfo.id : null;
+  const wmtStructure = useWmtStages(openWmtId);
+  const [stageLoading, setStageLoading] = useState<number | null>(null);
+  const { loadById: loadWorldTrailById } = worldTrails;
+  const trailStages = useMemo<TrailStages | null>(() => {
+    if (openWmtId == null || !trail) return null;
+    const parent = (trailSource?.kind === 'wmt' ? trailSource.parent : undefined) ?? wmtStructure?.parents[0] ?? null;
+    const stages = wmtStructure?.stages ?? [];
+    if (!parent && stages.length === 0) return null;
+    const open = async (id: number, from?: WmtParent) => {
+      setStageLoading(id);
+      try { await loadWorldTrailById(id, from); } finally { setStageLoading(null); }
+    };
+    return {
+      stages,
+      parent,
+      pendingId: stageLoading,
+      onPick: (stage) => open(stage.id, { id: openWmtId, name: trail.name }),
+      onBack: () => { if (parent) open(parent.id); },
+    };
+  }, [openWmtId, trail, trailSource, wmtStructure, stageLoading, loadWorldTrailById]);
 
   // Hiking trails or a road trip — the home screen's two faces.
   const appMode = useSyncExternalStore(subscribeAppMode, readAppMode, () => 'trails' as AppMode);
@@ -1244,7 +1270,7 @@ export default function TrailApp() {
 
       {/* Stats UI Layer */}
       {trail && !uiHidden && !isMeasuring && (
-        <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} water={water} waterStatus={waterStatus} userPos={userOnTrail} weather={tripWeather} climate={trailClimate} waypoints={activeWaypoints} onShowInfo={openTrailInfo ? showOpenTrailInfo : undefined} inIsrael={trailInIsrael === true} />
+        <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} water={water} waterStatus={waterStatus} userPos={userOnTrail} weather={tripWeather} climate={trailClimate} waypoints={activeWaypoints} onShowInfo={openTrailInfo ? showOpenTrailInfo : undefined} inIsrael={trailInIsrael === true} stages={trailStages} />
       )}
 
       {/* Measuring: the floating pin and its panel. Keyed by the trail so
@@ -1345,6 +1371,22 @@ export default function TrailApp() {
             id: worldTrails.selection!.id,
             name: worldTrails.selection!.details?.name ?? worldTrails.selection!.summary?.name,
           })}
+          onPickStage={(stage) => {
+            const sel = worldTrails.selection!;
+            worldTrails.select(
+              stage.id,
+              stage.name ? { type: 'relation', id: stage.id, name: stage.name, group: '', linear: 'yes' } : null,
+              { fit: true, cameFrom: { id: sel.id, name: sel.details?.name ?? sel.summary?.name ?? null } },
+            );
+          }}
+          onBackToParent={() => {
+            const parent = worldTrails.selection!.parent!;
+            worldTrails.select(
+              parent.id,
+              parent.name ? { type: 'relation', id: parent.id, name: parent.name, group: '', linear: 'yes' } : null,
+              { fit: true },
+            );
+          }}
         />
       )}
       {infoRequest && <TrailInfoPanel key={trailInfoKey(infoRequest)} request={infoRequest} onClose={() => setInfoRequest(null)} />}

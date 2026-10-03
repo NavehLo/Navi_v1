@@ -5,6 +5,8 @@ import type { WorldTrailSelection } from '../hooks/useWorldTrails';
 import { groupLabel, wikipediaUrl } from '../lib/waymarked';
 import { englishFromTags, needsEnglish, usefulEnglish } from '../lib/trailNames';
 import { knownEnglish, translateWorldTrails } from '../lib/worldTrailSearch';
+import type { WmtStage } from '../lib/waymarked';
+import TrailStagesSection, { ParentTrailButton } from './TrailStagesSection';
 
 // The trail's English name, when its own is in a script the reader may not
 // read: OSM's, if a mapper wrote one, else a translation from the server.
@@ -33,13 +35,17 @@ function useEnglishName(id: number, name: string | undefined, tags: Record<strin
 // route it describes can be looked at on the map — on a phone the open card
 // covers much of it. A new card always opens unfolded.
 export default function WorldTrailCard({
-  selection, onClose, onLoad, onShowInfo,
+  selection, onClose, onLoad, onShowInfo, onPickStage, onBackToParent,
 }: {
   selection: WorldTrailSelection;
   onClose: () => void;
   onLoad: () => void;
   // Opens "על המסלול", the Hebrew description written from the trail's sources.
   onShowInfo: () => void;
+  // A long trail made of stages: one of them opens in this card, and from a
+  // stage the long trail opens again.
+  onPickStage: (stage: WmtStage) => void;
+  onBackToParent: () => void;
 }) {
   const d = selection.details;
   const name = d?.name ?? selection.summary?.name ?? 'מסלול מסומן';
@@ -113,6 +119,12 @@ export default function WorldTrailCard({
           <X className="w-4 h-4 text-white" />
         </button>
       </div>
+
+      {selection.parent && (
+        collapsed
+          ? <ParentTrailButton name={selection.parent.name} onBack={onBackToParent} compact />
+          : <ParentTrailButton name={selection.parent.name} onBack={onBackToParent} />
+      )}
 
       {collapsed && (
         <div className="flex items-center gap-3">
@@ -188,6 +200,10 @@ export default function WorldTrailCard({
             <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-xl p-2.5 leading-relaxed">
               המסלול מפוצל ב־OpenStreetMap ל־{selection.segmentCount} קטעים נפרדים. {'"טען מסלול"'} יטען את הקטע הארוך ביותר.
             </div>
+          )}
+
+          {selection.stages.length > 0 && (
+            <TrailStagesSection stages={selection.stages} onPick={onPickStage} />
           )}
 
           {d.description && (

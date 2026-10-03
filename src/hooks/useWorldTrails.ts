@@ -5,12 +5,15 @@ import { computeElevationGain } from '../utils/trailUtils';
 import {
   lonLatToMercator,
   mercatorToLonLat,
+  wmtParents,
   wmtRouteToCoords,
+  wmtStages,
   type WmtElevation,
+  type WmtStage,
   type WmtRouteDetails,
   type WmtRouteSummary,
 } from '../lib/waymarked';
-import type { TrailSource } from './useTrailData';
+import type { TrailSource, WmtParent } from './useTrailData';
 import { needsEnglish } from '../lib/trailNames';
 import { translateWorldTrails } from '../lib/worldTrailSearch';
 
@@ -51,6 +54,13 @@ export interface WorldTrailSelection {
   loss: number | null;
   minEle: number | null;
   maxEle: number | null;
+  // A long trail's stages, in order; empty for a trail that has none.
+  stages: WmtStage[];
+  // The long trail this one is a stage of: the one its card was opened from,
+  // else the first OSM names.
+  parent: WmtParent | null;
+  // Set when the card was opened from that long trail's list of stages.
+  cameFrom: WmtParent | null;
 }
 
 interface Options {
@@ -94,6 +104,16 @@ function subscribe(l: () => void) {
   return () => { listeners.delete(l); };
 }
 
+// The last few routes' details and elevation, so going from a stage back to
+// its long trail — megabytes, for a national one — is instant.
+const recent = new Map<number, { details: WmtRouteDetails; elevation: WmtElevation | null }>();
+const RECENT_MAX = 4;
+function remember(id: number, entry: { details: WmtRouteDetails; elevation: WmtElevation | null }) {
+  recent.delete(id);
+  recent.set(id, entry);
+  if (recent.size > RECENT_MAX) recent.delete(recent.keys().next().value!);
+}
+
 async function getJson<T>(url: string): Promise<{ status: WorldTrailStatus; body: T | null }> {
   try {
     const res = await fetch(url);
@@ -119,8 +139,13 @@ function deriveSelection(sel: WorldTrailSelection): WorldTrailSelection {
   const { coords, partial, segmentCount, hasElevation } = result;
   const eles = coords.map((c) => c[2]);
   const { gain, loss } = hasElevation ? computeElevationGain(eles) : { gain: null, loss: null };
+  let stages: WmtStage[] = [];
+  try { stages = wmtStages(sel.details, sel.elevation); } catch (e) { console.error('World trail stages failed:', sel.id, e); }
+  const parents = wmtParents(sel.details);
   return {
     ...sel,
+    stages,
+    parent: sel.cameFrom ?? parents[0] ?? null,
     coords,
     partial,
     segmentCount,
@@ -246,13 +271,32 @@ export function useWorldTrails(map: mapboxgl.Map | null, styleRev: number, { onL
   // ── Selecting a route ─────────────────────────────────────────────────────
   // `fit`: the route was picked from a search, not tapped where it lies, so
   // the map goes to it once its extent is known.
-  const select = useCallback(async (id: number, summary: WmtRouteSummary | null, opts?: { fit?: boolean }) => {
+  // `cameFrom`: the long trail whose list of stages this one was picked from.
+  const select = useCallback(async (
+    id: number,
+    summary: WmtRouteSummary | null,
+    opts?: { fit?: boolean; cameFrom?: WmtParent },
+  ) => {
     const seq = ++selectSeq.current;
     popupRef.current?.remove();
-    setSelection({
+    const cameFrom = opts?.cameFrom ?? null;
+    const base: WorldTrailSelection = {
       id, summary, details: null, elevation: null, status: 'loading', elevationStatus: 'loading',
       coords: [], partial: false, segmentCount: 0, lengthKm: null, gain: null, loss: null, minEle: null, maxEle: null,
-    });
+      stages: [], parent: cameFrom, cameFrom,
+    };
+
+    const kept = recent.get(id);
+    if (kept) {
+      remember(id, kept);
+      setSelection(deriveSelection({
+        ...base, details: kept.details, elevation: kept.elevation, status: 'ok',
+        elevationStatus: kept.elevation ? 'ok' : 'unavailable',
+      }));
+      if (opts?.fit && map) fitToRoute(map, kept.details.bbox);
+      return;
+    }
+    setSelection(base);
 
     const details = await getJson<{ data: WmtRouteDetails }>(`/api/world-trails?id=${id}`);
     if (seq !== selectSeq.current) return;
@@ -267,6 +311,9 @@ export function useWorldTrails(map: mapboxgl.Map | null, styleRev: number, { onL
 
     const elevation = await getJson<{ data: WmtElevation }>(`/api/world-trails?id=${id}&elevation=1`);
     if (seq !== selectSeq.current) return;
+    // A route whose elevation could not be had is not kept: next time it
+    // gets another chance at it.
+    if (elevation.body) remember(id, { details: details.body.data, elevation: elevation.body.data });
     setSelection((s) => {
       if (!s || s.id !== id) return s;
       if (!elevation.body) return { ...s, elevationStatus: elevation.status };
@@ -281,18 +328,26 @@ export function useWorldTrails(map: mapboxgl.Map | null, styleRev: number, { onL
 
   const loadSelected = useCallback(() => {
     if (!selection?.details || selection.coords.length < 2) return;
-    onLoadTrail(selection.coords, selection.details.name ?? `מסלול ${selection.id}`, { kind: 'wmt', id: selection.id });
+    onLoadTrail(selection.coords, selection.details.name ?? `מסלול ${selection.id}`, {
+      kind: 'wmt', id: selection.id, ...(selection.cameFrom ? { parent: selection.cameFrom } : {}),
+    });
     clearSelection();
   }, [selection, onLoadTrail, clearSelection]);
 
-  // For saved trails and share links: straight from id to an open trail, no card.
-  const loadById = useCallback(async (id: number): Promise<boolean> => {
-    const details = await getJson<{ data: WmtRouteDetails }>(`/api/world-trails?id=${id}`);
-    if (!details.body) return false;
-    const elevation = await getJson<{ data: WmtElevation }>(`/api/world-trails?id=${id}&elevation=1`);
-    const { coords } = wmtRouteToCoords(details.body.data, elevation.body?.data ?? null);
+  // For saved trails and share links, and a stage picked on the open trail's
+  // card: straight from id to an open trail, no card.
+  const loadById = useCallback(async (id: number, parent?: WmtParent): Promise<boolean> => {
+    let entry = recent.get(id);
+    if (!entry) {
+      const details = await getJson<{ data: WmtRouteDetails }>(`/api/world-trails?id=${id}`);
+      if (!details.body) return false;
+      const elevation = await getJson<{ data: WmtElevation }>(`/api/world-trails?id=${id}&elevation=1`);
+      entry = { details: details.body.data, elevation: elevation.body?.data ?? null };
+      if (entry.elevation) remember(id, entry);
+    }
+    const { coords } = wmtRouteToCoords(entry.details, entry.elevation);
     if (coords.length < 2) return false;
-    onLoadTrail(coords, details.body.data.name ?? `מסלול ${id}`, { kind: 'wmt', id });
+    onLoadTrail(coords, entry.details.name ?? `מסלול ${id}`, { kind: 'wmt', id, ...(parent ? { parent } : {}) });
     return true;
   }, [onLoadTrail]);
 

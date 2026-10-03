@@ -43,7 +43,9 @@ export type TrailSource =
   | { kind: 'url'; url: string }
   | { kind: 'file'; content: string }
   // A marked route from OpenStreetMap via Waymarked Trails, by relation id.
-  | { kind: 'wmt'; id: number }
+  // `parent`: the long trail this stage was opened from, so its card can
+  // lead back there (see useWmtStages).
+  | { kind: 'wmt'; id: number; parent?: WmtParent }
   // A drive between two places, through any stops, re-routable from the
   // places alone.
   | { kind: 'drive'; from: DrivePlace; to: DrivePlace; vias?: DrivePlace[] }
@@ -51,6 +53,11 @@ export type TrailSource =
   // but the device. `sourceUrl` is where it originally came from, if that
   // was a URL, so it can still be saved to the personal area.
   | { kind: 'pack'; slug: string; sourceUrl: string | null };
+
+export interface WmtParent {
+  id: number;
+  name: string | null;
+}
 
 export interface DrivePlace {
   name: string;

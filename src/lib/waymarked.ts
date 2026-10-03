@@ -13,9 +13,13 @@
 //     OSM oneway flag, not an instruction to reverse anything.
 //   - a long trail mapped as a relation of its stages (a "super-route", e.g.
 //     the Menalon Trail) nests: each entry in `route.main` is then a whole
-//     stage with its own `main`, and has no `ways` at all.
+//     stage with its own `main`, and has no `ways` at all. Such a stage
+//     carries its own relation `id`, and the details list each one's name
+//     under `subroutes`; a stage's own details name the long trail it belongs
+//     to under `superroutes`.
 
 import type { Coordinate3D } from '../utils/trailUtils';
+import { computeElevationGain } from '../utils/trailUtils';
 
 export type WmtGroup = 'NAT' | 'REG' | 'LOC' | string;
 
@@ -30,6 +34,12 @@ export interface WmtRouteSummary {
   symbol_description?: string;
 }
 
+// How a route refers to another: its stages (`subroutes`) and the long trails
+// it is a stage of (`superroutes`).
+export interface WmtRouteRef extends WmtRouteSummary {
+  itinerary?: string[];
+}
+
 export interface WmtWay {
   id: number;
   direction: number;
@@ -42,7 +52,9 @@ export interface WmtSegment {
   route_type: string;
   start: number;
   length: number;
-  // A plain segment has `ways`; a stage of a super-route has `main` instead.
+  // A plain segment has `ways`; a stage of a super-route has `main` instead,
+  // and the stage's own relation id.
+  id?: number;
   ways?: WmtWay[];
   main?: WmtSegment[];
 }
@@ -54,6 +66,8 @@ export interface WmtRouteDetails extends WmtRouteSummary {
   wikipedia?: string | Record<string, string>;
   bbox: [number, number, number, number];
   tags: Record<string, string>;
+  subroutes?: Record<string, WmtRouteRef>;
+  superroutes?: Record<string, WmtRouteRef>;
   route: {
     route_type: string;
     length: number; // metres, mapped length of the whole relation
@@ -231,4 +245,56 @@ export function wmtRouteToCoords(details: WmtRouteDetails, elevation?: WmtElevat
   const longest = chains.reduce((a, b) => (chainLength(b) > chainLength(a) ? b : a), chains[0]);
   const { coords, withEle } = chainToCoords(longest, elevation);
   return { coords, partial: chains.length > 1, segmentCount: chains.length, hasElevation: withEle };
+}
+
+// ── Stages ───────────────────────────────────────────────────────────────────
+
+// One stage of a long trail, in the order the trail walks them.
+export interface WmtStage {
+  id: number;
+  name: string | null;
+  // Where it starts and ends, when the mappers said so — often in Latin
+  // letters where the name is not.
+  itinerary: string[];
+  startKm: number;
+  lengthKm: number;
+  gain: number | null;
+  loss: number | null;
+}
+
+// The long trail's stages, from its own details. Fewer than two is not a trail
+// made of stages, and gets no list. Climb and descent come from the long
+// trail's elevation samples, which cover every stage's ways.
+export function wmtStages(details: WmtRouteDetails, elevation?: WmtElevation | null): WmtStage[] {
+  const parts = (details.route?.main ?? []).filter((s) => s.id != null && s.main);
+  if (parts.length < 2) return [];
+  return parts.map((part) => {
+    const ref = details.subroutes?.[String(part.id)];
+    let gain: number | null = null;
+    let loss: number | null = null;
+    if (elevation) {
+      // A stage in pieces is summed piece by piece — never across a gap.
+      for (const chain of chainSegments(leafSegments(part.main ?? []))) {
+        const { coords, withEle } = chainToCoords(chain, elevation);
+        if (!withEle) continue;
+        const c = computeElevationGain(coords.map((p) => p[2]));
+        gain = (gain ?? 0) + c.gain;
+        loss = (loss ?? 0) + c.loss;
+      }
+    }
+    return {
+      id: part.id!,
+      name: ref?.name ?? null,
+      itinerary: ref?.itinerary ?? [],
+      startKm: (part.start ?? 0) / 1000,
+      lengthKm: (part.length ?? 0) / 1000,
+      gain,
+      loss,
+    };
+  });
+}
+
+// The long trails this route is a stage of. Usually one.
+export function wmtParents(details: WmtRouteDetails): Array<{ id: number; name: string | null }> {
+  return Object.values(details.superroutes ?? {}).map((r) => ({ id: r.id, name: r.name ?? null }));
 }

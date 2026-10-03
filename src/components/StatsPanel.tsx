@@ -12,6 +12,20 @@ import { useOutsideTap } from "../hooks/useOutsideTap";
 import Collapsible from "./Collapsible";
 import BestMonthsSection from "./BestMonthsSection";
 import type { TrailClimate } from "../hooks/useTrailClimate";
+import TrailStagesSection, { ParentTrailButton } from "./TrailStagesSection";
+import type { WmtStage } from "../lib/waymarked";
+import type { WmtParent } from "../hooks/useTrailData";
+
+// A world trail's place among long trails (see useWmtStages): the stages it is
+// made of, the long trail it is a stage of, and what a tap on either does.
+export interface TrailStages {
+  stages: WmtStage[];
+  parent: WmtParent | null;
+  // The stage or long trail being opened after a tap.
+  pendingId: number | null;
+  onPick: (stage: WmtStage) => void;
+  onBack: () => void;
+}
 
 // Sits above the bottom stack (narration card + tour bar) and starts collapsed
 // on phones — expanded, this card alone used to cover a third of the screen.
@@ -26,7 +40,7 @@ export interface UserOnTrail {
 // somewhere else, not partway along this trail.
 const ON_TRAIL_MAX_M = 300;
 
-export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus, userPos, weather, climate, waypoints, onShowInfo, inIsrael = false }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus, userPos?: UserOnTrail | null, weather?: TripWeather, climate?: TrailClimate, waypoints?: { label: string; km: number }[] | null, onShowInfo?: () => void, inIsrael?: boolean }) {
+export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus, userPos, weather, climate, waypoints, onShowInfo, inIsrael = false, stages = null }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus, userPos?: UserOnTrail | null, weather?: TripWeather, climate?: TrailClimate, waypoints?: { label: string; km: number }[] | null, onShowInfo?: () => void, inIsrael?: boolean, stages?: TrailStages | null }) {
   const [collapsed, setCollapsed] = useState(true);
   const cardRef = useRef<HTMLDivElement>(null);
   // A drive has a road, a length and a time; none of the hiking readouts
@@ -189,6 +203,9 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
               )}
             </div>
             {userLine && <div className="text-[11px]">{userLine}</div>}
+            {stages?.parent && (
+              <ParentTrailButton name={stages.parent.name} onBack={stages.onBack} pending={stages.pendingId === stages.parent.id} compact />
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
@@ -231,6 +248,11 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           <ChevronDown className="w-4 h-4 text-zinc-300" />
         </button>
       </div>
+      {stages?.parent && (
+        <div className="mt-3">
+          <ParentTrailButton name={stages.parent.name} onBack={stages.onBack} pending={stages.pendingId === stages.parent.id} />
+        </div>
+      )}
       {onShowInfo && (
         <button
           onClick={onShowInfo}
@@ -378,6 +400,10 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           climate={climate}
           month={weather?.selected ? Number(weather.selected.date.slice(5, 7)) - 1 : new Date().getMonth()}
         />
+      )}
+
+      {stages && stages.stages.length > 0 && (
+        <TrailStagesSection stages={stages.stages} onPick={stages.onPick} pendingId={stages.pendingId} />
       )}
 
       {/* ── קיץ ─────────────────────────────────────────────────────────── */}
