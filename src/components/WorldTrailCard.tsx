@@ -6,7 +6,7 @@ import { groupLabel, wikipediaUrl } from '../lib/waymarked';
 import { englishFromTags, needsEnglish, usefulEnglish } from '../lib/trailNames';
 import { knownEnglish, translateWorldTrails } from '../lib/worldTrailSearch';
 import type { WmtStage } from '../lib/waymarked';
-import TrailStagesSection, { ParentTrailButton } from './TrailStagesSection';
+import TrailStagesSection, { ParentTrailButton, StageNav } from './TrailStagesSection';
 
 // The trail's English name, when its own is in a script the reader may not
 // read: OSM's, if a mapper wrote one, else a translation from the server.
@@ -35,7 +35,7 @@ function useEnglishName(id: number, name: string | undefined, tags: Record<strin
 // route it describes can be looked at on the map — on a phone the open card
 // covers much of it. A new card always opens unfolded.
 export default function WorldTrailCard({
-  selection, onClose, onLoad, onShowInfo, onPickStage, onBackToParent,
+  selection, onClose, onLoad, onShowInfo, onPickStage, onBackToParent, siblings = null, onStep,
 }: {
   selection: WorldTrailSelection;
   onClose: () => void;
@@ -46,6 +46,9 @@ export default function WorldTrailCard({
   // stage the long trail opens again.
   onPickStage: (stage: WmtStage) => void;
   onBackToParent: () => void;
+  // On a stage: its long trail's stages, to step to the one before or after.
+  siblings?: WmtStage[] | null;
+  onStep: (stage: WmtStage) => void;
 }) {
   const d = selection.details;
   const name = d?.name ?? selection.summary?.name ?? 'מסלול מסומן';
@@ -125,6 +128,9 @@ export default function WorldTrailCard({
           ? <ParentTrailButton name={selection.parent.name} onBack={onBackToParent} compact />
           : <ParentTrailButton name={selection.parent.name} onBack={onBackToParent} />
       )}
+      {selection.parent && !collapsed && siblings && (
+        <StageNav stages={siblings} currentId={selection.id} onGo={onStep} />
+      )}
 
       {collapsed && (
         <div className="flex items-center gap-3">
@@ -199,6 +205,7 @@ export default function WorldTrailCard({
           {selection.partial && (
             <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-xl p-2.5 leading-relaxed">
               המסלול מפוצל ב־OpenStreetMap ל־{selection.segmentCount} קטעים נפרדים. {'"טען מסלול"'} יטען את הקטע הארוך ביותר.
+              {selection.stages.length > 0 && ' אפשר גם לבחור מקטע אחד מתוך "מקטעי המסלול" למטה.'}
             </div>
           )}
 

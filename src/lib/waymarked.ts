@@ -265,8 +265,22 @@ export interface WmtStage {
 // The long trail's stages, from its own details. Fewer than two is not a trail
 // made of stages, and gets no list. Climb and descent come from the long
 // trail's elevation samples, which cover every stage's ways.
+// A long trail is sometimes one route wrapping the real stages (GR12 NL holds
+// just "Floris V-pad - Hoofdroute", which holds its 13 stages); a level with a
+// single stage is looked through to the one below. `subroutes` names the
+// stages at every depth.
+function stageLevel(main: WmtSegment[]): WmtSegment[] {
+  let level = main;
+  for (let depth = 0; depth < 4; depth++) {
+    const parts = level.filter((s) => s.id != null && s.main);
+    if (parts.length !== 1) return parts;
+    level = parts[0].main!;
+  }
+  return [];
+}
+
 export function wmtStages(details: WmtRouteDetails, elevation?: WmtElevation | null): WmtStage[] {
-  const parts = (details.route?.main ?? []).filter((s) => s.id != null && s.main);
+  const parts = stageLevel(details.route?.main ?? []);
   if (parts.length < 2) return [];
   return parts.map((part) => {
     const ref = details.subroutes?.[String(part.id)];

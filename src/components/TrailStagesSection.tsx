@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowRight, ChevronLeft, ListOrdered, Loader2, TrendingDown, TrendingUp } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronLeft, ListOrdered, Loader2, TrendingDown, TrendingUp } from "lucide-react";
 import Collapsible from "./Collapsible";
 import InfoButton from "./help/InfoButton";
 import type { WmtStage } from "../lib/waymarked";
@@ -9,7 +9,8 @@ import { knownEnglish, translateWorldTrails } from "../lib/worldTrailSearch";
 // "מקטעי המסלול": a long world trail mapped in OSM as a chain of stages (the
 // Menalon Trail, a GR, a national trail), listed in the order they are walked.
 // A tap on a stage opens that stage; the stage's card then has a button back
-// to the long trail (ParentTrailButton below).
+// to the long trail (ParentTrailButton below) and to the stages on either
+// side of it (StageNav).
 //
 // Used by both cards a world trail has: the one a tapped route opens
 // (WorldTrailCard), where a stage opens in the same card, and the open trail's
@@ -188,5 +189,60 @@ export function ParentTrailButton({
         {name && <span className="text-xs font-semibold text-orange-100 leading-snug break-words">מקטע של {name}</span>}
       </span>
     </button>
+  );
+}
+
+// On a stage's card: the stages on either side of it, in walking order. The
+// earlier one is on the right, where an RTL reader starts.
+export function StageNav({
+  stages, currentId, onGo, pendingId = null,
+}: {
+  // The long trail's stages.
+  stages: WmtStage[];
+  currentId: number;
+  onGo: (stage: WmtStage) => void;
+  pendingId?: number | null;
+}) {
+  const i = stages.findIndex((s) => s.id === currentId);
+  if (i < 0) return null;
+  const prev = i > 0 ? stages[i - 1] : null;
+  const next = i < stages.length - 1 ? stages[i + 1] : null;
+
+  // The line above says which stage this is; each button says only how long
+  // the next step is — a narrow card has room for no more.
+  const step = (stage: WmtStage | null, n: number, label: string, side: "prev" | "next") => (
+    <button
+      type="button"
+      onClick={() => stage && onGo(stage)}
+      disabled={!stage || pendingId != null}
+      className={`flex-1 min-w-0 flex items-center gap-1.5 rounded-xl border px-2.5 py-2 transition-colors
+        ${stage ? "bg-white/10 hover:bg-white/15 active:bg-white/20 border-white/15" : "bg-white/5 border-white/5 opacity-40"}
+        ${side === "next" ? "flex-row-reverse text-left" : "text-right"}`}
+      aria-label={stage ? `${label}: ${stage.name ?? `מקטע ${n}`}` : label}
+    >
+      {pendingId != null && pendingId === stage?.id
+        ? <Loader2 className="w-4 h-4 text-white animate-spin shrink-0" />
+        : side === "prev"
+          ? <ArrowRight className="w-4 h-4 text-white shrink-0" />
+          : <ArrowLeft className="w-4 h-4 text-white shrink-0" />}
+      <span className="min-w-0 flex flex-col">
+        <span className="text-sm font-bold text-white leading-tight">{label}</span>
+        {stage && (
+          <span className="text-xs text-orange-100 leading-snug truncate">
+            {stage.lengthKm.toFixed(1)} ק״מ
+          </span>
+        )}
+      </span>
+    </button>
+  );
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="text-xs font-bold text-white text-center">מקטע {i + 1} מתוך {stages.length}</div>
+      <div className="flex items-stretch gap-2">
+        {step(prev, i, "המקטע הקודם", "prev")}
+        {step(next, i + 2, "המקטע הבא", "next")}
+      </div>
+    </div>
   );
 }

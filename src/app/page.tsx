@@ -193,15 +193,22 @@ export default function TrailApp() {
   }, [trail, trailSource]);
   const showOpenTrailInfo = useCallback(() => setInfoRequest(openTrailInfo), [openTrailInfo]);
 
+  // The tapped route's long trail, when it is a stage of one: its list of
+  // stages gives the card "המקטע הקודם / הבא".
+  const worldSiblings = useWmtStages(worldTrails.selection?.parent?.id ?? null, { climb: false });
+
   // A world trail made of stages lists them on its card, and a stage leads
   // back to its long trail. Either opens as the trail, in place of this one.
   const openWmtId = openTrailInfo?.kind === 'wmt' ? openTrailInfo.id : null;
   const wmtStructure = useWmtStages(openWmtId);
   const [stageLoading, setStageLoading] = useState<number | null>(null);
   const { loadById: loadWorldTrailById } = worldTrails;
+  const openParent = openWmtId == null ? null
+    : (trailSource?.kind === 'wmt' ? trailSource.parent : undefined) ?? wmtStructure?.parents[0] ?? null;
+  const openSiblings = useWmtStages(openParent?.id ?? null, { climb: false });
   const trailStages = useMemo<TrailStages | null>(() => {
     if (openWmtId == null || !trail) return null;
-    const parent = (trailSource?.kind === 'wmt' ? trailSource.parent : undefined) ?? wmtStructure?.parents[0] ?? null;
+    const parent = openParent;
     const stages = wmtStructure?.stages ?? [];
     if (!parent && stages.length === 0) return null;
     const open = async (id: number, from?: WmtParent) => {
@@ -209,13 +216,17 @@ export default function TrailApp() {
       try { await loadWorldTrailById(id, from); } finally { setStageLoading(null); }
     };
     return {
+      currentId: openWmtId,
       stages,
       parent,
       pendingId: stageLoading,
       onPick: (stage) => open(stage.id, { id: openWmtId, name: trail.name }),
       onBack: () => { if (parent) open(parent.id); },
+      siblings: openSiblings?.stages.length ? openSiblings.stages : null,
+      // A neighbouring stage keeps the same long trail to go back to.
+      onStep: (stage) => open(stage.id, parent ?? undefined),
     };
-  }, [openWmtId, trail, trailSource, wmtStructure, stageLoading, loadWorldTrailById]);
+  }, [openWmtId, openParent, trail, wmtStructure, openSiblings, stageLoading, loadWorldTrailById]);
 
   // Hiking trails or a road trip — the home screen's two faces.
   const appMode = useSyncExternalStore(subscribeAppMode, readAppMode, () => 'trails' as AppMode);
@@ -1377,6 +1388,14 @@ export default function TrailApp() {
               stage.id,
               stage.name ? { type: 'relation', id: stage.id, name: stage.name, group: '', linear: 'yes' } : null,
               { fit: true, cameFrom: { id: sel.id, name: sel.details?.name ?? sel.summary?.name ?? null } },
+            );
+          }}
+          siblings={worldSiblings?.stages.length ? worldSiblings.stages : null}
+          onStep={(stage) => {
+            worldTrails.select(
+              stage.id,
+              stage.name ? { type: 'relation', id: stage.id, name: stage.name, group: '', linear: 'yes' } : null,
+              { fit: true, cameFrom: worldTrails.selection!.parent ?? undefined },
             );
           }}
           onBackToParent={() => {

@@ -16,6 +16,8 @@ import { countriesFor } from '../../../lib/trailCountry';
 //                                   trails it is itself a stage of — a few
 //                                   hundred bytes where the details are
 //                                   megabytes, for the open trail's card
+//     &climb=0                      without climb and descent: only the order,
+//                                   for stepping from a stage to the next
 //
 // It goes through the server rather than straight from the browser for the
 // same reasons the Overpass calls do: a User-Agent that says who is asking, a
@@ -133,7 +135,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    if (!bbox && wantStages) return NextResponse.json(await stagesOf(id));
+    if (!bbox && wantStages) return NextResponse.json(await stagesOf(id, url.searchParams.get('climb') !== '0'));
     if (bbox) {
       const data = (await fetchWmt(
         `/list/by_area?bbox=${bbox.map((n) => n.toFixed(1)).join(',')}&limit=${MAX_LIST}&locale=he`
@@ -157,19 +159,21 @@ export async function GET(request: Request) {
 
 // The details and the elevation are both cached in fetchWmt, and the card
 // that asks has usually just had them fetched for the trail itself.
-async function stagesOf(id: number) {
+// `climb`: whether climb and descent were asked for — said back, so a list
+// asked for without them is not taken for one whose elevation was missing.
+async function stagesOf(id: number, climb: boolean) {
   const details = (await fetchWmt(`/details/relation/${id}?locale=he`)) as WmtRouteDetails | null;
   if (!details) return { status: 'unavailable' satisfies Status };
   const parents = wmtParents(details);
   let stages = wmtStages(details);
-  if (stages.length) {
+  if (stages.length && climb) {
     // Without elevation the list still stands, only without climb and descent.
     const elevation = (await fetchWmt(`/details/relation/${id}/way-elevation?simplify=50`)) as WmtElevation | null;
     if (elevation) {
       try { stages = wmtStages(details, elevation); } catch (e) { console.error('Stage elevation failed:', id, e); }
     }
   }
-  return { status: 'ok' satisfies Status, stages, parents };
+  return { status: 'ok' satisfies Status, stages, parents, climb };
 }
 
 // A route opened here whose English name OSM already holds goes into the

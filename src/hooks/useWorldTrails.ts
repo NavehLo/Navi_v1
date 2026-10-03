@@ -16,6 +16,7 @@ import {
 import type { TrailSource, WmtParent } from './useTrailData';
 import { needsEnglish } from '../lib/trailNames';
 import { translateWorldTrails } from '../lib/worldTrailSearch';
+import { seedWmtStages } from './useWmtStages';
 
 // The world trails overlay: every marked hiking route in OpenStreetMap, drawn
 // from Waymarked Trails' tiles, with a tap on a route opening its card.
@@ -222,6 +223,17 @@ export function useWorldTrails(map: mapboxgl.Map | null, styleRev: number, { onL
       }
     } catch {}
   }, [map, enabled, muted, styleRev]);
+
+  // A long trail's stages, handed on, so the stage opened from its card finds
+  // its neighbours without asking the server.
+  useEffect(() => {
+    if (!selection?.details) return;
+    seedWmtStages(selection.id, {
+      stages: selection.stages,
+      parents: wmtParents(selection.details),
+      climb: selection.elevationStatus !== 'loading',
+    });
+  }, [selection]);
 
   // The tapped route, in orange over the faded tiles.
   const selCoords = selection?.coords;

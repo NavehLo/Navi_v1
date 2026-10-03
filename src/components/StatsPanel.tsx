@@ -12,19 +12,25 @@ import { useOutsideTap } from "../hooks/useOutsideTap";
 import Collapsible from "./Collapsible";
 import BestMonthsSection from "./BestMonthsSection";
 import type { TrailClimate } from "../hooks/useTrailClimate";
-import TrailStagesSection, { ParentTrailButton } from "./TrailStagesSection";
+import TrailStagesSection, { ParentTrailButton, StageNav } from "./TrailStagesSection";
 import type { WmtStage } from "../lib/waymarked";
 import type { WmtParent } from "../hooks/useTrailData";
 
 // A world trail's place among long trails (see useWmtStages): the stages it is
 // made of, the long trail it is a stage of, and what a tap on either does.
 export interface TrailStages {
+  // The open trail's relation id.
+  currentId: number;
   stages: WmtStage[];
   parent: WmtParent | null;
   // The stage or long trail being opened after a tap.
   pendingId: number | null;
   onPick: (stage: WmtStage) => void;
   onBack: () => void;
+  // The long trail's stages, when this is one of them: the one before and
+  // after open from here.
+  siblings: WmtStage[] | null;
+  onStep: (stage: WmtStage) => void;
 }
 
 // Sits above the bottom stack (narration card + tour bar) and starts collapsed
@@ -251,6 +257,11 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
       {stages?.parent && (
         <div className="mt-3">
           <ParentTrailButton name={stages.parent.name} onBack={stages.onBack} pending={stages.pendingId === stages.parent.id} />
+          {stages.siblings && (
+            <div className="mt-2">
+              <StageNav stages={stages.siblings} currentId={stages.currentId} onGo={stages.onStep} pendingId={stages.pendingId} />
+            </div>
+          )}
         </div>
       )}
       {onShowInfo && (
