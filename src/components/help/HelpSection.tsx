@@ -2,7 +2,7 @@ import { useState } from "react";
 import { HelpCircle, PlayCircle, RotateCcw, Check, ChevronDown } from "lucide-react";
 import Collapsible from "../Collapsible";
 
-// "איך זה עובד", at the top of the settings: the one place where everything
+// "מדריכים ומידע נוסף", at the top of the settings: the one place where everything
 // the app can do is explained, and nothing jumps out at anybody by itself.
 // Also the way back to the tour, and to the one-off tips once they were seen.
 
@@ -29,15 +29,15 @@ const FEATURES: Array<{ title: string; body: string }> = [
   },
   {
     title: "כרטיס המסלול",
-    body: "״נתונים״ בכרטיס פותח אורך, גבהים ועליות, מזג אוויר לפי יום ושעת יציאה, כמה מים לקחת, ואיפה יש מים וצל לאורך הדרך.",
+    body: "לחיצה על הכרטיס פותחת אורך, גבהים ועליות, מזג אוויר לפי יום ושעת יציאה וכמה מים לשתייה לקחת, ובמסלולים בישראל גם איפה יש מים לרחצה וצל לאורך הדרך.",
   },
   {
     title: "מיקום חי והתראת סטייה",
     body: "״המיקום שלי״ מציג אתכם על המפה ועוקב. עם מסלול פתוח, סטייה ממנו מפעילה התראה קולית. המרחק, הצליל והעוצמה נקבעים בהגדרות למטה. בדפדפן המיקום נעצר כשהמסך כבה.",
   },
   {
-    title: "מדידה וניווט",
-    body: "״מדידה״ מודדת מרחק הליכה בין כמה נקודות: מזיזים את המפה כך שהנעץ יעמוד על כל נקודה. עם מסלול פתוח המדידה היא לאורכו. ״התחל ניווט״ הופך את המדידה למסלול שהולכים בו.",
+    title: "בניית מסלול וניווט",
+    body: "״בניית מסלול״ בונה מסלול הליכה בין כמה נקודות ומראה את המרחק: מזיזים את המפה כך שהנעץ יעמוד על כל נקודה. עם מסלול פתוח הבנייה היא לאורכו. ״התחל ניווט״ הופך את מה שנבנה למסלול שהולכים בו.",
   },
   {
     title: "נסיעה בכביש",
@@ -71,7 +71,7 @@ export default function HelpSection({
     <Collapsible
       className="mb-3"
       icon={<HelpCircle size={16} className="text-sky-300 shrink-0" />}
-      title="איך זה עובד"
+      title="מדריכים ומידע נוסף"
     >
       <div className="flex flex-col gap-2">
         {onReplay && (

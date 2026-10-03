@@ -17,7 +17,7 @@ interface SettingsPanelProps {
   // the settings button is now the one place for everything that is not a
   // map action, and these come first.
   children?: React.ReactNode;
-  // "איך זה עובד" — the explanations and the way back to the tour.
+  // "מדריכים ומידע נוסף" — the explanations and the way back to the tour.
   help?: React.ReactNode;
 }
 

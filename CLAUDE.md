@@ -78,3 +78,8 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   `bottom-[76px]`. "Hide all" (`uiHidden`) must hide every panel — hide a
   stateful one with a `hidden` wrapper rather than unmounting it. Long
   sections open as one line with a summary (`Collapsible`).
+- **Israel-only data stays in Israel.** The summer water/shade section and the
+  רט״ג reminder are shown only when `isTrailInIsrael` (`src/lib/inIsrael.ts`)
+  says so; anything new that relies on Israeli data (the canopy grid, the
+  perennial-streams list) is gated the same way. "Water" in that section is
+  always "מים לרחצה" — never let it read as drinking water.

@@ -24,7 +24,7 @@ export interface UserOnTrail {
 // somewhere else, not partway along this trail.
 const ON_TRAIL_MAX_M = 300;
 
-export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus, userPos, weather, waypoints, onShowInfo }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus, userPos?: UserOnTrail | null, weather?: TripWeather, waypoints?: { label: string; km: number }[] | null, onShowInfo?: () => void }) {
+export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus, userPos, weather, waypoints, onShowInfo, inIsrael = false }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus, userPos?: UserOnTrail | null, weather?: TripWeather, waypoints?: { label: string; km: number }[] | null, onShowInfo?: () => void, inIsrael?: boolean }) {
   const [collapsed, setCollapsed] = useState(true);
   const cardRef = useRef<HTMLDivElement>(null);
   // A drive has a road, a length and a time; none of the hiking readouts
@@ -148,11 +148,22 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
 
   if (collapsed) {
     return (
-      <div ref={cardRef} data-tour="stats" className={`absolute ${bottomOffset} left-3 right-3 md:top-[104px] md:right-3 md:left-auto md:bottom-auto bg-zinc-900/90 py-2 px-3 rounded-2xl shadow-xl border border-white/10 z-[41] md:w-80 backdrop-blur-md flex justify-between items-center gap-2`} dir="rtl">
+      // A tap anywhere on the folded card opens it — not only on "נתונים".
+      // The two round buttons on it (back, about the trail) keep their own job.
+      <div
+        ref={cardRef}
+        data-tour="stats"
+        onClick={() => setCollapsed(false)}
+        role="button"
+        aria-expanded={false}
+        aria-label="פתח את נתוני המסלול"
+        className={`absolute ${bottomOffset} left-3 right-3 md:top-[104px] md:right-3 md:left-auto md:bottom-auto bg-zinc-900/90 py-2 px-3 rounded-2xl shadow-xl border border-white/10 z-[41] md:w-80 backdrop-blur-md flex justify-between items-center gap-2 cursor-pointer`}
+        dir="rtl"
+      >
         <div className="flex items-center gap-2 overflow-hidden min-w-0">
           {onClose && (
-            <button onClick={onClose} className="p-1.5 bg-white/5 hover:bg-white/10 rounded-full transition-colors shrink-0" title="חזור למפה">
-              <ArrowRight className="w-4 h-4 text-zinc-300" />
+            <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="p-1.5 bg-white/5 hover:bg-white/10 rounded-full transition-colors shrink-0" title="חזור למפה">
+              <ArrowRight className="w-4 h-4 text-white" />
             </button>
           )}
           <div className="min-w-0">
@@ -181,7 +192,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
         <div className="flex items-center gap-1.5 shrink-0">
           {onShowInfo && (
             <button
-              onClick={onShowInfo}
+              onClick={(e) => { e.stopPropagation(); onShowInfo(); }}
               className="p-1.5 bg-sky-600 hover:bg-sky-500 rounded-full transition-colors"
               title="על המסלול"
               aria-label="על המסלול"
@@ -190,8 +201,8 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
             </button>
           )}
           <button
-            onClick={() => setCollapsed(false)}
-            className="text-[11px] bg-white/10 text-white px-2.5 py-1.5 rounded-full hover:bg-white/20 flex items-center gap-1 font-bold"
+            onClick={(e) => { e.stopPropagation(); setCollapsed(false); }}
+            className="text-xs bg-white/10 text-white px-2.5 py-1.5 rounded-full hover:bg-white/20 flex items-center gap-1 font-bold"
           >
             <ChevronUp className="w-3 h-3" />
             נתונים
@@ -360,23 +371,26 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
       {weather && <TripWeatherSection weather={weather} isDrive={false} trail={trail} />}
 
       {/* ── קיץ ─────────────────────────────────────────────────────────── */}
+      {/* Israel only: the shade grid covers nothing else, and which water is
+          safe to get into was worked out against Israeli streams and pools. */}
+      {inIsrael && (
       <Collapsible
         variant="section"
-        title="מים וצל בקיץ"
+        title="מים לרחצה וצל בקיץ"
         summary={(shade || water) && (
           <>
             {shade && <span className="text-lime-300">{Math.round(shade.shadePct)}% צל</span>}
             {shade && water && <span>·</span>}
-            {water && <span className="text-sky-300">{water.longestDryKm.toFixed(1)} ק״מ בלי מים</span>}
+            {water && <span className="text-sky-300">{water.longestDryKm.toFixed(1)} ק״מ בלי מים לרחצה</span>}
           </>
         )}
       >
         <div className="text-xs text-white mb-2 flex items-center gap-1">
           מה רואים כאן
-          <InfoButton label="מים וצל בקיץ">
+          <InfoButton label="מים לרחצה וצל בקיץ">
             <p>
-              <b>מים:</b> הפס הכחול מסמן קטעים שיש בהם מקור מים עד 150 מ׳ מהשביל. עיגול מלא הוא בריכה או נחל איתן;
-              עיגול חלול הוא מעיין או מקור לא מאומת, שעלול להיות יבש. ״ק״מ ברצף בלי מים״ הוא הקטע הארוך ביותר בלי מקור כזה.
+              <b>מים לרחצה:</b> מקומות להיכנס למים ולהתרענן — לא מי שתייה. הפס הכחול מסמן קטעים שיש בהם מקום כזה עד 150 מ׳ מהשביל. עיגול מלא הוא בריכה או נחל איתן;
+              עיגול חלול הוא מעיין או מקור לא מאומת, שעלול להיות יבש. ״ק״מ ברצף בלי מים לרחצה״ הוא הקטע הארוך ביותר בלי מקום כזה.
             </p>
             <p className="mt-2">
               <b>צל:</b> כמה עצים יש לאורך השביל. כתום זה שמש, ירוק זה צל.
@@ -386,7 +400,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
         </div>
 
         {/* מים */}
-        <div className="text-xs text-white font-bold mb-1">אפשרות למים להתרעננות</div>
+        <div className="text-xs text-white font-bold mb-1">מים לרחצה <span className="font-normal">(לא מי שתייה)</span></div>
 
         {waterStatus === 'loading' && !water && (
           <div className="text-white text-xs mb-3">מחפש מקורות מים…</div>
@@ -398,7 +412,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
         {(waterStatus === 'unavailable' || waterStatus === 'rate-limited') && !water && (
           <div className="text-amber-300 text-xs mb-3">
             {waterStatus === 'rate-limited' ? 'יותר מדי בקשות כרגע — ' : 'לא הצלחנו לבדוק כרגע — '}
-            אין מידע על מים במסלול הזה. זה לא אומר שאין בו מים.
+            אין מידע על מים לרחצה במסלול הזה. זה לא אומר שאין בו.
           </div>
         )}
 
@@ -406,9 +420,9 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           <div className="mb-3">
             <div className="flex items-baseline gap-2 mb-2">
               <span className="text-lg font-bold text-sky-400 leading-none">{water.longestDryKm.toFixed(1)}</span>
-              <span className="text-xs text-white">ק״מ ברצף בלי מים</span>
+              <span className="text-xs text-white">ק״מ ברצף בלי מים לרחצה</span>
               <span className="text-white">·</span>
-              <span className="text-xs text-white">{Math.round(water.nearWaterPct)}% ליד מים</span>
+              <span className="text-xs text-white">{Math.round(water.nearWaterPct)}% ליד מים לרחצה</span>
             </div>
 
             {/* The water strip, drawn to line up column-for-column with the
@@ -435,12 +449,12 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
 
             <div className="flex justify-between text-xs text-white mt-1 mb-2">
               <span>סוף</span>
-              <span className="text-sky-400">מים בטווח 150 מ׳</span>
+              <span className="text-sky-400">מים לרחצה עד 150 מ׳</span>
               <span>התחלה</span>
             </div>
 
             {water.points.length === 0 && (
-              <div className="text-white text-xs">אין מקורות מים ידועים לאורך המסלול.</div>
+              <div className="text-white text-xs">אין מקומות ידועים לרחצה לאורך המסלול.</div>
             )}
 
             {water.points.map((p, i) => (
@@ -516,18 +530,20 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           הצל לפי כיסוי עצים במפות לוויין (ESA WorldCover 2021) — לא כולל צל של מדרונות וּואדיות,
           ולא מעודכן אחרי שריפות.
         </p>
-      </Collapsible>
 
-      {/* The warning stays out of the folded section on purpose. Everything
-          in it is an estimate read off a map, and the one thing that could
-          actually get somebody hurt is treating it as a permission to swim. */}
-      <div className="mt-3 rounded-lg bg-amber-500/10 border border-amber-500/25 p-2">
-        <div className="text-xs text-amber-300 font-bold mb-1">לפני שיוצאים — לאמת ברט״ג</div>
-        <p className="text-xs text-white leading-relaxed">
-          המספרים כאן הם הערכה לפי מפות, לא אישור רחצה. ערב הטיול יש לוודא באתר רשות הטבע והגנים את
-          פתיחת המסלול, היתר הכניסה למים, עומס החום, חשש לשיטפונות ואיכות המים.
-        </p>
-      </div>
+        {/* Inside the section, where the figures it qualifies are: the one
+            thing here that could get somebody hurt is reading them as a
+            permission to swim. */}
+        <div className="mt-3 rounded-lg bg-amber-500/10 border border-amber-500/25 p-2">
+          <div className="text-xs text-amber-300 font-bold mb-1">לפני שיוצאים — לאמת ברט״ג</div>
+          <p className="text-xs text-white leading-relaxed">
+            המספרים כאן הם הערכה לפי מפות, לא אישור רחצה. ערב הטיול יש לוודא באתר רשות הטבע והגנים את
+            פתיחת המסלול, היתר הכניסה למים, עומס החום, חשש לשיטפונות ואיכות המים.
+          </p>
+        </div>
+      </Collapsible>
+      )}
+
       </>)}
     </div>
   );

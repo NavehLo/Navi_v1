@@ -30,6 +30,7 @@ import { useTrailData } from "@/hooks/useTrailData";
 import { useTour, tourSecondsLeft, formatTourTimeLeft } from "@/hooks/useTour";
 import { useAIGuide } from "@/hooks/useAIGuide";
 import { useHeightVar } from "@/hooks/useHeightVar";
+import { isTrailInIsrael } from "@/lib/inIsrael";
 import { usePOIGeofence } from "@/hooks/usePOIGeofence";
 import { pointAtDistance, snapToTrail, coordsToGpx, parseGPX, type Coordinate3D } from "@/utils/trailUtils";
 import { useOffRouteAlert } from "@/hooks/useOffRouteAlert";
@@ -473,9 +474,21 @@ export default function TrailApp() {
     );
   }, [loadTrailFromCoords]);
 
+  // Whether the open trail is in Israel. The summer water and shade, and the
+  // reminder to check with רשות הטבע והגנים, mean nothing anywhere else, so a
+  // trail abroad gets neither (and asks Overpass nothing about water).
+  const [israelCheck, setIsraelCheck] = useState<{ trail: typeof trail; inIsrael: boolean } | null>(null);
+  useEffect(() => {
+    if (!trail || isDrive) return;
+    let live = true;
+    isTrailInIsrael(trail.coords).then((inIsrael) => { if (live) setIsraelCheck({ trail, inIsrael }); });
+    return () => { live = false; };
+  }, [trail, isDrive]);
+  const trailInIsrael = !isDrive && israelCheck?.trail === trail ? israelCheck.inIsrael : null;
+
   // How shaded the trail is — read from a grid that ships with the app, so this
   // costs no request and works offline.
-  const { shade, shadeLoading, water, waterStatus } = useSummerConditions(isDrive ? null : trail);
+  const { shade, shadeLoading, water, waterStatus } = useSummerConditions(trailInIsrael ? trail : null);
 
   // The forecast for the chosen trip day, and the water and layers it calls for.
   const tripWeather = useTripWeather(trail);
@@ -648,7 +661,7 @@ export default function TrailApp() {
   // First-visit help: a short tour the first time the home screen and a trail
   // are seen, and a one-off tip the first time the live location or the drive
   // planner is switched on (components/help). Each is shown once and then
-  // remembered on the device; "איך זה עובד" in the settings brings them back.
+  // remembered on the device; "מדריכים ומידע נוסף" in the settings brings them back.
   // Never on top of something that needs the screen more: a running tour, the
   // off-route alarm, an open window, a hidden UI, a measurement, a trail still
   // loading.
@@ -1210,7 +1223,7 @@ export default function TrailApp() {
 
       {/* Stats UI Layer */}
       {trail && !uiHidden && !isMeasuring && (
-        <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} water={water} waterStatus={waterStatus} userPos={userOnTrail} weather={tripWeather} waypoints={activeWaypoints} onShowInfo={openTrailInfo ? showOpenTrailInfo : undefined} />
+        <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} water={water} waterStatus={waterStatus} userPos={userOnTrail} weather={tripWeather} waypoints={activeWaypoints} onShowInfo={openTrailInfo ? showOpenTrailInfo : undefined} inIsrael={trailInIsrael === true} />
       )}
 
       {/* Measuring: the floating pin and its panel. Keyed by the trail so

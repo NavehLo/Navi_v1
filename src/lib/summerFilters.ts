@@ -47,7 +47,7 @@ export const SHADE_FILTER_LABELS: Record<ShadeFilter, string> = {
 };
 
 export const WATER_FILTER_LABELS: Record<WaterFilter, string> = {
-  any: 'יש מים בדרך',
+  any: 'מים לרחצה בדרך',
   lots: 'מסלול מים',
 };
 

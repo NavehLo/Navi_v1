@@ -6,7 +6,7 @@ import type { TrailKind } from "../hooks/useTrailData";
 import { tourSpeedsFor } from "../hooks/useTour";
 import {
   Home, Settings, Headphones, HeadphoneOff,
-  ListMusic, Layers, Maximize2, LocateFixed, Play, Square, Eye, Tag, Ruler,
+  ListMusic, Layers, Maximize2, LocateFixed, Play, Square, Eye, Tag, Route,
 } from "lucide-react";
 
 interface ControlsProps {
@@ -120,6 +120,9 @@ export default function Controls(props: ControlsProps) {
   } = props;
 
   const [showLayers, setShowLayers] = useState(false);
+  // Where the popover opens: just right of the rail, which is 40px wide with
+  // bare icons and much wider with the names showing.
+  const [layersLeft, setLayersLeft] = useState(64);
   // The layers popover closes on a tap anywhere else, like every other panel.
   const layersBtnRef = useRef<HTMLButtonElement>(null);
   const layersRef = useRef<HTMLDivElement>(null);
@@ -176,14 +179,21 @@ export default function Controls(props: ControlsProps) {
         </div>
       </div>
 
-      {/* Left rail — map actions, one tap each */}
-      <div className="absolute top-3 left-3 z-[42] flex flex-col items-start gap-2" dir="rtl" data-tour="rail">
+      {/* Left rail — map actions, one tap each. items-end, because in RTL
+          that is the left: with items-start the pills lined up on the right
+          of the column, which is as wide as the scale bar under them, and so
+          stood off the edge of the screen by however long the bar was. */}
+      <div className="absolute top-3 left-3 z-[42] flex flex-col items-end gap-2" dir="rtl" data-tour="rail">
         <div className={PILL}>
           <RailBtn
             btnRef={layersBtnRef}
             label="תצוגת מפה"
             labelsOn={labelsOn}
-            onClick={() => setShowLayers(v => !v)}
+            onClick={() => {
+              const r = layersBtnRef.current?.getBoundingClientRect();
+              if (r) setLayersLeft(Math.round(r.right + 8));
+              setShowLayers(v => !v);
+            }}
             className={showLayers ? 'bg-white/10 text-orange-400' : ''}
             title="סוג מפה ותלת מימד"
           >
@@ -209,14 +219,14 @@ export default function Controls(props: ControlsProps) {
           </RailBtn>
           {onMeasure && (
             <RailBtn
-              label="מדידה"
+              label="בניית מסלול"
               labelsOn={labelsOn}
               onClick={onMeasure}
               className={`border-t border-white/10 ${isMeasuring ? 'bg-orange-500 text-white' : 'text-orange-300'}`}
-              title={hasTrail ? 'מדידת מרחק בין שתי נקודות לאורך המסלול' : 'מדידת מרחק הליכה בין שתי נקודות על המפה'}
+              title={hasTrail ? 'בניית מסלול בין נקודות לאורך המסלול הפתוח, עם המרחק ביניהן' : 'בניית מסלול הליכה בין נקודות על המפה, עם המרחק ביניהן'}
               ariaPressed={!!isMeasuring}
             >
-              <Ruler className="w-[18px] h-[18px]" />
+              <Route className="w-[18px] h-[18px]" />
             </RailBtn>
           )}
         </div>
@@ -282,7 +292,7 @@ export default function Controls(props: ControlsProps) {
 
       {/* Layers popover, anchored beside the rail */}
       {showLayers && (
-        <div ref={layersRef} className="absolute top-3 left-16 z-[47] w-56 bg-zinc-900/95 rounded-2xl border border-white/10 backdrop-blur-md shadow-2xl p-2 flex flex-col gap-1" dir="rtl">
+        <div ref={layersRef} style={{ left: layersLeft }} className="absolute top-3 z-[47] w-56 bg-zinc-900/95 rounded-2xl border border-white/10 backdrop-blur-md shadow-2xl p-2 flex flex-col gap-1" dir="rtl">
           {([['satellite', 'לוויין'], ['terrain', 'טופוגרפיה'], ['light', 'מפה בהירה']] as const).map(([key, label]) => {
             const locked = !!offlineStyleKey && offlineStyleKey !== key;
             return (
@@ -332,8 +342,8 @@ function MapLegend() {
     [line('#f97316'), 'מסלול טיול'],
     [line('#3b82f6'), 'מסלול נסיעה'],
     [dot('#22d3ee', '#ffffff'), 'נקודת מדריכה — לחיצה משמיעה'],
-    [dot('#0ea5e9', '#e0f2fe'), 'מקור מים'],
-    [dot('#1e293b', '#7dd3fc'), 'מים לא מאומתים'],
+    [dot('#0ea5e9', '#e0f2fe'), 'מים לרחצה'],
+    [dot('#1e293b', '#7dd3fc'), 'מים לרחצה — לא מאומת'],
     [dot('#38bdf8', '#ffffff'), 'המיקום שלכם'],
   ];
   return (

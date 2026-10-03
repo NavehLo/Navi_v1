@@ -405,7 +405,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
             <InfoButton label="סינון לפי צל ומים">
               <b>צל:</b> כמה מהמסלול עובר בין עצים. ״קצת צל״ הוא רבע ממנו לפחות, ״מסלול מוצל״ חצי לפחות.
               <br />
-              <b>מים:</b> ״יש מים בדרך״ אומר שיש לפחות בריכה או נחל איתן ליד השביל; ״מסלול מים״ אומר שרבע מהדרך ליד מים.
+              <b>מים לרחצה</b> (לא מי שתייה): ״מים לרחצה בדרך״ אומר שיש לפחות בריכה או נחל איתן ליד השביל; ״מסלול מים״ אומר שרבע מהדרך ליד מים כאלה.
               <br />
               הערכה לפי מפות, לא בדיקה בשטח.
             </InfoButton>
@@ -452,7 +452,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
                       <span className="text-xs font-bold text-lime-400 bg-lime-500/10 px-2 py-0.5 rounded-md">{Math.round(t.summer.shadePct)}% צל</span>
                     )}
                     {!!t.summer?.nearWaterPct && (
-                      <span className="text-xs font-bold text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-md">{Math.round(t.summer.nearWaterPct)}% ליד מים</span>
+                      <span className="text-xs font-bold text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-md">{Math.round(t.summer.nearWaterPct)}% ליד מים לרחצה</span>
                     )}
                   </div>
                 </div>

@@ -1,6 +1,6 @@
 // What a newcomer has already been shown: the welcome tour, the tour of the
 // trail screen, and the one-off tips. Each is shown once and then remembered on
-// the device, so it never comes back by itself — only from "איך זה עובד" in the
+// the device, so it never comes back by itself — only from "מדריכים ומידע נוסף" in the
 // settings.
 //
 // Blocked storage reads as "seen". The alternative is a tour that pops up on

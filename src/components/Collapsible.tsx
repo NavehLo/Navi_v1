@@ -36,7 +36,7 @@ export default function Collapsible({
       >
         <span className="flex items-center gap-2 min-w-0 text-white font-bold text-sm">
           {icon}
-          <span className="truncate">{title}</span>
+          <span className="leading-tight">{title}</span>
         </span>
         <span className="flex items-center gap-2 shrink-0">
           {summary != null && !open && <span className="text-xs text-white font-bold flex items-center gap-1">{summary}</span>}

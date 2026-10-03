@@ -284,7 +284,7 @@ function DayDetails({ day, isDrive, startHour, onStart }: { day: DayAdvice; isDr
             <Droplets className="w-4 h-4 text-sky-300 self-center" />
             <span className="text-sm text-white">מומלץ</span>
             <span dir="ltr" className="text-xl font-bold text-sky-300 leading-none">{day.water.min}–{day.water.max}</span>
-            <span className="text-sm text-white">ליטר מים לאדם</span>
+            <span className="text-sm text-white">ליטר מי שתייה לאדם</span>
           </div>
           <div className="text-xs text-zinc-100 mb-2">
             בערך {day.water.perHour} ליטר לשעת הליכה. הקצה העליון כולל {day.water.reserve === 1 ? "ליטר" : "חצי ליטר"} רזרבה.
