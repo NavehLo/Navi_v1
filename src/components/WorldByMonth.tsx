@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Loader2, RefreshCw, Search, X } from 'lucide-react';
+import { ArrowRight, ChevronLeft, Loader2, RefreshCw, Search, X } from 'lucide-react';
 import InfoButton from './help/InfoButton';
 import { RATING_DOT, RATING_TEXT } from './BestMonthsSection';
 import { CLIMATE_VERSION, MONTH_NAMES, MONTH_SHORT, RATING_LABELS, type MonthRating } from '../lib/climate';
@@ -8,14 +8,18 @@ import { groupLabel, type WmtRouteSummary } from '../lib/waymarked';
 import { readTripDate } from '../lib/weatherCache';
 import type { CountryMonth } from '../lib/climateCountries';
 import type { CountryTrail } from '../lib/countryTrails';
+import type { RegionInfo } from '../lib/regions';
 
 // "בעולם לפי חודש": marked trails abroad, chosen by when they are in season.
 //
 // Two ways in. By month: pick a month, see every country with land in season
-// then (from the climate grid alone, instant), pick one, see its trails. By
-// country: pick a country, then a month and a rating. Either way the trail
-// list is the country's list from /api/world-trails/by-country, rated month
-// by month by the same rules as the trail card, and filtered here.
+// then (from the climate grid alone, instant), pick one. By country: pick a
+// country, then a month and a rating. Either way the country's list comes
+// from /api/world-trails/by-country, rated month by month by the same rules as
+// the trail card, and filtered here — first into the country's areas
+// (provinces, cantons, states; see lib/regions), each with how many of its
+// trails match, then the trails of the area chosen. Hundreds of names mean
+// little until one knows which part of the country they are in.
 //
 // Read outdoors on a phone — white text, nothing under text-xs (CLAUDE.md).
 
@@ -30,7 +34,11 @@ interface Climate {
 // Kept for the session: the country climate list is the same for everybody,
 // and a country's trail list does not change in a sitting.
 let climateMemo: Climate | null = null;
-const trailsMemo = new Map<string, CountryTrail[]>();
+interface CountryData {
+  regions: RegionInfo[];
+  trails: CountryTrail[];
+}
+const trailsMemo = new Map<string, CountryData>();
 
 function defaultMonth(): number {
   const d = readTripDate();
@@ -43,6 +51,8 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
   const [month, setMonth] = useState(defaultMonth);
   const [rating, setRating] = useState<MonthRating>('good');
   const [country, setCountry] = useState<string | null>(null);
+  // The area chosen in the country: null while choosing, 'all' for the whole.
+  const [region, setRegion] = useState<string | null>(null);
   const [query, setQuery] = useState('');
 
   // ── The countries' climate (instant, cached by the CDN) ─────────────────
@@ -81,7 +91,7 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
   }, [country]);
 
   // ── One country's trails ────────────────────────────────────────────────
-  const [trails, setTrails] = useState<{ country: string; list: CountryTrail[] | null; status: Status } | null>(null);
+  const [trails, setTrails] = useState<{ country: string; list: CountryData | null; status: Status } | null>(null);
   const [trailsAttempt, setTrailsAttempt] = useState(0);
   const [slow, setSlow] = useState(false);
 
@@ -96,8 +106,9 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
       .then((d) => {
         if (cancelled) return;
         if (d.status === 'ok' && Array.isArray(d.trails)) {
-          trailsMemo.set(country, d.trails);
-          setTrails({ country, list: d.trails, status: 'ok' });
+          const data: CountryData = { regions: d.regions ?? [], trails: d.trails };
+          trailsMemo.set(country, data);
+          setTrails({ country, list: data, status: 'ok' });
         } else {
           setTrails({ country, list: null, status: d.status === 'rate-limited' ? 'rate-limited' : 'unavailable' });
         }
@@ -107,14 +118,40 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
     return () => { cancelled = true; clearTimeout(slowTimer); };
   }, [country, trailsAttempt]);
 
-  const countryList = country ? trailsMemo.get(country) ?? (trails?.country === country ? trails.list : null) : null;
+  const countryData = country ? trailsMemo.get(country) ?? (trails?.country === country ? trails.list : null) : null;
+  const countryList = countryData?.trails ?? null;
+  const regionNames = useMemo(() => new Map((countryData?.regions ?? []).map((r) => [r.id, r])), [countryData]);
+  // One area or none: straight to the trails.
+  const hasRegionStep = (countryData?.regions.length ?? 0) > 1;
+  const choosingRegion = hasRegionStep && region == null;
   const countryStatus: Status = country && trailsMemo.has(country) ? 'ok' : trails?.country === country ? trails.status : 'loading';
 
   const shownTrails = useMemo(
     // Day walks first — what most people opening a country are after — then
     // the long-distance paths; within each, the server's order (most
     // important first).
-    () => (countryList ?? []).filter((t) => t.months[month] === rating).sort((a, b) => Number(a.multiDay) - Number(b.multiDay)),
+    () => (countryList ?? [])
+      .filter((t) => t.months[month] === rating)
+      .filter((t) => !region || region === 'all' || t.regions.includes(region))
+      .sort((a, b) => Number(a.multiDay) - Number(b.multiDay)),
+    [countryList, month, rating, region],
+  );
+
+  // How many trails of each area match the month and rating — the number the
+  // area list is chosen by. A long trail counts in every area it crosses.
+  const regionRows = useMemo(() => {
+    if (!countryData) return [];
+    const counts = new Map<string, number>();
+    for (const t of countryData.trails) {
+      if (t.months[month] !== rating) continue;
+      for (const id of t.regions) counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    return countryData.regions
+      .map((r) => ({ ...r, count: counts.get(r.id) ?? 0 }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'he'));
+  }, [countryData, month, rating]);
+  const matchingInCountry = useMemo(
+    () => (countryList ?? []).filter((t) => t.months[month] === rating).length,
     [countryList, month, rating],
   );
 
@@ -129,13 +166,24 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
 
   const openCountry = (code: string) => {
     setCountry(code);
+    setRegion(null);
     setQuery('');
     if (mode === 'month') setRating('good');
   };
 
   const back = () => {
+    if (region != null && hasRegionStep) {
+      setRegion(null);
+      return;
+    }
     setCountry(null);
+    setRegion(null);
     setTrails(null);
+  };
+
+  const regionLabel = (id: string) => {
+    const r = regionNames.get(id);
+    return r ? (r.dir ? `${r.name} (${r.dir})` : r.name) : null;
   };
 
   // ── Pieces ──────────────────────────────────────────────────────────────
@@ -174,7 +222,12 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
           <button onClick={back} className="p-1.5 bg-white/10 hover:bg-white/20 rounded-full" aria-label="חזרה">
             <ArrowRight className="w-4 h-4 text-white" />
           </button>
-          <span className="text-base font-extrabold text-white">{countryName(country)}</span>
+          <span className="text-base font-extrabold text-white min-w-0">
+            {countryName(country)}
+            {region && region !== 'all' && regionNames.get(region) && (
+              <span className="font-bold"> › {regionNames.get(region)!.name}</span>
+            )}
+          </span>
         </div>
         {monthChips}
         <div className="flex flex-wrap gap-1.5 shrink-0" role="radiogroup" aria-label="בחירת דרגה">
@@ -203,17 +256,50 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
             failure(countryStatus, () => { setTrails(null); setTrailsAttempt((n) => n + 1); }, 'את המסלולים')}
           {countryList && (
             <div className="text-xs text-white">
-              {MONTH_NAMES[month]}: <span className={`font-bold ${RATING_TEXT[rating]}`}>{shownTrails.length} מסלולים ב&quot;{RATING_LABELS[rating]}&quot;</span> מתוך {countryList.length} שנמצאו
+              {MONTH_NAMES[month]}: <span className={`font-bold ${RATING_TEXT[rating]}`}>{choosingRegion ? matchingInCountry : shownTrails.length} מסלולים ב&quot;{RATING_LABELS[rating]}&quot;</span>
+              {choosingRegion ? ` מתוך ${countryList.length} שנמצאו. בחרו אזור:` : ` מתוך ${countryList.length} שנמצאו`}
             </div>
           )}
-          {countryList && shownTrails.length === 0 && (
+
+          {/* The areas, each with how many of its trails match. */}
+          {choosingRegion && (
+            <>
+              <button
+                onClick={() => setRegion('all')}
+                className="text-right bg-white/10 border border-white/15 px-3 py-2.5 rounded-xl hover:bg-white/15 transition-all flex items-center justify-between gap-2"
+              >
+                <span className="text-sm font-bold text-white">כל {countryName(country)}</span>
+                <span className="text-xs font-bold text-sky-300 flex items-center gap-1 shrink-0">{matchingInCountry} מסלולים <ChevronLeft className="w-4 h-4" /></span>
+              </button>
+              {regionRows.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => setRegion(r.id)}
+                  className="text-right bg-white/5 border border-white/5 px-3 py-2.5 rounded-xl hover:bg-white/10 hover:border-orange-500/40 transition-all flex items-center justify-between gap-2"
+                >
+                  <span className="min-w-0 flex flex-col gap-0.5">
+                    <span className="text-sm font-bold text-white flex items-center gap-2 flex-wrap">
+                      {r.name}
+                      {r.dir && <span className="text-xs font-bold text-amber-200 bg-white/10 rounded-md px-1.5 py-0.5">{r.dir}</span>}
+                    </span>
+                    {r.latin && <span className="text-xs text-white" dir="ltr">{r.latin}</span>}
+                  </span>
+                  <span className={`text-xs font-bold shrink-0 flex items-center gap-1 ${r.count ? 'text-sky-300' : 'text-white'}`}>
+                    {r.count ? `${r.count} מסלולים` : 'אין'} <ChevronLeft className="w-4 h-4" />
+                  </span>
+                </button>
+              ))}
+            </>
+          )}
+
+          {countryList && !choosingRegion && shownTrails.length === 0 && (
             <div className="text-sm text-white py-3">
               {countryList.length === 0
                 ? 'לא נמצאו מסלולים מסומנים במדינה הזו.'
                 : `אין מסלולים ב"${RATING_LABELS[rating]}" ב${MONTH_NAMES[month]} מבין אלה שנמצאו. נסו חודש או דרגה אחרים.`}
             </div>
           )}
-          {shownTrails.map((t) => (
+          {!choosingRegion && shownTrails.map((t) => (
             <button
               key={t.id}
               onClick={() => onPickTrail({ type: 'relation', id: t.id, name: t.name, group: t.group, linear: t.linear })}
@@ -228,6 +314,13 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
                 {t.multiDay ? 'רב-יומי' : groupLabel(t.group)} · {t.km >= 10 ? Math.round(t.km) : t.km} ק״מ
                 {t.crossesBorder ? ` ב${countryName(country)}, וממשיך מעבר לגבול` : ''}
               </span>
+              {/* Across the whole country, where each one is. */}
+              {region === 'all' && t.regions.length > 0 && (
+                <span className="text-xs text-amber-200">
+                  {t.regions.slice(0, 3).map(regionLabel).filter(Boolean).join(' · ')}
+                  {t.regions.length > 3 ? ` ועוד ${t.regions.length - 3}` : ''}
+                </span>
+              )}
               {/* The whole year, small: what else this trail is good for. */}
               <span className="flex gap-0.5 mt-0.5" aria-hidden>
                 {t.months.map((r, i) => (

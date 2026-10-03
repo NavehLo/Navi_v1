@@ -3,7 +3,7 @@ import { RefreshCw, CalendarDays } from "lucide-react";
 import Collapsible from "./Collapsible";
 import InfoButton from "./help/InfoButton";
 import type { TrailClimate } from "../hooks/useTrailClimate";
-import { MONTH_NAMES, MONTH_SHORT, RATING_LABELS, monthRuns, type MonthRating } from "../lib/climate";
+import { MONTH_NAMES, MONTH_SHORT, RATING_LABELS, monthRuns, rainWords, type MonthRating } from "../lib/climate";
 
 // "מתי כדאי ללכת": the year at a glance, month by month, for this trail at its
 // own place and height (src/lib/climate.ts decides; this only draws).
@@ -76,6 +76,10 @@ export default function BestMonthsSection({ climate, month }: { climate: TrailCl
             אורך ההליכה: חום בנקודה הנמוכה, קור ושלג בנקודה הגבוהה, כמות הגשם, ושעות האור.
           </p>
           <p className="mt-2">
+            <b>גשם</b> (כמות חודשית): כמעט יבש — פחות מ-10 מ״מ · מעט גשם — עד 40 · גשם מתון — עד 100 · גשום — עד 200 ·
+            גשום מאוד — מעל 200. מאותה כמות יכולה לרדת בסערה אחת או בהרבה ממטרים, אז זה תיאור של חודש רגיל ולא הבטחה.
+          </p>
+          <p className="mt-2">
             זה ממוצע רב-שנתי ולא תחזית — בכל חודש יש ימים חריגים. ליום מסוים, ראו &quot;מזג אוויר ליום הטיול&quot;.
           </p>
         </InfoButton>
@@ -125,7 +129,11 @@ export default function BestMonthsSection({ climate, month }: { climate: TrailCl
                 ))}
               </ul>
               <div className="mt-2 text-xs text-white">
-                ביום כ-{v.tmax}° · בלילה כ-{v.tmin}° בחלק הגבוה · {v.ppt} מ״מ גשם בחודש · {v.daylight} שעות אור
+                ביום כ-{v.tmax}° · בלילה כ-{v.tmin}° בחלק הגבוה · {v.daylight} שעות אור
+              </div>
+              <div className="mt-1 text-xs text-white">
+                <span className="font-bold text-sky-300">{rainWords(v.ppt).label}</span>
+                {" — "}{rainWords(v.ppt).hint} ({v.ppt} מ״מ בחודש)
               </div>
             </div>
           )}

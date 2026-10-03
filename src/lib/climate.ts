@@ -205,6 +205,24 @@ export function rateLongWalk(points: Array<{ months: MonthClimate[]; lat: number
 
 // ── Words ────────────────────────────────────────────────────────────────────
 
+// What a month's rain means on the ground. Millimetres alone say little to
+// somebody packing a bag; this turns them into how often it rains. Rough by
+// nature — a month's total is the same whether it fell in one storm or in
+// twenty showers — so the words speak of a typical month, not a promise.
+export interface RainWords {
+  label: string;   // short: "גשום"
+  hint: string;    // what it means: "גשם לעיתים קרובות"
+}
+
+export function rainWords(mm: number): RainWords {
+  if (mm < 10) return { label: 'כמעט יבש', hint: 'גשם נדיר' };
+  if (mm < 40) return { label: 'מעט גשם', hint: 'ימים גשומים בודדים בחודש' };
+  if (mm < 100) return { label: 'גשם מתון', hint: 'כמה ימים גשומים בחודש' };
+  if (mm < 200) return { label: 'גשום', hint: 'גשם לעיתים קרובות' };
+  return { label: 'גשום מאוד', hint: 'גשם ברוב השבועות, לפעמים כמה ימים ברצף' };
+}
+
+
 export const MONTH_NAMES = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 export const MONTH_SHORT = ['ינו׳', 'פבר׳', 'מרץ', 'אפר׳', 'מאי', 'יוני', 'יולי', 'אוג׳', 'ספט׳', 'אוק׳', 'נוב׳', 'דצמ׳'];
 

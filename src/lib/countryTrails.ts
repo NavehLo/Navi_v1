@@ -7,6 +7,7 @@ import { rateMonths, rateLongWalk, CLIMATE_VERSION, MULTI_DAY_KM, type MonthRati
 import { estimateHike } from './hikeEffort';
 import { lookupEnglish } from './trailNameCache';
 import { needsEnglish } from './trailNames';
+import { regionsAlong, regionInfo, type RegionInfo } from './regions';
 
 // A country's marked trails with the twelve months rated for each — the list
 // behind "מסלולים בעולם לפי חודש". Server only.
@@ -41,6 +42,7 @@ export interface CountryTrail {
   multiDay: boolean;
   lat: number;              // a point on it, for the map
   lon: number;
+  regions: string[];        // ids of the areas it passes through (see regions.ts)
   months: MonthRating[];    // 12
 }
 
@@ -49,8 +51,15 @@ export interface CountryTrailList {
   version: number;
   builtAt: number;
   partial: boolean;         // the build ran out of time; rebuilt sooner
+  regions: RegionInfo[];    // the areas that have trails, for the step before the list
   trails: CountryTrail[];
 }
+
+// What a stored list is checked against: the rating rules, and the shape of
+// the list itself (LIST_FORMAT — 2 added the areas). Both live in the table's
+// climate_version column, so a change to either rebuilds every country.
+const LIST_FORMAT = 2;
+const STORED_VERSION = CLIMATE_VERSION * 100 + LIST_FORMAT;
 
 const MAX_TILES = 12;
 const TILE_SIZES = [1, 2, 3, 4, 6, 8, 12, 16, 24];
@@ -236,7 +245,7 @@ async function build(country: string): Promise<CountryTrailList | null> {
 
   // Each route: its length here, and a few points on it that are in this
   // country (a square at a border holds the neighbour's trails too).
-  const candidates: Array<{ summary: WmtRouteSummary; km: number; crossesBorder: boolean; samples: Sample[] }> = [];
+  const candidates: Array<{ summary: WmtRouteSummary; km: number; crossesBorder: boolean; samples: Sample[]; regions: string[] }> = [];
   for (const { summary, lines } of found.values()) {
     const sampled = evenly(lines.flat(), 30);
     const inside = sampled.filter(([lon, lat]) => iso1A2Code([lon, lat]) === country);
@@ -244,7 +253,7 @@ async function build(country: string): Promise<CountryTrailList | null> {
     // The squares reach over the border; only the share inside counts.
     const km = lines.reduce((s, l) => s + lineKm(l), 0) * (inside.length / sampled.length);
     if (km < 0.5) continue;
-    candidates.push({ summary, km, crossesBorder: inside.length < sampled.length, samples: evenly(inside, SAMPLES).map(([lon, lat]) => ({ lon, lat, ele: null })) });
+    candidates.push({ summary, km, crossesBorder: inside.length < sampled.length, regions: regionsAlong(country, inside), samples: evenly(inside, SAMPLES).map(([lon, lat]) => ({ lon, lat, ele: null })) });
   }
   candidates.sort((a, b) => (GROUP_ORDER[a.summary.group] ?? 4) - (GROUP_ORDER[b.summary.group] ?? 4) || b.km - a.km);
   const chosen = candidates.slice(0, MAX_TRAILS);
@@ -272,10 +281,12 @@ async function build(country: string): Promise<CountryTrailList | null> {
       multiDay,
       lat: Math.round(mid.lat * 1e4) / 1e4,
       lon: Math.round(mid.lon * 1e4) / 1e4,
+      regions: c.regions,
       months,
     });
   }
-  return { country, version: CLIMATE_VERSION, builtAt: Date.now(), partial, trails };
+  const regions = regionInfo(country, new Set(trails.flatMap((t) => t.regions)));
+  return { country, version: STORED_VERSION, builtAt: Date.now(), partial, regions, trails };
 }
 
 // ── Remembering ──────────────────────────────────────────────────────────────
@@ -301,7 +312,7 @@ function noteError(where: string, e: unknown): void {
 }
 
 function isFresh(list: CountryTrailList | null | undefined): list is CountryTrailList {
-  if (!list || list.version !== CLIMATE_VERSION) return false;
+  if (!list || list.version !== STORED_VERSION) return false;
   return Date.now() - list.builtAt < (list.partial ? PARTIAL_FRESH_MS : FRESH_MS);
 }
 
@@ -321,7 +332,10 @@ async function readTable(country: string): Promise<CountryTrailList | null> {
       version: data.climate_version,
       builtAt: new Date(data.built_at).getTime(),
       partial: !!data.partial,
-      trails: data.trails ?? [],
+      // `trails` holds the list and its areas together, so the table needs no
+      // new column for them.
+      regions: data.trails?.regions ?? [],
+      trails: data.trails?.trails ?? [],
     };
   } catch (e) {
     noteError('read', e);
@@ -339,7 +353,7 @@ async function writeTable(list: CountryTrailList): Promise<void> {
       built_at: new Date(list.builtAt).toISOString(),
       partial: list.partial,
       good_by_month: goodByMonth(list),
-      trails: list.trails,
+      trails: { regions: list.regions, trails: list.trails },
     });
     if (error) throw error;
   } catch (e) {
@@ -397,7 +411,7 @@ export async function builtCountryCounts(): Promise<Record<string, number[]>> {
     const { data, error } = await client
       .from('country_trails')
       .select('country, climate_version, good_by_month')
-      .eq('climate_version', CLIMATE_VERSION);
+      .eq('climate_version', STORED_VERSION);
     if (error) throw error;
     for (const row of data ?? []) if (!out[row.country] && Array.isArray(row.good_by_month)) out[row.country] = row.good_by_month;
   } catch (e) {

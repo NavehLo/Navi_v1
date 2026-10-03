@@ -72,8 +72,10 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   card and the world-trail lists must keep rating through the same functions
   (`rateMonths`, `rateLongWalk`) so they never disagree. The grid
   (`src/data/climate-grid.bin.gz`) is rebuilt only with
-  `scripts/buildClimateGrid.mjs`, and any route that reads it must be listed in
-  `outputFileTracingIncludes` in `next.config.ts`.
+  `scripts/buildClimateGrid.mjs` (the regions file likewise, with
+  `scripts/buildRegions.mjs`), and any route that reads either must be listed
+  in `outputFileTracingIncludes` in `next.config.ts`. A change to the shape of a
+  stored country list bumps `LIST_FORMAT` in `countryTrails.ts`.
 - **Offline is tested on the production build** (`prod` launch config);
   `next dev` never hydrates without a network.
 - **Android**: web changes need only a deploy. Rebuild the APK
