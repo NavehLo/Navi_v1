@@ -10,6 +10,8 @@ import type { TripWeather } from "../hooks/useTripWeather";
 import InfoButton from "./help/InfoButton";
 import { useOutsideTap } from "../hooks/useOutsideTap";
 import Collapsible from "./Collapsible";
+import BestMonthsSection from "./BestMonthsSection";
+import type { TrailClimate } from "../hooks/useTrailClimate";
 
 // Sits above the bottom stack (narration card + tour bar) and starts collapsed
 // on phones — expanded, this card alone used to cover a third of the screen.
@@ -24,7 +26,7 @@ export interface UserOnTrail {
 // somewhere else, not partway along this trail.
 const ON_TRAIL_MAX_M = 300;
 
-export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus, userPos, weather, waypoints, onShowInfo, inIsrael = false }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus, userPos?: UserOnTrail | null, weather?: TripWeather, waypoints?: { label: string; km: number }[] | null, onShowInfo?: () => void, inIsrael?: boolean }) {
+export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus, userPos, weather, climate, waypoints, onShowInfo, inIsrael = false }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus, userPos?: UserOnTrail | null, weather?: TripWeather, climate?: TrailClimate, waypoints?: { label: string; km: number }[] | null, onShowInfo?: () => void, inIsrael?: boolean }) {
   const [collapsed, setCollapsed] = useState(true);
   const cardRef = useRef<HTMLDivElement>(null);
   // A drive has a road, a length and a time; none of the hiking readouts
@@ -369,6 +371,14 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
       </div>
 
       {weather && <TripWeatherSection weather={weather} isDrive={false} trail={trail} />}
+
+      {/* The month of the chosen trip day, else this month, is the one shown. */}
+      {climate && (
+        <BestMonthsSection
+          climate={climate}
+          month={weather?.selected ? Number(weather.selected.date.slice(5, 7)) - 1 : new Date().getMonth()}
+        />
+      )}
 
       {/* ── קיץ ─────────────────────────────────────────────────────────── */}
       {/* Israel only: the shade grid covers nothing else, and which water is

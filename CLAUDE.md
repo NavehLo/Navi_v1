@@ -65,6 +65,13 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   `INFO_VERSION` (`trailInfo/cache.ts`) when "על המסלול" changes. Bumping
   `PROMPT_VERSION` (`poiKey.ts`) regenerates every narration and costs money —
   only when the narration wording rules change.
+- **The month ratings are pinned.** "מתי כדאי ללכת" is decided only in
+  `src/lib/climate.ts`; after changing a rule or threshold there, run
+  `node scripts/checkClimate.mjs` and bump `CLIMATE_VERSION` (it is in every
+  cache key, on the device and on the server). The grid
+  (`src/data/climate-grid.bin.gz`) is rebuilt only with
+  `scripts/buildClimateGrid.mjs`, and any route that reads it must be listed in
+  `outputFileTracingIncludes` in `next.config.ts`.
 - **Offline is tested on the production build** (`prod` launch config);
   `next dev` never hydrates without a network.
 - **Android**: web changes need only a deploy. Rebuild the APK
