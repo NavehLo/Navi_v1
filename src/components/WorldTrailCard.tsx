@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useOutsideTap } from '../hooks/useOutsideTap';
 import { X, ExternalLink, BookOpen, BookOpenText, Download, Loader2, TrendingUp, TrendingDown, ChevronDown, ChevronUp } from 'lucide-react';
 import type { WorldTrailSelection } from '../hooks/useWorldTrails';
 import { groupLabel, wikipediaUrl } from '../lib/waymarked';
@@ -51,6 +52,9 @@ export default function WorldTrailCard({
   const elevationPending = selection.status === 'ok' && selection.elevationStatus === 'loading';
   const hasElevation = selection.elevationStatus === 'ok' && selection.gain != null;
   const [collapsed, setCollapsed] = useState(false);
+  // A tap on the map folds the card down, so the route can be seen whole.
+  const cardRef = useRef<HTMLDivElement>(null);
+  useOutsideTap(cardRef, !collapsed, () => setCollapsed(true));
   const toggleLabel = collapsed ? 'הרחב' : 'צמצם';
 
   const loadButton = (compact: boolean) => (
@@ -67,6 +71,7 @@ export default function WorldTrailCard({
 
   return (
     <div
+      ref={cardRef}
       className={`absolute left-3 right-3 bottom-[76px] md:left-auto md:right-6 md:top-6 md:bottom-auto md:w-[360px] z-[45] bg-black/85 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl flex flex-col max-h-[60vh] md:max-h-[calc(100vh-3rem)] overflow-y-auto
         ${collapsed ? 'p-3 gap-2' : 'p-4 gap-3'}`}
       dir="rtl"

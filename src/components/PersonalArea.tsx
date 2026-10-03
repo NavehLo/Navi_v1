@@ -241,7 +241,7 @@ export default function PersonalArea({ user, sessionLive, online, onSignIn, onCl
             </div>
           )}
 
-          {tab === "settings" && <OffRouteSetting />}
+          {tab === "settings" && <OffRouteSetting defaultOpen />}
 
           {tab === "trails" && (
             // A retry after a failed load also shows the spinner: with the

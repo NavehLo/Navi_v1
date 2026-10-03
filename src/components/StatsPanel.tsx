@@ -8,7 +8,8 @@ import { formatDuration } from "./DrivePlanner";
 import TripWeatherSection, { WeatherIcon } from "./TripWeatherSection";
 import type { TripWeather } from "../hooks/useTripWeather";
 import InfoButton from "./help/InfoButton";
-import { HELP_UI_ATTR } from "./help/Coachmark";
+import { useOutsideTap } from "../hooks/useOutsideTap";
+import Collapsible from "./Collapsible";
 
 // Sits above the bottom stack (narration card + tour bar) and starts collapsed
 // on phones — expanded, this card alone used to cover a third of the screen.
@@ -30,15 +31,13 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
   // (elevation, shade, water) mean anything for it.
   const isDrive = trail.kind === 'drive';
 
-  // The tour progress bar claims the same strip of phone screen this card sits
-  // on — both were pinned to bottom-[76px], so starting a tour dropped the bar
-  // straight on top of the trail figures. The condition has to match the one
-  // page.tsx renders the bar under, or the card lifts when there is nothing
-  // there to avoid.
-  const progressBarShowing =
-    progress > 0 && Math.floor(progress * trail.coords.length) < trail.coords.length;
-  // 76px clears the tour transport; the progress bar adds roughly 100 more.
-  const bottomOffset = progressBarShowing ? "bottom-[184px]" : "bottom-[76px]";
+  // Sits right above whatever is at the bottom of the phone screen: the tour
+  // transport, the guide's pill or its narration, and the tour progress bar
+  // when a tour is under way. page.tsx measures those as they grow and shrink
+  // (--bottom-stack-h, --progress-bar-h), so the card can never end up under
+  // one of them — a fixed offset did, every time the guide started talking.
+  const bottomOffset =
+    "bottom-[calc(var(--bottom-stack-h,64px)_+_var(--progress-bar-h,0px)_+_8px)]";
 
   useEffect(() => {
     const isPhone = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
@@ -48,19 +47,8 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
   // Tapping the map puts the card away again. Expanded, it is deliberately
   // stacked above the control rails (see the z-index on the wrapper below), so
   // without this the buttons it covers would be unreachable — including the
-  // one that collapses it. Listening on pointerdown rather than click means the
-  // card is gone before the map starts handling the gesture.
-  useEffect(() => {
-    if (collapsed) return;
-    const onPointerDown = (e: PointerEvent) => {
-      // A tap on an explanation opened from inside the card is still a tap on
-      // the card, even though the explanation is drawn outside it.
-      if ((e.target as Element).closest?.(`[${HELP_UI_ATTR}]`)) return;
-      if (!cardRef.current?.contains(e.target as Node)) setCollapsed(true);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [collapsed]);
+  // one that collapses it.
+  useOutsideTap(cardRef, !collapsed, () => setCollapsed(true));
 
   // Total climb and descent, with the usual 5 m hysteresis so GPS jitter does
   // not add up to a mountain. A flat profile means the file had no elevation.
@@ -214,7 +202,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
   }
 
   return (
-    <div ref={cardRef} data-tour="stats" className={`absolute ${bottomOffset} left-3 right-3 md:top-[104px] md:right-3 md:left-auto md:bottom-auto bg-zinc-900/90 p-4 md:p-5 rounded-3xl shadow-xl border border-white/10 z-[45] max-h-[75vh] overflow-y-auto overscroll-contain md:w-80 backdrop-blur-md`} dir="rtl">
+    <div ref={cardRef} data-tour="stats" className={`absolute ${bottomOffset} left-3 right-3 md:top-[104px] md:right-3 md:left-auto md:bottom-auto bg-zinc-900/90 p-4 md:p-5 rounded-3xl shadow-xl border border-white/10 z-[45] max-h-[calc(100dvh_-_var(--bottom-stack-h,64px)_-_var(--progress-bar-h,0px)_-_80px)] md:max-h-[75vh] overflow-y-auto overscroll-contain md:w-80 backdrop-blur-md`} dir="rtl">
       <div className="flex justify-between items-center gap-3">
         {onClose && (
           <button 
@@ -306,7 +294,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
         </div>
       )}
       {isDrive && (
-        <p className="mt-3 border-t border-white/10 pt-3 text-[11px] text-zinc-400 leading-relaxed">
+        <p className="mt-3 border-t border-white/10 pt-3 text-xs text-white leading-relaxed">
           מסלול נסיעה לפי Mapbox Directions. זמן הנסיעה הוא הערכה לתנאי דרך רגילים, בלי פקקים ועצירות.
           הסיור הווירטואלי מתקדם ב־80 קמ״ש ב־x1.
         </p>
@@ -362,7 +350,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           )}
         </div>
         {onTrail && (
-          <div className="flex justify-between text-[10px] mt-1" dir="rtl">
+          <div className="flex justify-between text-xs mt-1" dir="rtl">
             <span className="text-sky-300 font-bold">● אתה כאן · נותרו {remainingKm!.toFixed(1)} ק״מ</span>
             {progress > 0 && <span className="text-orange-300">| סיור וירטואלי</span>}
           </div>
@@ -372,9 +360,19 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
       {weather && <TripWeatherSection weather={weather} isDrive={false} trail={trail} />}
 
       {/* ── קיץ ─────────────────────────────────────────────────────────── */}
-      <div className="mt-3 border-t border-white/10 pt-3">
-        <div className="text-xs text-white mb-2 font-bold flex items-center gap-1">
-          בקיץ
+      <Collapsible
+        variant="section"
+        title="מים וצל בקיץ"
+        summary={(shade || water) && (
+          <>
+            {shade && <span className="text-lime-300">{Math.round(shade.shadePct)}% צל</span>}
+            {shade && water && <span>·</span>}
+            {water && <span className="text-sky-300">{water.longestDryKm.toFixed(1)} ק״מ בלי מים</span>}
+          </>
+        )}
+      >
+        <div className="text-xs text-white mb-2 flex items-center gap-1">
+          מה רואים כאן
           <InfoButton label="מים וצל בקיץ">
             <p>
               <b>מים:</b> הפס הכחול מסמן קטעים שיש בהם מקור מים עד 150 מ׳ מהשביל. עיגול מלא הוא בריכה או נחל איתן;
@@ -391,14 +389,14 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
         <div className="text-xs text-white font-bold mb-1">אפשרות למים להתרעננות</div>
 
         {waterStatus === 'loading' && !water && (
-          <div className="text-zinc-300 text-[11px] mb-3">מחפש מקורות מים…</div>
+          <div className="text-white text-xs mb-3">מחפש מקורות מים…</div>
         )}
 
         {/* Overpass could not be reached. Saying so matters more than it looks:
             rendering this as "no water on this trail" is a wrong answer someone
             could plan an August walk around. */}
         {(waterStatus === 'unavailable' || waterStatus === 'rate-limited') && !water && (
-          <div className="text-amber-500/80 text-[11px] mb-3">
+          <div className="text-amber-300 text-xs mb-3">
             {waterStatus === 'rate-limited' ? 'יותר מדי בקשות כרגע — ' : 'לא הצלחנו לבדוק כרגע — '}
             אין מידע על מים במסלול הזה. זה לא אומר שאין בו מים.
           </div>
@@ -442,15 +440,15 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
             </div>
 
             {water.points.length === 0 && (
-              <div className="text-zinc-300 text-[11px]">אין מקורות מים ידועים לאורך המסלול.</div>
+              <div className="text-white text-xs">אין מקורות מים ידועים לאורך המסלול.</div>
             )}
 
             {water.points.map((p, i) => (
-              <div key={i} className="flex items-baseline gap-2 text-[11px] py-0.5">
-                <span className="text-zinc-400 tabular-nums w-12 shrink-0">{p.km.toFixed(1)} ק״מ</span>
-                <span className={p.counted ? "text-sky-300" : "text-zinc-300"}>{p.label}</span>
-                {p.name && <span className="text-zinc-100 truncate">{p.name}</span>}
-                <span className={`text-[10px] shrink-0 ${p.counted ? "text-zinc-400" : "text-amber-400/80"}`}>{p.offTrailM} מ׳</span>
+              <div key={i} className="flex items-baseline gap-2 text-xs py-0.5">
+                <span className="text-white tabular-nums w-12 shrink-0">{p.km.toFixed(1)} ק״מ</span>
+                <span className={p.counted ? "text-sky-300" : "text-white"}>{p.label}</span>
+                {p.name && <span className="text-white truncate">{p.name}</span>}
+                <span className={`text-xs shrink-0 ${p.counted ? "text-white" : "text-amber-300"}`}>{p.offTrailM} מ׳</span>
               </div>
             ))}
 
@@ -458,7 +456,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
                 information there is, but they do not shorten the dry stretch —
                 so the panel has to say which of the two a line is. */}
             {water.points.some((p) => !p.counted) && (
-              <div className="text-[10px] text-zinc-300 mt-1.5 leading-relaxed">
+              <div className="text-xs text-white mt-1.5 leading-relaxed">
                 <span className="inline-block w-2 h-2 rounded-full bg-zinc-800 border border-sky-300 align-middle ml-1" />
                 לא נספרים במספרים שלמעלה: מעיינות ובריכות לא מאומתות — אין במפה מידע אם יש בהם מים בקיץ —
                 וכן מקורות שרחוקים יותר מ־150 מ׳ מהשביל, שמוצגים עם המרחק שלהם כדי שתוכלו להחליט בעצמכם.
@@ -466,18 +464,18 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
             )}
 
             {waterStatus === 'cached' && (
-              <div className="text-[10px] text-zinc-400 mt-1">מהזיכרון המקומי — לא נבדק עכשיו.</div>
+              <div className="text-xs text-white mt-1">מהזיכרון המקומי — לא נבדק עכשיו.</div>
             )}
           </div>
         )}
 
         {/* צל */}
         {shadeLoading && !shade && (
-          <div className="text-zinc-300 text-[11px]">מחשב צל…</div>
+          <div className="text-white text-xs">מחשב צל…</div>
         )}
 
         {!shadeLoading && !shade && (
-          <div className="text-zinc-300 text-[11px]">אין נתוני צל למסלול הזה.</div>
+          <div className="text-white text-xs">אין נתוני צל למסלול הזה.</div>
         )}
 
         {shade && (
@@ -486,7 +484,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
               <div className="text-xs text-white font-bold">אפשרות לצל</div>
               <div className="text-lg font-bold text-lime-400 leading-none">
                 {Math.round(shade.shadePct)}%
-                <span className="text-[10px] font-normal text-zinc-400 mr-1">מהמסלול</span>
+                <span className="text-xs font-normal text-white mr-1">מהמסלול</span>
               </div>
             </div>
 
@@ -512,24 +510,23 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           </>
         )}
 
-        {/* The warning is not tucked behind a toggle on purpose. Everything
-            above it is an estimate read off a map, and the one thing that could
-            actually get somebody hurt is treating it as a permission to swim. */}
-        <div className="mt-3 rounded-lg bg-amber-500/10 border border-amber-500/25 p-2">
-          <div className="text-[11px] text-amber-300 font-bold mb-1">לפני שיוצאים — לאמת ברט״ג</div>
-          <p className="text-[10px] text-zinc-200 leading-relaxed">
-            המספרים כאן הם הערכת תכנון לפי מפות, לא אישור רחצה ולא בדיקה בשטח.
-            ערב הטיול יש לוודא באתר רשות הטבע והגנים את <span className="text-white font-semibold">פתיחת המסלול</span>,
-            את <span className="text-white font-semibold">היתר הכניסה למים</span>, את <span className="text-white font-semibold">עומס החום</span>,
-            <span className="text-white font-semibold"> חשש לשיטפונות</span> ואת <span className="text-white font-semibold">איכות המים</span>.
-          </p>
-          <p className="text-[10px] text-zinc-300 leading-relaxed mt-1.5">
-            מים: מעיינות ובריכות עלולים להיות יבשים בקיץ, ולמפה אין מידע על מצבם.
-            <span className="text-amber-300"> אלה לא מי שתייה.</span>{' '}
-            צל: לפי כיסוי עצים במפות לוויין (ESA WorldCover 2021) — לא כולל צל של מדרונות וּואדיות,
-            ולא מעודכן אחרי שריפות.
-          </p>
-        </div>
+        <p className="text-xs text-white leading-relaxed mt-3">
+          מעיינות ובריכות עלולים להיות יבשים בקיץ, ולמפה אין מידע על מצבם.
+          <span className="text-amber-300 font-bold"> אלה לא מי שתייה.</span>{' '}
+          הצל לפי כיסוי עצים במפות לוויין (ESA WorldCover 2021) — לא כולל צל של מדרונות וּואדיות,
+          ולא מעודכן אחרי שריפות.
+        </p>
+      </Collapsible>
+
+      {/* The warning stays out of the folded section on purpose. Everything
+          in it is an estimate read off a map, and the one thing that could
+          actually get somebody hurt is treating it as a permission to swim. */}
+      <div className="mt-3 rounded-lg bg-amber-500/10 border border-amber-500/25 p-2">
+        <div className="text-xs text-amber-300 font-bold mb-1">לפני שיוצאים — לאמת ברט״ג</div>
+        <p className="text-xs text-white leading-relaxed">
+          המספרים כאן הם הערכה לפי מפות, לא אישור רחצה. ערב הטיול יש לוודא באתר רשות הטבע והגנים את
+          פתיחת המסלול, היתר הכניסה למים, עומס החום, חשש לשיטפונות ואיכות המים.
+        </p>
       </div>
       </>)}
     </div>

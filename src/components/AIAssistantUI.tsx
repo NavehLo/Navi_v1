@@ -2,6 +2,7 @@ import { Volume2, Loader2, StopCircle, X, Smartphone, ChevronUp, ChevronDown, Mi
 import { useEffect, useRef, useState } from "react";
 import { type PlayingVoice } from "../hooks/useAIGuide";
 import { voiceNameFor } from "../lib/voicePrefs";
+import { useOutsideTap } from "../hooks/useOutsideTap";
 
 const PROVIDER_LABEL: Record<string, string> = {
   elevenlabs: "ElevenLabs",
@@ -58,6 +59,9 @@ export default function AIAssistantUI({
 }: AIAssistantUIProps) {
   const [expanded, setExpanded] = useState(false);
   const [minimized, setMinimized] = useState(false);
+  // The full transcript folds back to two lines on a tap anywhere else.
+  const cardRef = useRef<HTMLDivElement>(null);
+  useOutsideTap(cardRef, expanded, () => setExpanded(false));
 
   // Each new narration starts clamped again rather than inheriting the last
   // one's open state. Minimizing, being a deliberate choice, does stick.
@@ -117,7 +121,7 @@ export default function AIAssistantUI({
   }
 
   return (
-    <div className="pointer-events-auto w-full max-w-lg" dir="rtl">
+    <div ref={cardRef} className="pointer-events-auto w-full max-w-lg" dir="rtl">
       <div className="bg-zinc-900/95 backdrop-blur-xl border border-emerald-500/30 shadow-2xl rounded-2xl px-3 py-2.5">
         <div className="flex items-start gap-2.5">
           <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
@@ -218,6 +222,8 @@ export function NoGuidePointsHint({
 }) {
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  useOutsideTap(boxRef, open, () => setOpen(false));
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   const show = () => {
     setOpen(true);
@@ -237,7 +243,7 @@ export function NoGuidePointsHint({
           : 'אין נקודות למדריכה במסלול';
 
   return (
-    <div className="pointer-events-auto relative" dir="rtl">
+    <div ref={boxRef} className="pointer-events-auto relative" dir="rtl">
       <button
         onClick={show}
         aria-label={label}

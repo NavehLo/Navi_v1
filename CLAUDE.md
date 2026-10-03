@@ -70,3 +70,11 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
 - **Android**: web changes need only a deploy. Rebuild the APK
   (`android-app/README.md`) only when the native side changes, on this Mac
   (debug-signed).
+- **Panels on the map follow one layout contract.** An open panel collapses
+  or closes on a tap outside it (`useOutsideTap`). An expanded panel covers
+  the control rails (z-44/45, above the rails' 42) rather than sitting under
+  them. Anything stacked above the bottom bar positions itself with
+  `--bottom-stack-h` / `--progress-bar-h` (`useHeightVar`), never a fixed
+  `bottom-[76px]`. "Hide all" (`uiHidden`) must hide every panel — hide a
+  stateful one with a `hidden` wrapper rather than unmounting it. Long
+  sections open as one line with a summary (`Collapsible`).

@@ -29,6 +29,7 @@ import { rememberOpenTrail, recallOpenTrail, forgetOpenTrail } from "@/lib/openT
 import { useTrailData } from "@/hooks/useTrailData";
 import { useTour, tourSecondsLeft, formatTourTimeLeft } from "@/hooks/useTour";
 import { useAIGuide } from "@/hooks/useAIGuide";
+import { useHeightVar } from "@/hooks/useHeightVar";
 import { usePOIGeofence } from "@/hooks/usePOIGeofence";
 import { pointAtDistance, snapToTrail, coordsToGpx, parseGPX, type Coordinate3D } from "@/utils/trailUtils";
 import { useOffRouteAlert } from "@/hooks/useOffRouteAlert";
@@ -236,6 +237,11 @@ export default function TrailApp() {
   // button that brings the chrome back is taken off the screen.
   const [uiHidden, setUiHidden] = useState(false);
   const [showGuidePoints, setShowGuidePoints] = useState(false);
+  // The bottom of a phone screen, measured: the tour transport with the guide
+  // above it, and the tour progress bar above that. The trail card stacks on
+  // top of whatever of them is showing (see StatsPanel).
+  const bottomStackRef = useHeightVar('--bottom-stack-h');
+  const progressBarRef = useHeightVar('--progress-bar-h');
   // Switched on outside a virtual tour, it is for a real walk: the guide goes
   // by where the phone is, so the live location comes on with it.
   const handleToggleGuide = useCallback(() => {
@@ -1163,22 +1169,30 @@ export default function TrailApp() {
         />
       )}
 
-      {/* Trail Discovery overlay with markers & GPX upload fallback */}
+      {/* Trail Discovery overlay with markers & GPX upload fallback.
+          The home panels are hidden rather than unmounted for "map only" and
+          while a tapped world trail's card takes their place at the bottom of
+          the screen: the trail markers stay on the map, and a half-planned
+          drive or a filtered list is still there when they come back. */}
       {map && !trail && appMode === 'trails' && !isMeasuring && (
-        <MemoizedTrailDiscovery 
-          map={map} 
-          onSelectTrail={loadTrailFromUrl} 
-          onFileLoad={loadTrailFile} 
-          loading={trailLoading} 
-          error={trailError} 
-          styleRev={styleRev}
-          offlinePacks={mapPacks}
-          onSelectPack={openPack}
-          online={online}
-        />
+        <div className={uiHidden || worldTrails.selection ? 'hidden' : 'contents'}>
+          <MemoizedTrailDiscovery 
+            map={map} 
+            onSelectTrail={loadTrailFromUrl} 
+            onFileLoad={loadTrailFile} 
+            loading={trailLoading} 
+            error={trailError} 
+            styleRev={styleRev}
+            offlinePacks={mapPacks}
+            onSelectPack={openPack}
+            online={online}
+          />
+        </div>
       )}
-      {map && !trail && appMode === 'drive' && !uiHidden && !isMeasuring && (
-        <DrivePlanner map={map} onRoute={openDrive} onPreview={handleDrivePreview} initial={lastDrivePlan} />
+      {map && !trail && appMode === 'drive' && !isMeasuring && (
+        <div className={uiHidden || worldTrails.selection ? 'hidden' : 'contents'}>
+          <DrivePlanner map={map} onRoute={openDrive} onPreview={handleDrivePreview} initial={lastDrivePlan} />
+        </div>
       )}
 
       {/* Restore button — the only chrome that survives "map only" mode */}
@@ -1287,6 +1301,8 @@ export default function TrailApp() {
       {/* A tapped route in the world trails overlay */}
       {worldTrails.selection && !uiHidden && (
         <WorldTrailCard
+          // A new card always opens unfolded.
+          key={worldTrails.selection.id}
           selection={worldTrails.selection}
           onClose={worldTrails.clearSelection}
           onLoad={worldTrails.loadSelected}
@@ -1299,7 +1315,8 @@ export default function TrailApp() {
       )}
       {infoRequest && <TrailInfoPanel key={trailInfoKey(infoRequest)} request={infoRequest} onClose={() => setInfoRequest(null)} />}
       {worldTrails.hint && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 bg-zinc-900/90 text-white text-xs font-bold px-4 py-2 rounded-full border border-white/10 backdrop-blur-md shadow-xl pointer-events-none" dir="rtl">
+        // Below the place search, which used to be hidden under it.
+        <div className="absolute top-[112px] md:top-[120px] left-1/2 -translate-x-1/2 z-50 bg-zinc-900/90 text-white text-xs font-bold px-4 py-2 rounded-full border border-white/10 backdrop-blur-md shadow-xl pointer-events-none" dir="rtl">
           {worldTrails.hint}
         </div>
       )}
@@ -1381,7 +1398,7 @@ export default function TrailApp() {
       {/* Bottom stack — the narration card sits *above* the tour transport, so
           the transcript can never cover the speed buttons the way it used to. */}
       {trail && !uiHidden && !isMeasuring && (
-        <div className="absolute bottom-0 inset-x-0 z-50 flex flex-col items-center gap-2 px-3 pb-3 pointer-events-none">
+        <div ref={bottomStackRef} className="absolute bottom-0 inset-x-0 z-50 flex flex-col items-center gap-2 px-3 pb-3 pointer-events-none">
           {!isDrive && <AIAssistantUI
             isLoading={isLoading}
             isSpeaking={isSpeaking}
@@ -1422,7 +1439,7 @@ export default function TrailApp() {
 
       {/* Tour Progress Bar */}
       {trail && !uiHidden && !isMeasuring && progress > 0 && Math.floor(progress * trail.coords.length) < trail.coords.length && (
-        <div className="absolute bottom-[76px] left-3 right-3 md:bottom-auto md:top-3 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-[55%] md:max-w-md z-40 bg-black/80 px-3 py-2 rounded-2xl border border-white/10 backdrop-blur-md">
+        <div ref={progressBarRef} className="absolute bottom-[calc(var(--bottom-stack-h,64px)_+_4px)] left-3 right-3 md:bottom-auto md:top-3 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-[55%] md:max-w-md z-40 bg-black/80 px-3 py-2 rounded-2xl border border-white/10 backdrop-blur-md">
           <div className="flex justify-between text-xs font-bold mb-1" dir="rtl">
             <div className="text-emerald-300">הושלם: {(trail.totalDistance * progress).toFixed(1)} ק״מ ({Math.round(progress*100)}%)</div>
             <div className="text-sky-300">נותר: {(trail.totalDistance * (1 - progress)).toFixed(1)} ק״מ</div>
@@ -1467,7 +1484,9 @@ export default function TrailApp() {
       {/* First-visit help, above everything else on the screen */}
       {helpTour && helpFits && !helpQuiet && (
         <Coachmark
-          key={helpTour}
+          // Prefixed: the place search beside it is keyed by the mode, and
+          // "drive" would otherwise be the key of both.
+          key={`tour-${helpTour}`}
           steps={
             helpTour === 'welcome' ? WELCOME_STEPS
               : helpTour === 'trail' ? TRAIL_STEPS

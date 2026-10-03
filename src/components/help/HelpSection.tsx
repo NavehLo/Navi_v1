@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { HelpCircle, PlayCircle, RotateCcw, Check, ChevronDown } from "lucide-react";
+import Collapsible from "../Collapsible";
 
 // "איך זה עובד", at the top of the settings: the one place where everything
 // the app can do is explained, and nothing jumps out at anybody by itself.
@@ -8,7 +9,7 @@ import { HelpCircle, PlayCircle, RotateCcw, Check, ChevronDown } from "lucide-re
 const FEATURES: Array<{ title: string; body: string }> = [
   {
     title: "בחירת מסלול",
-    body: "במסך הבית: לחיצה על סימן במפה, או ״חפש מסלולים״ לרשימה עם חיפוש וסינון לפי אזור, סוג, צל ומים. אפשר גם להעלות קובץ GPX משלכם.",
+    body: "במסך הבית: לחיצה על סימן במפה, או ״חפש/העלה מסלולים״ לרשימה עם חיפוש וסינון לפי אזור, סוג, צל ומים. אפשר גם להעלות קובץ GPX או KML משלכם.",
   },
   {
     title: "מסלולים בעולם",
@@ -62,30 +63,33 @@ export default function HelpSection({
   const [resetDone, setResetDone] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
   const row = "flex items-center gap-2.5 text-sm font-bold p-3 rounded-xl transition-colors";
+  // Inside the folded section the buttons sit one shade lighter than it.
 
   return (
-    <div className="mb-6">
-      <h3 className="text-white font-bold text-sm mb-2 flex items-center gap-2">
-        <HelpCircle size={16} className="text-sky-300" />
-        איך זה עובד
-      </h3>
+    // One line until tapped: the explanations are there for whoever looks
+    // for them, not a list everybody has to scroll past to reach the rest.
+    <Collapsible
+      className="mb-3"
+      icon={<HelpCircle size={16} className="text-sky-300 shrink-0" />}
+      title="איך זה עובד"
+    >
       <div className="flex flex-col gap-2">
         {onReplay && (
-          <button onClick={onReplay} className={`${row} bg-white/5 text-white hover:bg-white/10`}>
+          <button onClick={onReplay} className={`${row} bg-white/10 text-white hover:bg-white/15`}>
             <PlayCircle size={16} className="text-sky-300" /> הצג שוב את ההדרכה של המסך הזה
           </button>
         )}
         <button
           onClick={() => { onReset(); setResetDone(true); }}
           disabled={resetDone}
-          className={`${row} bg-white/5 text-white hover:bg-white/10 disabled:hover:bg-white/5`}
+          className={`${row} bg-white/10 text-white hover:bg-white/15 disabled:hover:bg-white/10`}
         >
           {resetDone
             ? <><Check size={16} className="text-emerald-300" /> הטיפים יופיעו שוב כשתגיעו אליהם</>
             : <><RotateCcw size={16} className="text-sky-300" /> הצג שוב את כל הטיפים</>}
         </button>
 
-        <div className="rounded-xl bg-white/5 divide-y divide-white/10">
+        <div className="rounded-xl bg-white/10 divide-y divide-white/10">
           {FEATURES.map((f, i) => (
             <div key={f.title}>
               <button
@@ -101,6 +105,6 @@ export default function HelpSection({
           ))}
         </div>
       </div>
-    </div>
+    </Collapsible>
   );
 }

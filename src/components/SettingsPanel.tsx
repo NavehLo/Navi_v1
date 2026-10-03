@@ -328,11 +328,11 @@ export default function SettingsPanel({ onClose, children, help }: SettingsPanel
           </button>
         </div>
 
-        {children && <div className="flex flex-col gap-2 mb-6">{children}</div>}
+        {children && <div className="flex flex-col gap-2 mb-3">{children}</div>}
 
         {help}
 
-        <div className="mb-6">
+        <div className="mb-3">
           <OffRouteSetting />
         </div>
 

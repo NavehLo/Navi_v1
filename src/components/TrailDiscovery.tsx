@@ -8,6 +8,7 @@ import {
 } from '../lib/summerFilters';
 import GPXLoader from './GPXLoader';
 import InfoButton from './help/InfoButton';
+import { useOutsideTap } from '../hooks/useOutsideTap';
 
 export interface TrailInfo {
   id: string;
@@ -51,6 +52,11 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [filterShade, setFilterShade] = useState<ShadeFilter | null>(null);
   const [filterWater, setFilterWater] = useState<WaterFilter | null>(null);
+
+  // Open, the list covers the side buttons (see the z-index below); a tap
+  // anywhere else folds it back to its title bar.
+  const panelRef = useRef<HTMLDivElement>(null);
+  useOutsideTap(panelRef, isExpanded && !showUploader, () => setIsExpanded(false));
 
   const onSelectTrailRef = useRef(onSelectTrail);
   useEffect(() => {
@@ -279,23 +285,17 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
   }, [map, filteredTrails, styleRev]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (showUploader) {
-    return (
-      <>
-        <div className="absolute top-6 right-6 z-[60]">
-          <button onClick={() => setShowUploader(false)} className="bg-zinc-800 text-white px-5 py-2.5 rounded-full border border-white/10 font-bold hover:bg-zinc-700 transition shadow-lg flex items-center gap-2">
-            חזור למאגר המסלולים
-          </button>
-        </div>
-        <GPXLoader onFileLoad={onFileLoad} loading={loading} error={error} />
-      </>
-    );
+    return <GPXLoader onFileLoad={onFileLoad} loading={loading} error={error} onClose={() => setShowUploader(false)} />;
   }
 
   const regions = Array.from(new Set(trails.map(t => t.region)));
   const types = Array.from(new Set(trails.map(t => t.type)));
 
   return (
-    <div data-tour="discovery" className={`absolute left-4 right-4 z-40 flex flex-col md:w-[380px] md:bottom-6 md:right-6 md:left-auto md:top-6 md:max-h-[calc(100vh-3rem)] bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl transition-all
+    // Open, it sits above the control rails (z-42) — the rails used to float
+    // over the list — and below the place search (z-45), whose suggestions
+    // drop down over it.
+    <div ref={panelRef} data-tour="discovery" className={`absolute left-4 right-4 ${isExpanded ? 'z-[44] md:z-40' : 'z-40'} flex flex-col md:w-[380px] md:bottom-6 md:right-6 md:left-auto md:top-6 md:max-h-[calc(100vh-3rem)] bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl transition-all
       ${isExpanded ? 'bottom-16 top-[108px] md:top-6 rounded-3xl p-5 md:bottom-6' : 'bottom-16 rounded-2xl p-4 md:rounded-3xl md:p-5 md:bottom-6'} 
       `} dir="rtl">
       
@@ -305,16 +305,16 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
       >
         <h2 className={`font-extrabold text-white flex items-center gap-2 tracking-tight transition-all ${isExpanded ? 'text-xl mb-2 md:mb-5' : 'text-lg md:text-xl md:mb-5'}`}>
           <MapPin className="text-orange-500 fill-orange-500/20" size={24} /> 
-          חפש מסלולים
+          חפש/העלה מסלולים
         </h2>
-        <button className="md:hidden text-zinc-400 p-1 flex items-center justify-center bg-white/5 rounded-full hover:bg-white/10 transition-colors">
+        <button aria-label={isExpanded ? 'צמצם' : 'הרחב'} className="md:hidden text-white p-1 flex items-center justify-center bg-white/5 rounded-full hover:bg-white/10 transition-colors">
           {isExpanded ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
         </button>
       </div>
       
       <div className={`flex-col gap-4 md:flex overflow-hidden ${isExpanded ? 'flex flex-1 mt-2 md:mt-0' : 'hidden'}`}>
         <div className="relative shrink-0">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-300" size={16} />
           <input
             type="text"
             value={searchQuery}
@@ -323,13 +323,13 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
             onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
             onKeyDown={(e) => { if (e.key === 'Escape') setShowSuggestions(false); }}
             placeholder="חפש לפי שם מסלול..."
-            className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pr-9 pl-9 text-sm text-white placeholder:text-zinc-500 font-medium focus:outline-none focus:border-orange-500/50 focus:bg-white/10 transition-colors"
+            className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pr-9 pl-9 text-sm text-white placeholder:text-zinc-300 font-medium focus:outline-none focus:border-orange-500/50 focus:bg-white/10 transition-colors"
           />
           {searchQuery && (
             <button
               type="button"
               onClick={() => { setSearchQuery(''); setShowSuggestions(false); }}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-300 hover:text-white transition-colors"
               aria-label="נקה חיפוש"
             >
               <X size={16} />
@@ -344,10 +344,10 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => { setSearchQuery(t.name); setShowSuggestions(false); }}
-                  className="w-full text-right px-4 py-2.5 text-sm text-zinc-200 hover:bg-white/10 hover:text-orange-400 transition-colors flex flex-col gap-0.5"
+                  className="w-full text-right px-4 py-2.5 text-sm text-white hover:bg-white/10 hover:text-orange-400 transition-colors flex flex-col gap-0.5"
                 >
                   <span className="font-bold">{t.name}</span>
-                  <span className="text-[10px] text-zinc-500 font-bold uppercase">{t.type} • {t.region}</span>
+                  <span className="text-xs text-zinc-100 font-bold">{t.type} • {t.region}</span>
                 </button>
               ))}
             </div>
@@ -359,7 +359,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
             <button
               key={type}
               onClick={() => setFilterType(filterType === type ? null : type)}
-              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all shadow-sm ${filterType === type ? 'bg-orange-500 text-white shadow-orange-500/30' : 'bg-white/5 text-zinc-300 border border-white/10 hover:bg-white/10'}`}
+              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all shadow-sm ${filterType === type ? 'bg-orange-500 text-white shadow-orange-500/30' : 'bg-white/5 text-white border border-white/10 hover:bg-white/10'}`}
             >
               {type}
             </button>
@@ -370,7 +370,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
             <button
               key={region}
               onClick={() => setFilterRegion(filterRegion === region ? null : region)}
-              className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all border ${filterRegion === region ? 'bg-white/20 text-white border-white/20' : 'bg-transparent text-zinc-400 border-white/10 hover:bg-white/5'}`}
+              className={`px-3 py-1 rounded-full text-xs font-bold transition-all border ${filterRegion === region ? 'bg-white/20 text-white border-white/20' : 'bg-transparent text-white border-white/15 hover:bg-white/5'}`}
             >
               {region}
             </button>
@@ -387,7 +387,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
               <button
                 key={level}
                 onClick={() => setFilterShade(filterShade === level ? null : level)}
-                className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all border ${filterShade === level ? 'bg-lime-500 text-black border-lime-400' : 'bg-transparent text-zinc-300 border-white/10 hover:bg-white/5'}`}
+                className={`px-3 py-1 rounded-full text-xs font-bold transition-all border ${filterShade === level ? 'bg-lime-500 text-black border-lime-400' : 'bg-transparent text-white border-white/15 hover:bg-white/5'}`}
               >
                 {SHADE_FILTER_LABELS[level]}
               </button>
@@ -397,7 +397,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
               <button
                 key={level}
                 onClick={() => setFilterWater(filterWater === level ? null : level)}
-                className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all border ${filterWater === level ? 'bg-sky-500 text-white border-sky-400' : 'bg-transparent text-zinc-300 border-white/10 hover:bg-white/5'}`}
+                className={`px-3 py-1 rounded-full text-xs font-bold transition-all border ${filterWater === level ? 'bg-sky-500 text-white border-sky-400' : 'bg-transparent text-white border-white/15 hover:bg-white/5'}`}
               >
                 {WATER_FILTER_LABELS[level]}
               </button>
@@ -415,7 +415,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
         <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar flex flex-col gap-3 min-h-0">
           {offlinePacks.length > 0 && onSelectPack && (
             <div className="flex flex-col gap-2 pb-3 border-b border-white/5">
-              <div className="flex items-center gap-1.5 text-[11px] font-bold text-sky-300">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-sky-300">
                 <WifiOff className="w-3.5 h-3.5" />
                 שמורים לשטח{!online ? ' · אין קליטה' : ''}
               </div>
@@ -426,7 +426,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
                   <div key={p.trailSlug} onClick={() => onSelectPack(p)} className="bg-sky-500/5 border border-sky-500/20 p-3 rounded-2xl cursor-pointer hover:bg-sky-500/10 transition-all flex justify-between items-center group">
                     <div className="flex flex-col gap-1">
                       <span className="text-white font-bold text-sm group-hover:text-sky-300 transition-colors">{p.trailName}</span>
-                      <span className={`text-[10px] font-bold ${expired ? 'text-amber-400' : days <= 5 ? 'text-amber-300' : 'text-zinc-400'}`}>
+                      <span className={`text-xs font-bold ${expired ? 'text-amber-400' : days <= 5 ? 'text-amber-300' : 'text-zinc-100'}`}>
                         {expired ? 'המפה פגה — הורד שוב עם קליטה' : `מפה שמורה · עוד ${days} ימים`}
                       </span>
                     </div>
@@ -436,7 +436,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
             </div>
           )}
           {filteredTrails.length === 0 ? (
-            <div className="text-zinc-500 text-center py-10 text-sm font-medium">
+            <div className="text-white text-center py-10 text-sm font-medium">
               {trails.length === 0 && !online
                 ? 'אין קליטה. רק מסלולים שהורדו לשטח זמינים עכשיו.'
                 : 'לא נמצאו מסלולים. נסה לשנות את הסינון.'}
@@ -447,12 +447,12 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
                 <div className="flex flex-col gap-1.5">
                   <span className="text-white font-bold text-sm group-hover:text-orange-400 transition-colors">{t.name}</span>
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[10px] font-bold tracking-wide text-zinc-400 uppercase bg-black/30 w-fit px-2 py-0.5 rounded-md">{t.type} • {t.region}</span>
+                    <span className="text-xs font-bold text-zinc-100 bg-black/30 w-fit px-2 py-0.5 rounded-md">{t.type} • {t.region}</span>
                     {t.summer?.shadePct != null && (
-                      <span className="text-[10px] font-bold text-lime-400 bg-lime-500/10 px-2 py-0.5 rounded-md">{Math.round(t.summer.shadePct)}% צל</span>
+                      <span className="text-xs font-bold text-lime-400 bg-lime-500/10 px-2 py-0.5 rounded-md">{Math.round(t.summer.shadePct)}% צל</span>
                     )}
                     {!!t.summer?.nearWaterPct && (
-                      <span className="text-[10px] font-bold text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-md">{Math.round(t.summer.nearWaterPct)}% ליד מים</span>
+                      <span className="text-xs font-bold text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-md">{Math.round(t.summer.nearWaterPct)}% ליד מים</span>
                     )}
                   </div>
                 </div>
@@ -464,9 +464,9 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
         <div className="mt-5 pt-4 border-t border-white/10 text-center">
           <button
             onClick={() => setShowUploader(true)}
-            className="shrink-0 w-full mt-2 text-xs font-bold text-orange-400 p-3 rounded-xl border border-orange-500/20 bg-orange-500/5 hover:bg-orange-500/10 transition-colors"
+            className="shrink-0 w-full mt-2 text-sm font-bold text-orange-400 p-3 rounded-xl border border-orange-500/20 bg-orange-500/5 hover:bg-orange-500/10 transition-colors"
           >
-            העלה קובץ GPX אישי
+            העלה קובץ GPX או KML אישי
           </button>
         </div>
       </div>

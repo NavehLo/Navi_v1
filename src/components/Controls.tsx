@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import type mapboxgl from "mapbox-gl";
 import ScaleBar from "./ScaleBar";
+import { useOutsideTap } from "../hooks/useOutsideTap";
 import type { TrailKind } from "../hooks/useTrailData";
 import { tourSpeedsFor } from "../hooks/useTour";
 import {
@@ -79,8 +80,9 @@ const PILL =
 const LABELS_KEY = "navi:railLabels";
 
 function RailBtn({
-  label, labelsOn, onClick, className = "", title, children, ariaPressed, dataTour,
+  label, labelsOn, onClick, className = "", title, children, ariaPressed, dataTour, btnRef,
 }: {
+  btnRef?: React.Ref<HTMLButtonElement>;
   label: string;
   labelsOn: boolean;
   onClick?: () => void;
@@ -93,6 +95,7 @@ function RailBtn({
 }) {
   return (
     <button
+      ref={btnRef}
       onClick={onClick}
       data-tour={dataTour}
       title={title ?? label}
@@ -117,6 +120,10 @@ export default function Controls(props: ControlsProps) {
   } = props;
 
   const [showLayers, setShowLayers] = useState(false);
+  // The layers popover closes on a tap anywhere else, like every other panel.
+  const layersBtnRef = useRef<HTMLButtonElement>(null);
+  const layersRef = useRef<HTMLDivElement>(null);
+  useOutsideTap([layersRef, layersBtnRef], showLayers, () => setShowLayers(false));
   const [labelsOn, setLabelsOn] = useState(true);
 
   // Read the stored preference after mount rather than in the initial state, so
@@ -173,6 +180,7 @@ export default function Controls(props: ControlsProps) {
       <div className="absolute top-3 left-3 z-[42] flex flex-col items-start gap-2" dir="rtl" data-tour="rail">
         <div className={PILL}>
           <RailBtn
+            btnRef={layersBtnRef}
             label="תצוגת מפה"
             labelsOn={labelsOn}
             onClick={() => setShowLayers(v => !v)}
@@ -274,7 +282,7 @@ export default function Controls(props: ControlsProps) {
 
       {/* Layers popover, anchored beside the rail */}
       {showLayers && (
-        <div className="absolute top-3 left-16 z-[47] w-56 bg-zinc-900/95 rounded-2xl border border-white/10 backdrop-blur-md shadow-2xl p-2 flex flex-col gap-1" dir="rtl">
+        <div ref={layersRef} className="absolute top-3 left-16 z-[47] w-56 bg-zinc-900/95 rounded-2xl border border-white/10 backdrop-blur-md shadow-2xl p-2 flex flex-col gap-1" dir="rtl">
           {([['satellite', 'לוויין'], ['terrain', 'טופוגרפיה'], ['light', 'מפה בהירה']] as const).map(([key, label]) => {
             const locked = !!offlineStyleKey && offlineStyleKey !== key;
             return (

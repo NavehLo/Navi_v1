@@ -8,10 +8,13 @@ import {
   primeAlarm, soundAlarm, stopAlarm,
 } from '../lib/offRouteAlert';
 import { isNativeApp } from '../lib/native';
+import Collapsible from './Collapsible';
 
 // The off-route alarm: how far, which sound, how loud. Shown both in the
 // settings and in the personal area; they are one set of device settings.
-export default function OffRouteSetting() {
+// Open from the start where it is the only thing on the screen (the personal
+// area's settings tab); folded in the settings window.
+export default function OffRouteSetting({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const value = useSyncExternalStore(subscribeOffRouteThreshold, readOffRouteThreshold, serverOffRouteThreshold);
   const sound = useSyncExternalStore(subscribeOffRouteThreshold, readAlarmSound, serverAlarmSound);
   const volume = useSyncExternalStore(subscribeOffRouteThreshold, readAlarmVolume, serverAlarmVolume);
@@ -37,11 +40,16 @@ export default function OffRouteSetting() {
   };
 
   return (
-    <div className="bg-white/5 border border-white/10 rounded-2xl p-3 text-white flex flex-col gap-3" dir="rtl">
+    // Folded to one line, with the distance it is set to beside the title —
+    // the only part most people ever need to see.
+    <Collapsible
+      defaultOpen={defaultOpen}
+      icon={<BellRing size={15} className="text-red-400 shrink-0" />}
+      title="התראה על סטייה מהמסלול"
+      summary={value ? `${value} מ׳` : 'כבויה'}
+    >
+    <div className="text-white flex flex-col gap-3" dir="rtl">
       <div>
-        <div className="text-sm font-bold flex items-center gap-2 mb-1">
-          <BellRing size={15} className="text-red-400" /> התראה על סטייה מהמסלול
-        </div>
         <p className="text-xs leading-relaxed">
           צליל ורטט כשמתרחקים מהמסלול, עד שלוחצים ״השתק״. פעם אחת בלבד — ושוב רק אחרי שחוזרים לתוואי. פועל כשהמיקום החי דולק.
         </p>
@@ -133,5 +141,6 @@ export default function OffRouteSetting() {
         </>
       )}
     </div>
+    </Collapsible>
   );
 }

@@ -11,6 +11,7 @@ import { weatherCodeInfo, type CodeInfo } from "../lib/weather";
 import { formatHour, windMeaning, uvMeaning, type DayAdvice, type Warning } from "../lib/hikeAdvice";
 import { formatHours } from "../lib/hikeEffort";
 import InfoButton from "./help/InfoButton";
+import Collapsible from "./Collapsible";
 
 // The forecast for the day of the trip, and what to take for it.
 //
@@ -72,10 +73,21 @@ interface TrailBrief {
 export default function TripWeatherSection({ weather, isDrive, trail }: { weather: TripWeather; isDrive: boolean; trail: TrailBrief }) {
   const { status, days, selected: day, effort, hours, fetchedAt } = weather;
 
+  // Folded to one line by default: the day, its weather and how it is judged
+  // are enough to decide whether to open it.
+  const summary = day ? (
+    <>
+      <span>{dayLabel(day)}</span>
+      <WeatherIcon code={day.summary.code} className="w-4 h-4 text-yellow-300" />
+      <Deg from={day.summary.tMax} />
+      <span className={`w-2 h-2 rounded-full ${RATING_DOT[day.rating]}`} />
+    </>
+  ) : status === "loading" ? "טוען…" : null;
+
   return (
-    <div className="mt-3 border-t border-white/10 pt-3">
-      <div className="text-xs text-white mb-1 font-bold flex items-center gap-1">
-        מזג אוויר ליום הטיול
+    <Collapsible variant="section" title="מזג אוויר ליום הטיול" summary={summary}>
+      <div className="text-xs text-white mb-1 flex items-center gap-1">
+        בחרו יום ושעת יציאה
         <InfoButton label="מזג האוויר ליום הטיול">
           בוחרים יום בשורת הימים ושעת יציאה, והתחזית, שעות ההליכה וההמלצות מתעדכנות לפיהם. הנקודה ליד כל יום:
           ירוק מתאים, צהוב לשים לב, אדום לא מומלץ. כמות המים מחושבת לפי אורך המסלול, העליות והחום הצפוי.
@@ -147,7 +159,7 @@ export default function TripWeatherSection({ weather, isDrive, trail }: { weathe
           </div>
         </>
       )}
-    </div>
+    </Collapsible>
   );
 }
 

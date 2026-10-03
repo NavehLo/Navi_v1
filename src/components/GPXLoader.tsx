@@ -1,15 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { Upload, Loader2 } from "lucide-react";
+import { Upload, Loader2, X } from "lucide-react";
 
 interface GPXLoaderProps {
   onFileLoad: (file: File) => void;
   error?: string | null;
   loading?: boolean;
+  // Back to the list of trails: the ✕, or a tap anywhere outside the box.
+  onClose?: () => void;
 }
 
-export default function GPXLoader({ onFileLoad, error, loading }: GPXLoaderProps) {
+export default function GPXLoader({ onFileLoad, error, loading, onClose }: GPXLoaderProps) {
   const [dragActive, setDragActive] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -55,14 +57,26 @@ export default function GPXLoader({ onFileLoad, error, loading }: GPXLoaderProps
       onDragLeave={handleDrag}
       onDragOver={handleDrag}
       onDrop={handleDrop}
+      onClick={(e) => { if (e.target === e.currentTarget && !loading) onClose?.(); }}
+      dir="rtl"
     >
       <div
-        className={`bg-zinc-900 border-2 border-dashed rounded-3xl p-10 flex flex-col items-center justify-center max-w-sm w-full mx-4 transition-colors ${dragActive ? "border-orange-500" : "border-zinc-700"}`}
+        className={`relative bg-zinc-900 border-2 border-dashed rounded-3xl p-10 flex flex-col items-center justify-center max-w-sm w-full mx-4 transition-colors ${dragActive ? "border-orange-500" : "border-zinc-700"}`}
       >
+        {onClose && !loading && (
+          <button
+            onClick={onClose}
+            className="absolute top-3 left-3 p-2 rounded-full bg-white/5 hover:bg-white/10 text-white"
+            aria-label="חזור לרשימת המסלולים"
+            title="חזור לרשימת המסלולים"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        )}
         {loading ? (
           <Loader2 className="w-12 h-12 text-orange-400 mb-4 animate-spin" />
         ) : (
-          <Upload className="w-12 h-12 text-zinc-500 mb-4" />
+          <Upload className="w-12 h-12 text-zinc-300 mb-4" />
         )}
 
         <h2 className="text-xl font-bold text-white mb-2">
@@ -70,7 +84,7 @@ export default function GPXLoader({ onFileLoad, error, loading }: GPXLoaderProps
         </h2>
 
         {!loading && (
-          <p className="text-zinc-400 text-center text-sm mb-6">
+          <p className="text-white text-center text-sm mb-6">
             גרור והשאר כאן קובץ{" "}
             <span className="font-mono text-orange-400">.gpx</span> או{" "}
             <span className="font-mono text-orange-400">.kml</span>, או לחץ כדי לבחור.
