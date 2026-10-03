@@ -55,11 +55,28 @@ export interface WorldTrailSelection {
 
 interface Options {
   onLoadTrail: (coords: Coordinate3D[], name: string, source: TrailSource) => void;
+  // A trail is open on the map. The other routes then fade to grey, so the
+  // one in orange is the only coloured line on the screen.
+  focused?: boolean;
 }
+
+// Waymarked Trails draws every route in its own strong colour (red, blue,
+// purple, yellow…). That is a fine overview, and a mess as soon as one route
+// is the point: the open trail, or the one tapped and waiting on its card,
+// is lost among a dozen others just as loud. Picked out, the rest go grey
+// and faint — still there to see what else is around, no longer competing.
+const PAINT_NORMAL = { 'raster-opacity': 0.9, 'raster-saturation': 0, 'raster-brightness-max': 1 } as const;
+const PAINT_MUTED = { 'raster-opacity': 0.45, 'raster-saturation': -1, 'raster-brightness-max': 0.8 } as const;
+
+// The tapped route itself, drawn over the faded tiles in the open trail's
+// orange — exactly the part "טען מסלול" would load.
+const SEL_SOURCE = 'wmt-selection';
+const SEL_CASING = 'wmt-selection-casing';
+const SEL_LINE = 'wmt-selection-line';
 
 // Everything these layers must sit under, if present: the current route, and
 // the trail-list markers on the home screen.
-const ABOVE_US = ['route-line', 'clusters'];
+const ABOVE_US = ['route-casing', 'route-line', SEL_CASING, 'clusters'];
 
 // The on/off choice lives in localStorage and is read through an external
 // store, so the server render (always off) and the first client render agree
@@ -115,9 +132,12 @@ function deriveSelection(sel: WorldTrailSelection): WorldTrailSelection {
   };
 }
 
-export function useWorldTrails(map: mapboxgl.Map | null, styleRev: number, { onLoadTrail }: Options) {
+export function useWorldTrails(map: mapboxgl.Map | null, styleRev: number, { onLoadTrail, focused = false }: Options) {
   const enabled = useSyncExternalStore(subscribe, readEnabled, () => false);
   const [selection, setSelection] = useState<WorldTrailSelection | null>(null);
+  const muted = focused || !!selection;
+  const mutedRef = useRef(muted);
+  useEffect(() => { mutedRef.current = muted; }, [muted]);
   const [hint, setHint] = useState<string | null>(null);
   const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const popupRef = useRef<mapboxgl.Popup | null>(null);
@@ -150,7 +170,7 @@ export function useWorldTrails(map: mapboxgl.Map | null, styleRev: number, { onL
       if (!map.getLayer(LAYER_ID)) {
         const beforeId = ABOVE_US.find((id) => map.getLayer(id));
         map.addLayer(
-          { id: LAYER_ID, type: 'raster', source: SOURCE_ID, paint: { 'raster-opacity': 0.9 } },
+          { id: LAYER_ID, type: 'raster', source: SOURCE_ID, paint: { ...(mutedRef.current ? PAINT_MUTED : PAINT_NORMAL) } },
           beforeId
         );
       }
@@ -166,6 +186,45 @@ export function useWorldTrails(map: mapboxgl.Map | null, styleRev: number, { onL
       } catch {}
     };
   }, [map, enabled, styleRev]);
+
+  // Fade the other routes while one is picked out, and back when it is not.
+  useEffect(() => {
+    if (!map || !enabled) return;
+    try {
+      if (!map.getLayer(LAYER_ID)) return;
+      for (const [k, v] of Object.entries(muted ? PAINT_MUTED : PAINT_NORMAL)) {
+        map.setPaintProperty(LAYER_ID, k as 'raster-opacity', v);
+      }
+    } catch {}
+  }, [map, enabled, muted, styleRev]);
+
+  // The tapped route, in orange over the faded tiles.
+  const selCoords = selection?.coords;
+  useEffect(() => {
+    if (!map) return;
+    const remove = () => {
+      try {
+        if (map.getLayer(SEL_LINE)) map.removeLayer(SEL_LINE);
+        if (map.getLayer(SEL_CASING)) map.removeLayer(SEL_CASING);
+        if (map.getSource(SEL_SOURCE)) map.removeSource(SEL_SOURCE);
+      } catch {}
+    };
+    if (!selCoords || selCoords.length < 2) { remove(); return; }
+    const draw = () => {
+      if (!map.getStyle()) return;
+      remove();
+      map.addSource(SEL_SOURCE, {
+        type: 'geojson',
+        data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: selCoords.map((c) => [c[1], c[0]]) } },
+      });
+      const beforeId = map.getLayer('clusters') ? 'clusters' : undefined;
+      map.addLayer({ id: SEL_CASING, type: 'line', source: SEL_SOURCE, layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#18181b', 'line-width': 10, 'line-opacity': 0.85 } }, beforeId);
+      map.addLayer({ id: SEL_LINE, type: 'line', source: SEL_SOURCE, layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#f97316', 'line-width': 5 } }, beforeId);
+    };
+    try { draw(); } catch {}
+    map.on('style.load', draw);
+    return () => { map.off('style.load', draw); remove(); };
+  }, [map, selCoords, styleRev]);
 
   // The route line is added after us when a trail opens; it lands on top by
   // itself. The other way round — the overlay switched on over an open trail —

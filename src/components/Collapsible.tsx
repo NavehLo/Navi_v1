@@ -21,18 +21,42 @@ export default function Collapsible({
   className?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  const outer = variant === "card"
-    ? "rounded-xl bg-white/5 border border-white/10"
-    : "mt-3 border-t border-white/10 pt-3";
-  const header = variant === "card" ? "p-3 hover:bg-white/5 rounded-xl" : "py-1";
+
+  // Inside a longer card a bare title with a small arrow did not read as
+  // something to tap. There the row is drawn as a button: a box of its own,
+  // the gist under the title, and a "פרטים" pill that says what a tap does.
+  if (variant === "section") {
+    return (
+      <div className={`mt-3 border-t border-white/10 pt-3 ${className}`}>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="w-full flex items-center justify-between gap-3 text-right rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 border border-white/15 px-3 py-2.5 transition-colors"
+        >
+          <span className="min-w-0 flex flex-col gap-1">
+            <span className="flex items-center gap-2 text-white font-bold text-sm leading-tight">{icon}{title}</span>
+            {summary != null && !open && (
+              <span className="text-xs text-white font-bold flex items-center gap-1 flex-wrap">{summary}</span>
+            )}
+          </span>
+          <span className="shrink-0 flex items-center gap-1 rounded-full bg-sky-600 text-white text-xs font-bold px-2.5 py-1">
+            {open ? "סגור" : "פרטים"}
+            <ChevronDown size={14} className={`transition-transform ${open ? "rotate-180" : ""}`} />
+          </span>
+        </button>
+        {open && <div className="mt-3">{children}</div>}
+      </div>
+    );
+  }
 
   return (
-    <div className={`${outer} ${className}`}>
+    <div className={`rounded-xl bg-white/5 border border-white/10 ${className}`}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className={`w-full flex items-center justify-between gap-2 text-right transition-colors ${header}`}
+        className="w-full flex items-center justify-between gap-2 text-right transition-colors p-3 hover:bg-white/5 rounded-xl"
       >
         <span className="flex items-center gap-2 min-w-0 text-white font-bold text-sm">
           {icon}
@@ -43,7 +67,7 @@ export default function Collapsible({
           <ChevronDown size={16} className={`text-white shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
         </span>
       </button>
-      {open && <div className={variant === "card" ? "px-3 pb-3" : "mt-2"}>{children}</div>}
+      {open && <div className="px-3 pb-3">{children}</div>}
     </div>
   );
 }

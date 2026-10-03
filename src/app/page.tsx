@@ -164,7 +164,7 @@ export default function TrailApp() {
   
   const { trail, setTrail, trailSource, loadTrailFile, loadTrailFromUrl, loadTrailFromText, loadTrailFromCoords, trailError, trailLoading } = useTrailData();
   // Marked hiking routes from OSM, worldwide, as an overlay anyone can tap.
-  const worldTrails = useWorldTrails(map, styleRev, { onLoadTrail: loadTrailFromCoords });
+  const worldTrails = useWorldTrails(map, styleRev, { onLoadTrail: loadTrailFromCoords, focused: !!trail });
 
   // "על המסלול": which trail's description is open, if any.
   const [infoRequest, setInfoRequest] = useState<TrailInfoRequest | null>(null);
@@ -837,6 +837,7 @@ export default function TrailApp() {
     const addTrailLayers = () => {
       // Remove previous layers/sources if they exist
       if (map.getLayer('route-line')) map.removeLayer('route-line');
+      if (map.getLayer('route-casing')) map.removeLayer('route-casing');
       if (map.getSource('route')) map.removeSource('route');
       if (map.getLayer('fly-ring')) map.removeLayer('fly-ring');
       if (map.getLayer('fly-dot')) map.removeLayer('fly-dot');
@@ -845,6 +846,14 @@ export default function TrailApp() {
       const geoJson = trail.geoJson;
       
       map.addSource('route', { type: 'geojson', data: geoJson as any });
+      // A dark edge under the line, so the open trail stands out from every
+      // other line on the map — roads, and the world trails overlay (which
+      // fades to grey while a trail is open, see useWorldTrails).
+      map.addLayer({
+        id: 'route-casing', type: 'line', source: 'route',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#18181b', 'line-width': 10, 'line-opacity': 0.85 }
+      });
       map.addLayer({
         id: 'route-line', type: 'line', source: 'route',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
@@ -891,6 +900,7 @@ export default function TrailApp() {
         try {
           if (map.isStyleLoaded()) {
             if (map.getLayer('route-line')) map.removeLayer('route-line');
+            if (map.getLayer('route-casing')) map.removeLayer('route-casing');
             if (map.getSource('route')) map.removeSource('route');
             if (map.getLayer('fly-ring')) map.removeLayer('fly-ring');
             if (map.getLayer('fly-dot')) map.removeLayer('fly-dot');
