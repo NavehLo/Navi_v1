@@ -1,25 +1,15 @@
-// Collecting the raw numbers behind "מה אומרים מטיילים" for one world trail:
-//
-//   1. Wikipedia: how often its articles were read in the last 24 months, in
-//      every language it has one (the article from the route's `wikidata` or
-//      `wikipedia` tag). Free, and a fair measure of how well known it is —
-//      but only famous trails have an article.
-//   2. Review sites: one web search (Tavily) limited to AllTrails, Wikiloc,
-//      Komoot, Outdooractive and Tripadvisor, and a small model that reads the
-//      rating and the review count off the pages that are about this trail.
-//
-// Google's ratings were ruled out: its terms forbid storing them, and without
-// storing them no list could be filtered by them. See README, "מה אומרים
-// מטיילים".
+// Wikipedia's part of "מה אומרים מטיילים": how often a trail's articles were
+// read in the last 24 months, in every language it has one (the article from
+// the route's `wikidata` or `wikipedia` tag, or an English article whose
+// title is the trail's name). Free, and a fair measure of how well known a
+// trail is — but only famous trails have an article. The hikers' own numbers
+// come from Komoot (komoot.ts).
 
 import { fetchWmt } from '../wmtServer';
 import type { WmtRouteDetails } from '../waymarked';
 import { englishFromTags } from '../trailNames';
-import { countryEnglish, tavilySearch, wikiByName } from '../trailInfo/sources';
-import { extractRatings, REVIEW_DOMAINS, type TrailIdentity } from './extract';
-import type { CrowdData } from './score';
+import { wikiByName } from '../trailInfo/sources';
 import type { CountryTrail } from '../countryTrails';
-import type { RegionInfo } from '../regions';
 
 const USER_AGENT = 'Navi-Trail-App/1.0 (naveh@hamarag.com)';
 // The articles read for pageviews, most-read languages first. A trail with
@@ -99,38 +89,8 @@ export async function wikipediaViews(details: WmtRouteDetails | null, nameEn: st
   return views.reduce((a, b) => a + b, 0);
 }
 
-function searchQuery(t: TrailIdentity): string {
-  const name = t.nameEn ?? t.name;
-  const where = t.regions[0] ? `${t.regions[0]} ${t.country}` : t.country;
-  return /trail|path|way|route|weg|sentiero|μονοπάτι/i.test(name)
-    ? `${name} ${where} reviews`
-    : `${name} hiking trail ${where} reviews`;
-}
-
-// Null when a paid step failed (search refused, every model failed) — the
-// trail is then tried again on the next run rather than stored as unknown.
-export async function collectCrowd(
-  country: string,
-  trail: CountryTrail,
-  regions: Map<string, RegionInfo>
-): Promise<CrowdData | null> {
+// The Wikipedia reads for one of the country's trails.
+export async function pageviewsFor(trail: CountryTrail): Promise<number> {
   const details = (await fetchWmt(`/details/relation/${trail.id}`)) as WmtRouteDetails | null;
-  const identity: TrailIdentity = {
-    name: trail.name,
-    nameEn: trail.name_en ?? englishFromTags(details?.tags) ?? null,
-    country: countryEnglish(country),
-    km: trail.km,
-    regions: trail.regions.map((id) => regions.get(id)).filter(Boolean).map((r) => r!.latin ?? r!.name),
-    multiDay: trail.multiDay,
-  };
-
-  const [views, results] = await Promise.all([
-    wikipediaViews(details, identity.nameEn),
-    tavilySearch(searchQuery(identity), { domains: REVIEW_DOMAINS, max: 6 }),
-  ]);
-  if (!results) return null;
-  const sources = await extractRatings(identity, results);
-  if (!sources) return null;
-
-  return { id: trail.id, pageviews: views, sources, fetchedAt: new Date().toISOString() };
+  return wikipediaViews(details, englishFromTags(details?.tags) ?? trail.name_en ?? null);
 }

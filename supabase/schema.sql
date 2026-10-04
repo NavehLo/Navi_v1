@@ -210,6 +210,7 @@ create index if not exists trail_name_en_trgm
 
 alter table public.trail_name_en enable row level security;
 -- אין policy: רק השרת עם service_role קורא וכותב.
+grant select, insert, update on public.trail_name_en to service_role;
 
 -- ── המדינה של כל מסלול עולם ────────────────────────────────────────────────
 -- תוצאות החיפוש של Waymarked Trails מגיעות בלי מיקום. השרת מושך קו מפושט של
@@ -223,6 +224,7 @@ create table if not exists public.trail_country (
 
 alter table public.trail_country enable row level security;
 -- אין policy: רק השרת עם service_role קורא וכותב.
+grant select, insert, update on public.trail_country to service_role;
 
 -- ── "על המסלול": תיאור מילולי של מסלול ─────────────────────────────────────
 -- תיאור בעברית שנכתב ממקורות (אתר רשמי, נאקב, ויקיפדיה, חיפוש ברשת) על ידי

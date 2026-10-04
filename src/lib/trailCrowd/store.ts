@@ -58,22 +58,31 @@ export async function crowdForCountry(country: string): Promise<Map<number, Crow
   return rows.length ? crowdSummaries(rows) : null;
 }
 
-export async function writeCrowd(country: string, row: CrowdData): Promise<boolean> {
+// A country's rows, all at once — a trail no page listed gets an empty row,
+// so the country counts as collected and the trail shows "אין מספיק מידע".
+export async function writeCrowdRows(country: string, rows: CrowdData[]): Promise<boolean> {
   const db = serviceClient();
   if (!db || tableMissing) return false;
   try {
-    const { rating, count } = ratingOf(row.sources);
-    const { error } = await db.from('trail_crowd').upsert({
-      trail_id: row.id,
-      country,
-      crowd_version: CROWD_VERSION,
-      fetched_at: row.fetchedAt,
-      pageviews: row.pageviews,
-      sources: row.sources,
-      rating,
-      rating_count: count,
-    }, { onConflict: 'trail_id,country' });
-    if (error) throw error;
+    for (let i = 0; i < rows.length; i += 200) {
+      const { error } = await db.from('trail_crowd').upsert(
+        rows.slice(i, i + 200).map((row) => {
+          const { rating, count } = ratingOf(row.sources);
+          return {
+            trail_id: row.id,
+            country,
+            crowd_version: CROWD_VERSION,
+            fetched_at: row.fetchedAt,
+            pageviews: row.pageviews,
+            sources: row.sources,
+            rating,
+            rating_count: count,
+          };
+        }),
+        { onConflict: 'trail_id,country' }
+      );
+      if (error) throw error;
+    }
     memory.delete(country);
     return true;
   } catch (e) {

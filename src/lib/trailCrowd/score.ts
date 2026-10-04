@@ -12,12 +12,16 @@
 
 export const CROWD_VERSION = 1;
 
-// One review site's numbers for the trail, as found in a web search.
+// One site's numbers for the trail. So far only Komoot: its "best hikes in
+// <area>" pages list the area's most walked routes, each with a rating, the
+// number of ratings and the number of hikers (see komoot.ts).
 export interface CrowdSource {
-  site: string;            // "AllTrails", "Wikiloc"…
-  url: string;
+  site: string;            // "Komoot"
+  url: string;             // the page the numbers were read from
   rating: number | null;   // on a 5-point scale; null when the site gives only a count
-  count: number;           // reviews (or ratings, or recommendations)
+  count: number;           // ratings behind `rating`
+  hikers?: number;         // people who walked it, where the site says
+  route?: string;          // the site's name for the route that matched
 }
 
 // What is stored for one trail.
@@ -70,6 +74,12 @@ export function reviewCount(sources: CrowdSource[]): number {
   return sources.reduce((n, s) => n + (s.count > 0 ? s.count : 0), 0);
 }
 
+// How many people walked it, as far as the sites say: their hikers where
+// given, else their ratings (fewer, but in proportion).
+export function trafficSignal(sources: CrowdSource[]): number {
+  return sources.reduce((n, s) => n + Math.max(s.hikers ?? 0, s.count > 0 ? s.count : 0), 0);
+}
+
 // Each value's place among the others, 0 (least) to 1 (most); ties share the
 // middle of their run. Zeros (no signal of this kind) get no place.
 function percentiles(values: Map<number, number>): Map<number, number> {
@@ -89,12 +99,12 @@ function percentiles(values: Map<number, number>): Map<number, number> {
 
 // The tier of every trail in a country, from the stored rows of that
 // country. Two signals, each placed among the country's trails that have it:
-// how many reviews the review sites hold, and how often its Wikipedia
-// articles are read. A trail counts as busy as the stronger of the two says.
+// how many people walked it by the sites' count, and how often its
+// Wikipedia articles are read. A trail counts as busy as the stronger of the two says.
 // A trail with neither is 'unknown' — never "few": no information is not
 // evidence of few hikers.
 export function trafficTiers(rows: CrowdData[]): Map<number, Traffic | 'unknown'> {
-  const reviews = percentiles(new Map(rows.map((r) => [r.id, reviewCount(r.sources)])));
+  const reviews = percentiles(new Map(rows.map((r) => [r.id, trafficSignal(r.sources)])));
   const views = percentiles(new Map(rows.map((r) => [r.id, r.pageviews])));
 
   const scored: Array<[number, number]> = [];

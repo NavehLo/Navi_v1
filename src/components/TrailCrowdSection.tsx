@@ -5,9 +5,9 @@ import { countryName } from '../lib/worldTrailSearch';
 import { NO_CROWD_INFO, TRAFFIC_LABELS, type CrowdSource, type CrowdSummary } from '../lib/trailCrowd/score';
 
 // "מה אומרים מטיילים" on a world trail's card: how busy it is compared with
-// its country's other trails, its rating, and each review site's numbers with
-// a link, so the reader can go and read the reviews themselves. Shown only
-// for trails whose country the admin has collected (see api/admin/trail-crowd).
+// its country's other trails, its rating, and where the numbers come from —
+// the Komoot route that runs along it, with a link to Komoot's page. Shown
+// only for trails whose country the admin has collected (api/admin/trail-crowd).
 
 interface CrowdDetails extends CrowdSummary {
   country: string;
@@ -59,8 +59,8 @@ export default function TrailCrowdSection({ id }: { id: number }) {
           </div>
           <div className="text-xs mt-0.5">
             {traffic
-              ? `בהשוואה לשאר המסלולים ב${countryName(d.country)} שיש עליהם מידע — לפי מספר הביקורות באתרי מסלולים וכמה קוראים עליו בוויקיפדיה.`
-              : 'לא נמצאו מספיק ביקורות או ערכים בוויקיפדיה כדי להשוות אותו לשאר המסלולים.'}
+              ? `בהשוואה לשאר המסלולים ב${countryName(d.country)} שיש עליהם מידע — לפי מספר המטיילים ב-Komoot וכמה קוראים עליו בוויקיפדיה.`
+              : `המסלול לא מופיע בין המסלולים המובילים של האזור ב-Komoot ואין עליו ערך בוויקיפדיה — אין מספיק מידע כדי להשוות.`}
           </div>
         </div>
 
@@ -68,10 +68,10 @@ export default function TrailCrowdSection({ id }: { id: number }) {
           <div className="flex items-center gap-1.5 font-bold text-yellow-300">
             <Star className="w-4 h-4 fill-yellow-300" />
             {d.rating != null ? `${d.rating.toFixed(1)} מתוך 5` : `ציון: ${NO_CROWD_INFO}`}
-            {d.ratingCount > 0 && <span className="font-semibold text-white">({d.ratingCount.toLocaleString('he-IL')} ביקורות)</span>}
+            {d.ratingCount > 0 && <span className="font-semibold text-white">({d.ratingCount.toLocaleString('he-IL')} דירוגים)</span>}
           </div>
           {d.rating == null && d.ratingCount > 0 && (
-            <div className="text-xs mt-0.5">פחות מ-5 ביקורות עם ציון — מעט מדי לממוצע.</div>
+            <div className="text-xs mt-0.5">פחות מ-5 דירוגים — מעט מדי לממוצע.</div>
           )}
         </div>
 
@@ -83,14 +83,18 @@ export default function TrailCrowdSection({ id }: { id: number }) {
                 href={s.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center justify-between gap-2 text-xs bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg px-2.5 py-1.5"
+                className="flex flex-col gap-1 text-xs bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg px-2.5 py-1.5"
               >
-                <span className="font-bold" dir="ltr">{s.site}</span>
-                <span className="flex items-center gap-1.5">
-                  {s.rating != null && <span className="text-yellow-300 font-bold">★ {s.rating.toFixed(1)}</span>}
-                  <span>{s.count.toLocaleString('he-IL')} {s.site === 'Komoot' ? 'המלצות' : 'ביקורות'}</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
+                <span className="flex items-center justify-between gap-2">
+                  <span className="font-bold" dir="ltr">{s.site}</span>
+                  <span className="flex items-center gap-1.5">
+                    {s.hikers ? <span>{s.hikers.toLocaleString('he-IL')} מטיילים</span> : null}
+                    {s.rating != null && <span className="text-yellow-300 font-bold">★ {s.rating.toFixed(1)}</span>}
+                    <span>({s.count.toLocaleString('he-IL')} דירוגים)</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </span>
                 </span>
+                {s.route && <span dir="ltr" className="text-right truncate">{s.route}</span>}
               </a>
             ))}
           </div>

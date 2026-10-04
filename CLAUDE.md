@@ -95,10 +95,12 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   rating are computed only in `src/lib/trailCrowd/score.ts` (list, filters and
   trail card all call it); run `node scripts/checkCrowd.mjs` after changing a
   rule. Tiers are relative to the country and computed on read — never store
-  them. A trail with no signal is "אין מספיק מידע", never "few". Bump
-  `CROWD_VERSION` only when what is collected or extracted changes (it
-  re-collects every country, at a cost). Collecting a country is an admin run
-  (settings → מתקדם), never triggered by a visitor; Google ratings may not be
+  them. A trail with no signal is "אין מספיק מידע", never "few". The numbers
+  come from Komoot's per-area "best hikes" pages, tied to our trails by
+  geometry (`match.ts`) — no per-trail search, no model. Collecting a country
+  is an admin run (settings → מתקדם, or `scripts/collectCrowd.mjs`), never
+  triggered by a visitor; a run that read too few routes must not save. Bump
+  `CROWD_VERSION` only when what is stored changes. Google ratings may not be
   stored, so they are not a source.
 - **Israel-only data stays in Israel.** The summer water/shade section and the
   רט״ג reminder are shown only when `isTrailInIsrael` (`src/lib/inIsrael.ts`)

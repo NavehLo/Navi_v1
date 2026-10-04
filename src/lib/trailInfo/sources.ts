@@ -183,12 +183,10 @@ export interface WebResult {
   url: string;
   title: string;
   content: string;
-  // Tavily's own excerpt, the part of the page that answers the query.
-  snippet: string;
 }
 
-// `domains` keeps the search to those sites (the review sites, for the hiker
-// metrics in lib/trailCrowd).
+// `domains` keeps the search to those sites (Komoot, for finding its pages
+// in lib/trailCrowd).
 async function webSearch(query: string): Promise<WebResult[]> {
   return (await tavilySearch(query)) ?? [];
 }
@@ -213,7 +211,6 @@ export async function tavilySearch(query: string, opts: { domains?: string[]; ma
       url: r.url ?? '',
       title: r.title ?? '',
       content: (r.raw_content || r.content || '').trim(),
-      snippet: (r.content ?? '').trim(),
     }))
     .filter((r: WebResult) => r.url && r.content);
 }

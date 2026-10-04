@@ -501,8 +501,8 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
           </p>
           <p className="mt-2">
             <b>מה אומרים מטיילים</b> (כרגע ביוון): ליד כל מסלול כמה מטיילים יש בו ביחס לשאר המסלולים במדינה, וציון
-            המטיילים מאתרי מסלולים כמו AllTrails ו-Wikiloc. אפשר לסנן ולמיין לפי שניהם. כשאין מספיק ביקורות כתוב
-            &quot;אין מספיק מידע&quot; — זה לא אומר שיש בו מעט מטיילים.
+            המטיילים — לפי המסלולים המובילים של כל אזור ב-Komoot ולפי ויקיפדיה. אפשר לסנן ולמיין לפי שניהם. מסלול שלא
+            מופיע שם מסומן &quot;אין מספיק מידע&quot; — זה לא אומר שיש בו מעט מטיילים.
           </p>
         </InfoButton>
       </div>
@@ -584,7 +584,7 @@ function CrowdLine({ crowd }: { crowd?: CrowdSummary }) {
       <span className="flex items-center gap-1 text-yellow-300">
         <Star className="w-3.5 h-3.5 shrink-0 fill-yellow-300" />
         {rating != null
-          ? <>{rating.toFixed(1)} <span className="font-semibold text-white">({crowd!.ratingCount.toLocaleString('he-IL')} ביקורות)</span></>
+          ? <>{rating.toFixed(1)} <span className="font-semibold text-white">({crowd!.ratingCount.toLocaleString('he-IL')} דירוגים)</span></>
           : <span className="font-semibold text-white">ציון: {NO_CROWD_INFO}</span>}
       </span>
     </span>

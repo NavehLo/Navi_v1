@@ -41,6 +41,11 @@ export function withAiUsage<T>(request: Request, area: AiArea, work: () => Promi
   return context.run({ area, token: bearerToken(request) }, work);
 }
 
+// The same, for work that no request started: the admin's scripts.
+export function withAiArea<T>(area: AiArea, work: () => Promise<T>): Promise<T> {
+  return context.run({ area, token: null }, work);
+}
+
 export interface UsageRecord extends UsageUnits {
   kind: AiKind;
   provider: AiProvider;

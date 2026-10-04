@@ -55,6 +55,13 @@ check('under 5 reviews: no rating', r2.rating === null && r2.count === 3, JSON.s
 const r3 = ratingOf([src(null, 500, 'Komoot'), src(4.5, 10)]);
 check('a count without a score does not dilute the rating', r3.rating === 4.5 && r3.count === 10, JSON.stringify(r3));
 
+// Komoot's hikers count for traffic, its ratings for the rating.
+const k = { site: 'Komoot', url: 'https://www.komoot.com', rating: 4.9, count: 300, hikers: 5000 };
+const hik = trafficTiers([...rows.slice(0, 100), row(600, 0, [k])]);
+check('hikers count as traffic', hik.get(600) === 'very_high', hik.get(600));
+const rk = ratingOf([k]);
+check('the rating weighs by ratings, not hikers', rk.rating === 4.9 && rk.count === 300, JSON.stringify(rk));
+
 const s = crowdSummaries(rows).get(1000);
 check('summary of a trail with nothing', s.traffic === 'unknown' && s.rating === null && s.ratingCount === 0);
 
