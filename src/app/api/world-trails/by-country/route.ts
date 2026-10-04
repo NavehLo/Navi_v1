@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { rateLimit, clientIp } from '../../../../lib/rateLimit';
 import { countryTrails, storedCountryTrails, builtCountryCounts, type CountryTrailList } from '../../../../lib/countryTrails';
 import { crowdForCountry } from '../../../../lib/trailCrowd/store';
+import { trailLandscapeOfCountry } from '../../../../lib/landscapeData';
 
 // World trails by country, each with its twelve months rated (see
 // countryTrails.ts). Two reads, both GET:
@@ -20,10 +21,19 @@ import { crowdForCountry } from '../../../../lib/trailCrowd/store';
 
 type Status = 'ok' | 'unavailable' | 'rate-limited';
 
+// "הרים, יער ונהרות" per trail, where the country was collected
+// (scripts/collectLandscape.mjs): `landscape` on each trail it has, and the
+// relief bins and range names they need. Joined the same way.
 async function withCrowd(list: CountryTrailList) {
   const crowd = await crowdForCountry(list.country, new Set(list.trails.map((t) => t.id)));
-  if (!crowd) return list;
-  return { ...list, hasCrowd: true, trails: list.trails.map((t) => ({ ...t, crowd: crowd.get(t.id) })) };
+  const land = trailLandscapeOfCountry(list.country);
+  if (!crowd && !land) return list;
+  return {
+    ...list,
+    ...(crowd ? { hasCrowd: true } : {}),
+    ...(land ? { landscape: { version: land.version, reliefBins: land.reliefBins, ranges: land.ranges } } : {}),
+    trails: list.trails.map((t) => ({ ...t, crowd: crowd?.get(t.id), landscape: land?.trails[t.id] })),
+  };
 }
 
 export const maxDuration = 60;

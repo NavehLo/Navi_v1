@@ -6,8 +6,8 @@ const nextConfig: NextConfig = {
   // src/lib/climateGrid.ts, src/lib/regions.ts and src/lib/landscapeData.ts).
   outputFileTracingIncludes: {
     "/api/climate": ["./src/data/climate-grid.bin.gz"],
-    "/api/world-trails/by-country": ["./src/data/climate-grid.bin.gz", "./src/data/regions.json.gz"],
-    "/api/landscape": ["./src/data/landscape.json.gz"],
+    "/api/world-trails/by-country": ["./src/data/climate-grid.bin.gz", "./src/data/regions.json.gz", "./src/data/trail-landscape.json.gz"],
+    "/api/landscape": ["./src/data/landscape.json.gz", "./src/data/trail-landscape.json.gz"],
   },
 };
 

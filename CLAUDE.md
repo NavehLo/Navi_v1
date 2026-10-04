@@ -117,6 +117,11 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   regions file first; a change to what is stored bumps `LANDSCAPE_FORMAT` in
   the build and `LANDSCAPE_VERSION` in landscape.ts. The river model is weak in
   the Middle East — Israeli trails keep using `perennialStreams.ts`.
+  Per-trail summaries (`src/data/trail-landscape.json.gz`) are collected on
+  this Mac with `scripts/collectLandscape.mjs` from the 1 km layers in
+  `~/.cache/navi-landscape`; they share the country shape (shares of the
+  trail's length, `kind: 'trail'`), so pass `'trail'` to the water, filter and
+  sort functions. After rebuilding the layers, re-collect every country.
 - **Going back never loses the reader's place.** A panel that unmounts while
   a trail is open keeps its state at module level (`WorldByMonth`,
   `TrailDiscovery`: `kept`) and is reopened through `openSignal`. Close a

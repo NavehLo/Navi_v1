@@ -54,3 +54,60 @@ export function landscapeOfCountry(country: string):
   const regions = f.regions[country] ?? {};
   return { ...dataFor(f, [c, ...Object.values(regions)]), country: c, regions };
 }
+
+// ── Trails ───────────────────────────────────────────────────────────────────
+// The same summaries for the trails of the world lists, by country, from
+// src/data/trail-landscape.json.gz (written by scripts/collectLandscape.mjs,
+// shares of each trail's length). A country not collected has none.
+
+const TRAIL_FILE = join(process.cwd(), 'src/data/trail-landscape.json.gz');
+
+interface TrailLandscapeFile {
+  version: number;
+  reliefBins: number[];
+  ranges: Record<string, RangeName>;
+  countries: Record<string, { builtAt: string; trails: Record<string, LandscapeSummary> }>;
+}
+
+let trailFile: TrailLandscapeFile | null = null;
+let trailFailed = false;
+let trailIndex: Map<number, string> | null = null; // trail id → country
+
+function loadTrails(): TrailLandscapeFile | null {
+  if (trailFile || trailFailed) return trailFile;
+  try {
+    trailFile = JSON.parse(gunzipSync(readFileSync(TRAIL_FILE)).toString('utf8')) as TrailLandscapeFile;
+    trailIndex = new Map();
+    for (const [country, c] of Object.entries(trailFile.countries)) {
+      for (const id of Object.keys(c.trails)) trailIndex.set(Number(id), country);
+    }
+  } catch (e) {
+    trailFailed = true;
+    console.error('Trail landscape could not be loaded:', e);
+  }
+  return trailFile;
+}
+
+function trailData(f: TrailLandscapeFile, summaries: LandscapeSummary[]): LandscapeData {
+  const ranges: Record<string, RangeName> = {};
+  for (const s of summaries) for (const id of s.ranges) if (f.ranges[id]) ranges[id] = f.ranges[id];
+  return { version: f.version, reliefBins: f.reliefBins, ranges };
+}
+
+// A country's trails, for its list — null when it was never collected.
+export function trailLandscapeOfCountry(country: string):
+  (LandscapeData & { trails: Record<string, LandscapeSummary> }) | null {
+  const f = loadTrails();
+  const c = f?.countries[country];
+  if (!f || !c) return null;
+  return { ...trailData(f, Object.values(c.trails)), trails: c.trails };
+}
+
+// One trail, for its card.
+export function trailLandscape(id: number): (LandscapeData & { country: string; trail: LandscapeSummary }) | null {
+  const f = loadTrails();
+  const country = trailIndex?.get(id);
+  const trail = country ? f?.countries[country]?.trails[id] : undefined;
+  if (!f || !country || !trail) return null;
+  return { ...trailData(f, [trail]), country, trail };
+}

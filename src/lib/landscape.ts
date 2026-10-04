@@ -265,7 +265,7 @@ const pct = (thousandths: number) => `${Math.max(1, Math.round(thousandths / 10)
 export function reliefLine(s: LandscapeSummary, bins: number[], kind: Kind = 'area'): string {
   const level = reliefLevel(s, bins);
   if (level === 'flat') return 'שטוח ברובו';
-  return `${RELIEF_LABELS[level]} ב-${pct(shareAtLeast(s, bins, RELIEF_FROM[level]))} ${kind === 'trail' ? 'מהדרך' : 'מהשטח'}`;
+  return `${RELIEF_LABELS[level]} ב־${pct(shareAtLeast(s, bins, RELIEF_FROM[level]))} ${kind === 'trail' ? 'מהדרך' : 'מהשטח'}`;
 }
 
 // "יער ב-45% מהשטח: מחטני ונשיר", or "כמעט בלי יער".
@@ -273,7 +273,7 @@ export function forestLine(s: LandscapeSummary, kind: Kind = 'area'): string {
   if (s.forest < MIN_FOREST_FOR_TYPES) return 'כמעט בלי יער';
   const types = mainForestTypes(s).slice(0, 2).map((t) => FOREST_LABELS[t]);
   const where = kind === 'trail' ? 'מהשטח סביב הדרך' : 'מהשטח';
-  return `יער ב-${pct(s.forest)} ${where}${types.length ? `: ${types.join(' ו')}` : ''}`;
+  return `יער ב־${pct(s.forest)} ${where}${types.length ? `: ${types.join(' ו')}` : ''}`;
 }
 
 // The same, short, for a row in a list.

@@ -54,11 +54,13 @@ interface Climate {
 // Kept for the session: the country climate list is the same for everybody,
 // and a country's trail list does not change in a sitting.
 let climateMemo: Climate | null = null;
-type ListTrail = CountryTrail & { crowd?: CrowdSummary };
+type ListTrail = CountryTrail & { crowd?: CrowdSummary; landscape?: LandscapeSummary };
 interface CountryData {
   regions: RegionInfo[];
   trails: ListTrail[];
   hasCrowd: boolean;
+  // The trails' landscape, where the country was collected (collectLandscape.mjs).
+  landscape: LandscapeData | null;
 }
 
 type MinRating = 0 | 4 | 4.5;
@@ -231,7 +233,7 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
       .then((d) => {
         if (cancelled) return;
         if (d.status === 'ok' && Array.isArray(d.trails)) {
-          const data: CountryData = { regions: d.regions ?? [], trails: d.trails, hasCrowd: !!d.hasCrowd };
+          const data: CountryData = { regions: d.regions ?? [], trails: d.trails, hasCrowd: !!d.hasCrowd, landscape: d.landscape ?? null };
           trailsMemo.set(country, data);
           setTrails({ country, list: data, status: 'ok' });
         } else {
@@ -249,7 +251,10 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
   const crowdF = hasCrowd ? crowdFilter : NO_CROWD_FILTER;
   // The month, the rating for it, and the hikers' filters: what every count
   // and list below is made of.
-  const matchesFilters = (t: ListTrail) => t.months[month] === rating && passesCrowd(t, crowdF);
+  const trailLand = countryData?.landscape ?? null;
+  const matchesFilters = (t: ListTrail) =>
+    t.months[month] === rating && passesCrowd(t, crowdF) &&
+    (!trailLand || passesLandscape(t.landscape, trailLand.reliefBins, landscapeFilter, 'trail'));
   const regionNames = useMemo(() => new Map((countryData?.regions ?? []).map((r) => [r.id, r])), [countryData]);
   // One area or none: straight to the trails.
   const hasRegionStep = (countryData?.regions.length ?? 0) > 1;
@@ -269,6 +274,12 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
       .filter(matchesFilters)
       .filter((t) => !region || region === 'all' || t.regions.includes(region))
       .sort((a, b) => {
+        // By a landscape, when one is chosen and the trails have it.
+        if (trailLand && landscapeSort !== 'default') {
+          const bins = trailLand.reliefBins;
+          const d = sortValue(b.landscape, bins, landscapeSort, 'trail') - sortValue(a.landscape, bins, landscapeSort, 'trail');
+          if (d) return d;
+        }
         // Sorted by the hikers: those with no number go last, in the usual order.
         if (crowdF.sort === 'rating') {
           const d = (b.crowd?.rating ?? -1) - (a.crowd?.rating ?? -1);
@@ -279,7 +290,7 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
         }
         return Number(a.multiDay) - Number(b.multiDay);
       }),
-    [countryList, month, rating, region, crowdF], // eslint-disable-line react-hooks/exhaustive-deps
+    [countryList, month, rating, region, crowdF, landscapeFilter, landscapeSort], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // The leading trails of what is being looked at — the country, or the area
@@ -313,9 +324,10 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
         return b.count - a.count || a.name.localeCompare(b.name, 'he');
       });
   }, [countryData, month, rating, crowdF, countryLandscape, landscapeFilter, landscapeSort]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const matchingInCountry = useMemo(
     () => (countryList ?? []).filter(matchesFilters).length,
-    [countryList, month, rating, crowdF], // eslint-disable-line react-hooks/exhaustive-deps
+    [countryList, month, rating, crowdF, landscapeFilter], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const q = query.trim();
@@ -473,12 +485,13 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
     </Collapsible>
   );
 
-  const landscapeFilters = (what: string) => (
+  const landscapeFilters = (what: string, kind: 'area' | 'trail' = 'area') => (
     <LandscapeFilterPanel
       filter={landscapeFilter}
       onChange={setLandscapeFilter}
       sort={landscapeSort}
       onSort={setLandscapeSort}
+      kind={kind}
       what={what}
     />
   );
@@ -557,6 +570,7 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
             />
           )}
           {choosingRegion && countryLandscape && landscapeFilters('אזורים')}
+          {!choosingRegion && trailLand && landscapeFilters('מסלולים', 'trail')}
           {hasCrowd && crowdFilters}
           {countryStatus === 'loading' && (
             <div className="flex items-center gap-2 text-sm text-white py-4">
@@ -619,8 +633,8 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
             <div className="text-sm text-white py-3">
               {countryList.length === 0
                 ? 'לא נמצאו מסלולים מסומנים במדינה הזו.'
-                : activeCrowd
-                  ? `אין מסלולים ב"${RATING_LABELS[rating]}" ב${MONTH_NAMES[month]} שעונים על הסינון לפי מטיילים. נסו לרכך אותו.`
+                : activeCrowd || (trailLand && activeLandscape)
+                  ? `אין מסלולים ב"${RATING_LABELS[rating]}" ב${MONTH_NAMES[month]} שעונים על הסינון. נסו לרכך אותו.`
                   : `אין מסלולים ב"${RATING_LABELS[rating]}" ב${MONTH_NAMES[month]} מבין אלה שנמצאו. נסו חודש או דרגה אחרים.`}
             </div>
           )}
@@ -640,6 +654,12 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
                 {t.crossesBorder ? ` ב${countryName(country)}, וממשיך מעבר לגבול` : ''}
               </span>
               {hasCrowd && <CrowdLine crowd={t.crowd} />}
+              {trailLand && (t.landscape
+                ? <LandscapeLine s={t.landscape} bins={trailLand.reliefBins} kind="trail" />
+                : <span className="text-xs text-white">נוף: אין מידע על המסלול הזה</span>)}
+              {trailLand && sortBadge(t.landscape, trailLand.reliefBins, landscapeSort, 'trail') && (
+                <span className="text-xs font-bold text-emerald-300">{sortBadge(t.landscape, trailLand.reliefBins, landscapeSort, 'trail')}</span>
+              )}
               {/* Across the whole country, where each one is. */}
               {region === 'all' && t.regions.length > 0 && (
                 <span className="text-xs text-amber-200">

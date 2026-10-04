@@ -133,7 +133,7 @@ function mercatorBox(t: Tile): string {
   return [minx, miny, maxx, maxy].map((n) => n.toFixed(0)).join(',');
 }
 
-interface Found {
+export interface Found {
   summary: WmtRouteSummary;
   lines: Line[];
 }
@@ -299,7 +299,8 @@ async function trailsFrom(chosen: Candidate[], fallbackNames: Record<number, str
 // public.trail_crowd, so a rebuilt list (every 30 days, or a new format) gets
 // them back without collecting again.
 
-async function readByIds(country: string, ids: number[]): Promise<Map<number, Found>> {
+// Also used by scripts/collectLandscape.mjs, for the outlines it samples.
+export async function readByIds(country: string, ids: number[]): Promise<Map<number, Found>> {
   const found = new Map<number, Found>();
   if (!ids.length) return found;
   const summaries = new Map<number, WmtRouteSummary>();

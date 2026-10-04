@@ -8,6 +8,7 @@ import { knownEnglish, translateWorldTrails } from '../lib/worldTrailSearch';
 import type { WmtStage } from '../lib/waymarked';
 import TrailStagesSection, { ParentTrailButton, StageNav } from './TrailStagesSection';
 import TrailCrowdSection from './TrailCrowdSection';
+import TrailLandscapeSection from './TrailLandscapeSection';
 
 // The trail's English name, when its own is in a script the reader may not
 // read: OSM's, if a mapper wrote one, else a translation from the server.
@@ -222,6 +223,7 @@ export default function WorldTrailCard({
           )}
 
           <TrailCrowdSection id={selection.id} />
+          <TrailLandscapeSection id={selection.id} />
 
           {selection.stages.length > 0 && (
             <TrailStagesSection stages={selection.stages} onPick={onPickStage} />
