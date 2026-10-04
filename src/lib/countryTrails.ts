@@ -106,8 +106,25 @@ interface Tile {
   cells: number;
 }
 
+// The country's land without its overseas territories: in the grid Britain
+// holds the Falklands and Norway Svalbard and Bouvet, and squares wide enough
+// to reach them all were 24° across — Britain's list came out with 2 trails.
+// Islands that are part of the country itself (the Canaries, the Azores,
+// Hawaii, Corsica) stay.
+const homeCells = new Map<string, Array<[number, number]>>();
+function homeLand(country: string): Array<[number, number]> {
+  let cells = homeCells.get(country);
+  if (!cells) {
+    const all = countryCells(country);
+    const home = all.filter(([lat, lon]) => iso1A2Code([lon, lat], { level: 'territory' }) === country);
+    cells = home.length ? home : all;
+    homeCells.set(country, cells);
+  }
+  return cells;
+}
+
 function tilesFor(country: string): Tile[] {
-  const cells = countryCells(country);
+  const cells = homeLand(country);
   if (cells.length === 0) return [];
   for (const size of TILE_SIZES) {
     const counts = new Map<string, number>();
@@ -356,7 +373,9 @@ async function crowdTrails(country: string): Promise<Map<number, string | null>>
   }
 }
 
-async function build(country: string): Promise<CountryTrailList | null> {
+// `budgetMs`: how long the squares may take — a request's worth on the
+// server; longer from a script on the Mac, so a large country is read whole.
+async function build(country: string, budgetMs = BUILD_BUDGET_MS): Promise<CountryTrailList | null> {
   const started = Date.now();
   const tiles = tilesFor(country);
   if (tiles.length === 0) return null;
@@ -364,7 +383,7 @@ async function build(country: string): Promise<CountryTrailList | null> {
   const found = new Map<number, Found>();
   let answered = 0, partial = false;
   await pool(tiles, 4, async (tile) => {
-    if (Date.now() - started > BUILD_BUDGET_MS / 2) { partial = true; return; }
+    if (Date.now() - started > budgetMs / 2) { partial = true; return; }
     if (await readTile(tile, found)) answered++;
     else partial = true;
   });
@@ -539,9 +558,11 @@ export async function addTrails(country: string, ids: number[], names: Record<nu
 }
 
 // Builds a country's list again now, whatever its age — after the hiker
-// metrics found trails for it (scripts/collectCrowd.mjs CROWD_REBUILD=1).
-export async function rebuildCountryTrails(country: string): Promise<CountryTrailList | null> {
-  const list = await build(country);
+// metrics found trails for it (scripts/collectCrowd.mjs CROWD_REBUILD=1), or
+// with a longer budget when a partial list is collected for its landscape
+// (scripts/collectLandscape.mjs --build).
+export async function rebuildCountryTrails(country: string, budgetMs?: number): Promise<CountryTrailList | null> {
+  const list = await build(country, budgetMs);
   if (list) {
     memory.set(country, list);
     await writeTable(list);

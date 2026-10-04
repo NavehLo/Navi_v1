@@ -9,7 +9,6 @@ import type { HikeEffort } from "../lib/hikeEffort";
 import type { TripWeather } from "../hooks/useTripWeather";
 import { weatherCodeInfo, type CodeInfo } from "../lib/weather";
 import { formatHour, windMeaning, uvMeaning, type DayAdvice, type Warning } from "../lib/hikeAdvice";
-import { formatHours } from "../lib/hikeEffort";
 import InfoButton from "./help/InfoButton";
 import Collapsible from "./Collapsible";
 
@@ -93,13 +92,6 @@ export default function TripWeatherSection({ weather, isDrive, trail }: { weathe
           ירוק מתאים, צהוב לשים לב, אדום לא מומלץ. כמות המים מחושבת לפי אורך המסלול, העליות והחום הצפוי.
         </InfoButton>
       </div>
-
-      {effort && (
-        <div className="text-xs text-zinc-100 mb-2">
-          הליכה משוערת <span className="text-white font-bold">{formatHours(hours)}</span> עם הפסקות
-          {" · "}רמת מאמץ <span className="text-white font-bold">{effort.levelLabel}</span>
-        </div>
-      )}
 
       {status === "loading" && days.length === 0 && (
         <div className="text-sm text-white">טוען תחזית…</div>

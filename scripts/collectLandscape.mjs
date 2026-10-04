@@ -22,8 +22,12 @@
 //
 //   node scripts/collectLandscape.mjs GR ES MT     # these countries
 //   node scripts/collectLandscape.mjs --all        # every country with a stored list
-//   node scripts/collectLandscape.mjs --build CH   # build the country's list first if it has none
-//                                                  # (as opening it in the app would)
+//   node scripts/collectLandscape.mjs --build CH   # build the country's list first if it has none,
+//                                                  # or only part of one — with a longer time
+//                                                  # budget than the app's, so it is read whole
+//   node scripts/collectLandscape.mjs --rebuild FR # build its list again even if a whole one is stored
+//   node scripts/collectLandscape.mjs --build --europe   # a whole group (GROUPS below):
+//        --europe --latam --asia --north-america --africa --oceania, or --world for all of them
 //
 // Needs in .env.local: SUPABASE_SERVICE_ROLE_KEY and NEXT_PUBLIC_SUPABASE_URL,
 // to read the stored country lists. Free: no paid service is called. Run it
@@ -41,7 +45,7 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const { storedCountryTrails, countryTrails, builtCountryCounts, readByIds } = await import('../src/lib/countryTrails.ts');
+const { storedCountryTrails, rebuildCountryTrails, builtCountryCounts, readByIds } = await import('../src/lib/countryTrails.ts');
 const { LANDSCAPE_VERSION } = await import('../src/lib/landscape.ts');
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -67,11 +71,38 @@ for (const f of ['relief.bin', 'forest.bin', 'rivers.bin', 'ranges.bin']) {
   }
 }
 
+// The countries collected, by the owner's order of priority. Left out: Russia,
+// Belarus and Ukraine (war), the Arab countries, and Muslim countries that
+// Israelis cannot easily visit (Iran, Turkey, Indonesia, Malaysia, Pakistan,
+// Central Asia…). Albania, Bosnia and Kosovo are in: Israelis walk there freely.
+const GROUPS = {
+  europe: [
+    'GR', 'ES', 'IT', 'PT', 'MT', 'CH', 'AT', 'FR', 'SI', 'NO', 'GB', 'DE', 'IE', 'IS', 'HR', 'ME',
+    'AL', 'BA', 'XK', 'MK', 'RS', 'BG', 'RO', 'PL', 'CZ', 'SK', 'HU', 'SE', 'FI', 'DK', 'NL',
+    'BE', 'LU', 'EE', 'LV', 'LT', 'MD', 'CY', 'AD', 'LI', 'SM', 'GE', 'AM',
+  ],
+  latam: [
+    'MX', 'GT', 'BZ', 'SV', 'HN', 'NI', 'CR', 'PA', 'CU', 'DO', 'PR', 'JM',
+    'CO', 'EC', 'PE', 'BO', 'CL', 'AR', 'UY', 'PY', 'BR', 'GY', 'SR',
+  ],
+  asia: ['NP', 'IN', 'BT', 'LK', 'CN', 'MN', 'JP', 'KR', 'TW', 'TH', 'VN', 'LA', 'KH', 'MM', 'PH', 'SG', 'HK'],
+  'north-america': ['US', 'CA'],
+  africa: [
+    'ZA', 'NA', 'BW', 'ZW', 'ZM', 'MW', 'MZ', 'TZ', 'KE', 'UG', 'RW', 'ET', 'MG', 'LS', 'SZ',
+    'GH', 'CV', 'MU', 'SC',
+  ],
+  oceania: ['NZ', 'AU'],
+};
+
 const args = process.argv.slice(2);
 let countries = args.filter((a) => /^[A-Za-z]{2}$/.test(a)).map((a) => a.toUpperCase());
+for (const [name, codes] of Object.entries(GROUPS)) {
+  if (args.includes(`--${name}`) || args.includes('--world')) countries.push(...codes);
+}
+countries = [...new Set(countries)];
 if (args.includes('--all')) countries = Object.keys(await builtCountryCounts()).sort();
 if (!countries.length) {
-  console.error('usage: node scripts/collectLandscape.mjs <ISO code>… | --all');
+  console.error(`usage: node scripts/collectLandscape.mjs [--build] <ISO code>… | --${Object.keys(GROUPS).join(' | --')} | --world | --all`);
   process.exit(1);
 }
 
@@ -166,11 +197,20 @@ function summarize(lines) {
 // ── Range names ─────────────────────────────────────────────────────────────
 // English from the GMBA table, Hebrew from the Wikidata names the build cached.
 
+let gmbaCsv = null; // read once a run; save() asks after every country
 function rangeNames(ids) {
   if (!ids.size) return {};
+  gmbaCsv ??= readGmba();
+  return namesFrom(gmbaCsv, ids);
+}
+
+function readGmba() {
   const shp = join(CACHE, 'gmba_basic/GMBA_Inventory_v2.0_standard_basic.shp');
   const env = { ...process.env, PATH: `${process.env.PATH}:/Applications/Postgres.app/Contents/Versions/latest/bin` };
-  const csv = execFileSync('ogr2ogr', ['-f', 'CSV', '/vsistdout/', shp, '-select', 'GMBA_V2_ID,MapName,Name_EN,WikiDataUR'], { env, maxBuffer: 1 << 28 }).toString();
+  return execFileSync('ogr2ogr', ['-f', 'CSV', '/vsistdout/', shp, '-select', 'GMBA_V2_ID,MapName,Name_EN,WikiDataUR'], { env, maxBuffer: 1 << 28 }).toString();
+}
+
+function namesFrom(csv, ids) {
   const he = existsSync(join(CACHE, 'wikidata-he.json')) ? JSON.parse(readFileSync(join(CACHE, 'wikidata-he.json'), 'utf8')) : {};
   const out = {};
   for (const line of csv.split('\n').slice(1)) {
@@ -193,8 +233,27 @@ if (file.version !== LANDSCAPE_VERSION || String(file.reliefBins) !== String(BIN
   Object.assign(file, { version: LANDSCAPE_VERSION, reliefBins: BINS, ranges: {}, countries: {} });
 }
 
+// The file is written after every country, so a long run stopped halfway
+// keeps what it did.
+function save() {
+  const used = new Set(Object.values(file.countries).flatMap((c) => Object.values(c.trails).flatMap((t) => t.ranges)));
+  file.ranges = rangeNames(used);
+  const raw = Buffer.from(JSON.stringify(file));
+  writeFileSync(OUT, gzipSync(raw, { level: 9 }));
+  return raw.length;
+}
+
+const BUILD_BUDGET_MS = 6 * 60_000;
+const skip = args.includes('--skip-done');
 for (const country of countries) {
-  const list = (await storedCountryTrails(country)) ?? (args.includes('--build') ? await countryTrails(country) : null);
+  if (skip && file.countries[country]) { console.log(`${country}: done before — skipped`); continue; }
+  let list = await storedCountryTrails(country);
+  // A list the app built in its 40 seconds may be part of the country only
+  // (Britain came out with 2 trails); from here there is time to read it whole.
+  if (args.includes('--rebuild') || (args.includes('--build') && (!list || list.partial))) {
+    console.log(`${country}: building its list${list ? ' again' : ''}…`);
+    list = (await rebuildCountryTrails(country, BUILD_BUDGET_MS)) ?? list;
+  }
   if (!list) { console.log(`${country}: no stored list — open the country in the app first, or pass --build`); continue; }
   const ids = list.trails.map((t) => t.id);
   console.log(`${country}: ${ids.length} trails, reading outlines…`);
@@ -214,13 +273,11 @@ for (const country of countries) {
     continue;
   }
   file.countries[country] = { builtAt: new Date().toISOString().slice(0, 10), trails };
-  console.log(`${country}: ${Object.keys(trails).length} trails${missing ? `, ${missing} without an outline` : ''}`);
+  console.log(`${country}: ${Object.keys(trails).length} trails${missing ? `, ${missing} without an outline` : ''}${list.partial ? ' (its list is still partial)' : ''}`);
+  save();
 }
 
-const used = new Set(Object.values(file.countries).flatMap((c) => Object.values(c.trails).flatMap((t) => t.ranges)));
-file.ranges = rangeNames(used);
-const raw = Buffer.from(JSON.stringify(file));
-writeFileSync(OUT, gzipSync(raw, { level: 9 }));
+const size = save();
 const total = Object.values(file.countries).reduce((s, c) => s + Object.keys(c.trails).length, 0);
-console.log(`→ ${OUT}: ${Object.keys(file.countries).length} countries, ${total} trails, ${(raw.length / 1e3).toFixed(0)} KB raw`);
+console.log(`→ ${OUT}: ${Object.keys(file.countries).length} countries, ${total} trails, ${(size / 1e3).toFixed(0)} KB raw`);
 process.exit(0);

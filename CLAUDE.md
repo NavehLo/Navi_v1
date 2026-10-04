@@ -121,7 +121,15 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   this Mac with `scripts/collectLandscape.mjs` from the 1 km layers in
   `~/.cache/navi-landscape`; they share the country shape (shares of the
   trail's length, `kind: 'trail'`), so pass `'trail'` to the water, filter and
-  sort functions. After rebuilding the layers, re-collect every country.
+  sort functions. After rebuilding the layers, re-collect every country. The
+  countries collected are the owner's list (`GROUPS` in the script, by
+  priority); a new one goes into its group there, not only on the command line.
+- **A country's list covers its home land only.** `tilesFor` squares only the
+  cells whose territory-level code is the country's (`homeLand`), so overseas
+  territories (the Falklands, Svalbard, Greenland) never stretch the squares
+  across the world — they did, and Britain's list had 2 trails. A change to
+  the squares changes which trails a country lists: rebuild the lists
+  (`collectLandscape.mjs --rebuild`) and re-collect their landscape.
 - **Going back never loses the reader's place.** A panel that unmounts while
   a trail is open keeps its state at module level (`WorldByMonth`,
   `TrailDiscovery`: `kept`) and is reopened through `openSignal`. Close a

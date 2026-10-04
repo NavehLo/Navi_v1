@@ -1,7 +1,7 @@
 import { TrailData } from "../hooks/useTrailData";
 import { SUN_MAX, SHADE_MIN, BAR_COLUMNS, type ShadeResult, type WaterResult } from "../lib/summerConditions";
 import type { WaterStatus } from "../hooks/useSummerConditions";
-import { ArrowRight, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Navigation, BookOpenText } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Navigation, BookOpenText, Clock, Gauge } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { computeElevationGain, sliceTrail } from "../utils/trailUtils";
 import { formatDuration } from "./DrivePlanner";
@@ -15,6 +15,9 @@ import type { TrailClimate } from "../hooks/useTrailClimate";
 import TrailStagesSection, { ParentTrailButton, StageNav } from "./TrailStagesSection";
 import type { WmtStage } from "../lib/waymarked";
 import type { WmtParent } from "../hooks/useTrailData";
+import { formatHours } from "../lib/hikeEffort";
+import TrailCrowdSection from "./TrailCrowdSection";
+import TrailLandscapeSection from "./TrailLandscapeSection";
 
 // A world trail's place among long trails (see useWmtStages): the stages it is
 // made of, the long trail it is a stage of, and what a tap on either does.
@@ -46,7 +49,7 @@ export interface UserOnTrail {
 // somewhere else, not partway along this trail.
 const ON_TRAIL_MAX_M = 300;
 
-export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus, userPos, weather, climate, waypoints, onShowInfo, inIsrael = false, stages = null }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus, userPos?: UserOnTrail | null, weather?: TripWeather, climate?: TrailClimate, waypoints?: { label: string; km: number }[] | null, onShowInfo?: () => void, inIsrael?: boolean, stages?: TrailStages | null }) {
+export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus, userPos, weather, climate, waypoints, onShowInfo, inIsrael = false, stages = null, worldId = null }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus, userPos?: UserOnTrail | null, weather?: TripWeather, climate?: TrailClimate, waypoints?: { label: string; km: number }[] | null, onShowInfo?: () => void, inIsrael?: boolean, stages?: TrailStages | null, worldId?: number | null }) {
   const [collapsed, setCollapsed] = useState(true);
   const cardRef = useRef<HTMLDivElement>(null);
   // A drive has a road, a length and a time; none of the hiking readouts
@@ -347,6 +350,21 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
       )}
       {isDrive && weather && <TripWeatherSection weather={weather} isDrive trail={trail} />}
       {!isDrive && (<>
+      {/* How long and how hard — the first thing to know about a walk, so it
+          sits here and not inside the weather section. */}
+      {weather?.effort && (
+        <div className="mt-3 flex items-center justify-center gap-4 rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-sm text-white">
+          <span className="flex items-center gap-1.5">
+            <Clock className="w-4 h-4 text-yellow-300" />
+            הליכה משוערת <b className="text-yellow-300">{formatHours(weather.hours)}</b>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Gauge className="w-4 h-4 text-yellow-300" />
+            מאמץ <b className="text-yellow-300">{weather.effort.levelLabel}</b>
+          </span>
+        </div>
+      )}
+      {weather?.effort && <div className="text-xs text-white text-center mt-1">כולל הפסקות, לפי האורך והעליות</div>}
       <div className="mt-3 border-t border-white/10 pt-3 relative" dir="ltr">
         <div className="text-xs text-white mb-2 font-bold flex items-center gap-1" dir="rtl">
           פרופיל גובה
@@ -412,6 +430,11 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           month={weather?.selected ? Number(weather.selected.date.slice(5, 7)) - 1 : new Date().getMonth()}
         />
       )}
+
+      {/* A world trail: what hikers say about it and the landscape along it,
+          as on its card before it was loaded. */}
+      {worldId != null && <TrailCrowdSection id={worldId} />}
+      {worldId != null && <TrailLandscapeSection id={worldId} />}
 
       {stages && stages.stages.length > 0 && (
         <TrailStagesSection stages={stages.stages} onPick={stages.onPick} pendingId={stages.pendingId} />

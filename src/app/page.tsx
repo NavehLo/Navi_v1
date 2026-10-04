@@ -1346,7 +1346,7 @@ export default function TrailApp() {
 
       {/* Stats UI Layer */}
       {trail && !uiHidden && !isMeasuring && (
-        <MemoizedStatsPanel trail={trail} progress={progress} onClose={closeTrail} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} water={water} waterStatus={waterStatus} userPos={userOnTrail} weather={tripWeather} climate={trailClimate} waypoints={activeWaypoints} onShowInfo={openTrailInfo ? showOpenTrailInfo : undefined} inIsrael={trailInIsrael === true} stages={trailStages} />
+        <MemoizedStatsPanel trail={trail} progress={progress} onClose={closeTrail} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} water={water} waterStatus={waterStatus} userPos={userOnTrail} weather={tripWeather} climate={trailClimate} waypoints={activeWaypoints} onShowInfo={openTrailInfo ? showOpenTrailInfo : undefined} inIsrael={trailInIsrael === true} stages={trailStages} worldId={openWmtId} />
       )}
 
       {/* Measuring: the floating pin and its panel. Keyed by the trail so
