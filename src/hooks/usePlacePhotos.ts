@@ -5,6 +5,7 @@ import { LEADERS_DOT } from './useTrailLeaders';
 // Tapping a name the map itself writes — a beach, a peak, a bay, a village —
 // opens a small card with a button to Google Images for that place, so the
 // reader can see what Cala Luna looks like before deciding to walk there.
+// The query is built in searchQuery below.
 //
 // The names come from the Mapbox style, so the layers are found by what they
 // draw (their source layer) rather than by id: the three map styles share the
@@ -19,8 +20,48 @@ const OWN_LAYERS = ['trail-poi-dot', 'unclustered-point', 'clusters', LEADERS_DO
 export interface PlaceLabel {
   /** The name as the map shows it (English where it has one). */
   shown: string;
-  /** The local name, which is what Google knows the place by. */
+  /** The local name, under the English one when they differ. */
   local: string;
+  /** What Google Images is asked for. */
+  query: string;
+}
+
+// Settlement names are found within this many pixels of the tap.
+const NEAR_PX = 200;
+const countryNames = (() => {
+  try { return new Intl.DisplayNames(['en'], { type: 'region' }); } catch { return null; }
+})();
+
+function str(v: unknown): string {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+// The local name alone is often a common word: a viewpoint in Zagori called
+// Οξιά brought up pictures of beech trees. Mapbox's English name carries the
+// kind of place ("Viewpoint Oxia"), and the nearest village and the country
+// pin it to the right one — "Viewpoint Oxia Monodendri Greece".
+function searchQuery(map: mapboxgl.Map, point: mapboxgl.Point, layers: string[], f: mapboxgl.MapboxGeoJSONFeature, name: string): string {
+  const parts = [name];
+  let iso = str(f.properties?.iso_3166_1);
+  if (f.sourceLayer !== 'place_label') {
+    const box: [mapboxgl.PointLike, mapboxgl.PointLike] = [[point.x - NEAR_PX, point.y - NEAR_PX], [point.x + NEAR_PX, point.y + NEAR_PX]];
+    let best: { name: string; iso: string; d: number } | null = null;
+    for (const s of map.queryRenderedFeatures(box, { layers })) {
+      if (s.sourceLayer !== 'place_label' || s.properties?.class !== 'settlement' || s.geometry.type !== 'Point') continue;
+      const sName = str(s.properties?.name_en) || str(s.properties?.name);
+      if (!sName) continue;
+      const at = map.project(s.geometry.coordinates as [number, number]);
+      const d = Math.hypot(at.x - point.x, at.y - point.y);
+      if (!best || d < best.d) best = { name: sName, iso: str(s.properties?.iso_3166_1), d };
+    }
+    if (best) {
+      if (!name.toLowerCase().includes(best.name.toLowerCase())) parts.push(best.name);
+      iso ||= best.iso;
+    }
+  }
+  const country = iso && countryNames ? countryNames.of(iso.toUpperCase()) ?? '' : '';
+  if (country && country !== iso.toUpperCase() && !parts.some((p) => p.toLowerCase().includes(country.toLowerCase()))) parts.push(country);
+  return parts.join(' ');
 }
 
 function labelLayers(map: mapboxgl.Map): string[] {
@@ -38,11 +79,10 @@ export function placeLabelAt(map: mapboxgl.Map, point: mapboxgl.Point): PlaceLab
     const layers = labelLayers(map);
     if (!layers.length) return null;
     for (const f of map.queryRenderedFeatures(point, { layers })) {
-      const p = f.properties ?? {};
-      const local = typeof p.name === 'string' ? p.name.trim() : '';
+      const local = str(f.properties?.name);
       if (!local) continue;
-      const en = typeof p.name_en === 'string' ? p.name_en.trim() : '';
-      return { shown: en || local, local };
+      const shown = str(f.properties?.name_en) || local;
+      return { shown, local, query: searchQuery(map, point, layers, f, shown) };
     }
   } catch {}
   return null;
@@ -82,7 +122,7 @@ export function usePlacePhotos(map: mapboxgl.Map | null) {
       }
 
       const link = document.createElement('a');
-      link.href = googleImagesUrl(place.local);
+      link.href = googleImagesUrl(place.query);
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
       link.className = 'flex items-center justify-center gap-1.5 text-sm font-bold text-white bg-sky-600 hover:bg-sky-500 px-3 py-2 rounded-xl transition-colors';
