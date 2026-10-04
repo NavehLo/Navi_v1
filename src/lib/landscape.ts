@@ -96,11 +96,10 @@ export function reliefLevel(s: LandscapeSummary, bins: number[]): Relief {
 
 // ── Forest ──────────────────────────────────────────────────────────────────
 
-// In the order the build stores them (Copernicus' forest types).
+// In the order the build stores them (Copernicus' forest types). Shown as
+// information — "יער 45% מחטני" — not filtered by.
 export const FOREST_TYPES = ['needleEvergreen', 'broadEvergreen', 'needleDeciduous', 'broadDeciduous', 'mixed', 'unknown'] as const;
 export type ForestType = (typeof FOREST_TYPES)[number];
-// The ones a person can choose by; "unknown" is Copernicus not being sure.
-export const FOREST_CHOICES: Exclude<ForestType, 'unknown'>[] = ['needleEvergreen', 'broadDeciduous', 'mixed', 'broadEvergreen', 'needleDeciduous'];
 
 export const FOREST_LABELS: Record<ForestType, string> = {
   needleEvergreen: 'מחטני',
@@ -111,7 +110,7 @@ export const FOREST_LABELS: Record<ForestType, string> = {
   unknown: 'לא ידוע',
 };
 
-// What each one means, for the info button.
+// What each one means, where the type is shown in full.
 export const FOREST_EXPLAINED: Record<Exclude<ForestType, 'unknown'>, string> = {
   needleEvergreen: 'אורן, אשוח, אשוחית — ירוק כל השנה',
   broadDeciduous: 'אשור, אלון, ערמון, מייפל — שלכת בסתיו',
@@ -120,8 +119,10 @@ export const FOREST_EXPLAINED: Record<Exclude<ForestType, 'unknown'>, string> = 
   needleDeciduous: 'מחטני שמשיר את מחטיו בסתיו (בעיקר בסיביר ובאלפים)',
 };
 
-// Forested: at least a quarter of the land under trees, closed or open.
+// Forested: at least a quarter of the land (or of the ground around a
+// trail) under trees, closed or open; very: at least half.
 export const FORESTED = 250;
+export const VERY_FORESTED = 500;
 // A type is named when it is at least this share of the forest.
 export const TYPE_SHARE = 250;
 // Below this much forest, its types are not worth naming.
@@ -140,87 +141,139 @@ export function mainForestTypes(s: LandscapeSummary): ForestType[] {
 
 export type Water = 'many' | 'some' | 'few';
 
-// Share (thousandths) of the land in ~1 km cells that a river crosses. Set
-// against the world's countries (median 16%, top quarter above 25%):
-// Switzerland, Slovenia, Montenegro and New Zealand are "many" all year;
-// Greece and Spain "some" all year and more with the seasonal ones; Israel,
-// Cyprus and Jordan "few" all year.
-export const WATER_MANY = 230;
-export const WATER_SOME = 70;
+// A summary is of a country or area ('area': shares of its land), or of a
+// trail ('trail': shares of its length, `area` holding its km).
+export type Kind = 'area' | 'trail';
 
-function waterTier(share: number): Water {
-  return share >= WATER_MANY ? 'many' : share >= WATER_SOME ? 'some' : 'few';
+// Of a country or area: the share of its land in ~1 km cells that a river
+// crosses. Set against the world's countries (median 16%, top quarter above
+// 25%): Switzerland, Slovenia, Montenegro and New Zealand are "many" all
+// year; Greece and Spain "some" all year and more with the seasonal ones;
+// Israel, Cyprus and Jordan "few" all year.
+// Of a trail: the share of its length in a ~1 km cell that a river crosses —
+// a tenth of the way beside one is a walk along a river, a thirtieth (a
+// kilometre of a 30 km walk) a crossing or two.
+const WATER_CUTS: Record<Kind, { many: number; some: number }> = {
+  area: { many: 230, some: 70 },
+  trail: { many: 100, some: 30 },
+};
+
+function waterTier(share: number, kind: Kind): Water {
+  const c = WATER_CUTS[kind];
+  return share >= c.many ? 'many' : share >= c.some ? 'some' : 'few';
 }
 
-export function perennialWater(s: LandscapeSummary): Water {
-  return waterTier(s.perennial);
+export function perennialWater(s: LandscapeSummary, kind: Kind = 'area'): Water {
+  return waterTier(s.perennial, kind);
 }
 
 // All year or for a season.
-export function anyWater(s: LandscapeSummary): Water {
-  return waterTier(s.perennial + s.seasonal);
+export function anyWater(s: LandscapeSummary, kind: Kind = 'area'): Water {
+  return waterTier(s.perennial + s.seasonal, kind);
 }
 
 // ── Filtering ───────────────────────────────────────────────────────────────
 
 export type ReliefChoice = 'any' | 'mountains' | 'dramatic' | 'veryDramatic';
+export type ForestChoice = 'any' | 'forested' | 'veryForested';
 export type WaterChoice = 'any' | 'perennial' | 'seasonal';
 
 export interface LandscapeFilter {
   relief: ReliefChoice;
-  forested: boolean;
-  types: Exclude<ForestType, 'unknown'>[];  // any of them; empty: any
+  forest: ForestChoice;
   water: WaterChoice;
 }
 
-export const NO_LANDSCAPE_FILTER: LandscapeFilter = { relief: 'any', forested: false, types: [], water: 'any' };
+export const NO_LANDSCAPE_FILTER: LandscapeFilter = { relief: 'any', forest: 'any', water: 'any' };
 
 export function landscapeFilterCount(f: LandscapeFilter): number {
-  return (f.relief !== 'any' ? 1 : 0) + (f.forested ? 1 : 0) + (f.types.length ? 1 : 0) + (f.water !== 'any' ? 1 : 0);
+  return (f.relief !== 'any' ? 1 : 0) + (f.forest !== 'any' ? 1 : 0) + (f.water !== 'any' ? 1 : 0);
 }
 
-export function passesLandscape(s: LandscapeSummary | undefined, bins: number[], f: LandscapeFilter): boolean {
+export function passesLandscape(s: LandscapeSummary | undefined, bins: number[], f: LandscapeFilter, kind: Kind = 'area'): boolean {
   if (landscapeFilterCount(f) === 0) return true;
   // Nothing known: filtered out, since the filter asks for something definite.
   if (!s) return false;
   if (f.relief !== 'any' && shareAtLeast(s, bins, RELIEF_FROM[f.relief]) < MIN_SHARE) return false;
-  if (f.forested && s.forest < FORESTED) return false;
-  if (f.types.length) {
-    const named = mainForestTypes(s);
-    if (!f.types.some((t) => named.includes(t))) return false;
-  }
-  if (f.water === 'perennial' && perennialWater(s) === 'few') return false;
-  if (f.water === 'seasonal' && anyWater(s) === 'few') return false;
+  if (f.forest === 'forested' && s.forest < FORESTED) return false;
+  if (f.forest === 'veryForested' && s.forest < VERY_FORESTED) return false;
+  if (f.water === 'perennial' && perennialWater(s, kind) === 'few') return false;
+  if (f.water === 'seasonal' && anyWater(s, kind) === 'few') return false;
   return true;
+}
+
+// ── Ordering ────────────────────────────────────────────────────────────────
+
+export type LandscapeSort = 'default' | 'mountains' | 'dramatic' | 'veryDramatic' | 'forest' | 'water' | 'all';
+export const LANDSCAPE_SORTS: LandscapeSort[] = ['default', 'mountains', 'dramatic', 'veryDramatic', 'forest', 'water', 'all'];
+
+export const SORT_LABELS: Record<LandscapeSort, string> = {
+  default: 'רגיל',
+  mountains: 'הכי הררי',
+  dramatic: 'הכי דרמטי',
+  veryDramatic: 'דרמטי מאוד',
+  forest: 'הכי מיוער',
+  water: 'הכי הרבה נחלים זורמים',
+  all: 'כל הנופים יחד',
+};
+
+// "All together", in the order the owner ranks them: mountains half, forest
+// three tenths, rivers a fifth. Each part 0–1000: mountains the average of
+// the shares at the three mountain levels (so drama counts more than mere
+// height of ground), forest its share, rivers the year-round share — and half
+// the seasonal — against what counts as "many".
+const ALL_WEIGHTS = { mountains: 0.5, forest: 0.3, water: 0.2 };
+
+function waterScore(s: LandscapeSummary, kind: Kind): number {
+  return Math.min(1000, ((s.perennial + s.seasonal / 2) * 1000) / WATER_CUTS[kind].many);
+}
+
+// What the list is ordered by, 0–1000, the most first.
+export function sortValue(s: LandscapeSummary | undefined, bins: number[], sort: LandscapeSort, kind: Kind = 'area'): number {
+  if (!s || sort === 'default') return -1;
+  switch (sort) {
+    case 'mountains': return shareAtLeast(s, bins, RELIEF_FROM.mountains);
+    case 'dramatic': return shareAtLeast(s, bins, RELIEF_FROM.dramatic);
+    case 'veryDramatic': return shareAtLeast(s, bins, RELIEF_FROM.veryDramatic);
+    case 'forest': return s.forest;
+    case 'water': return s.perennial;
+    case 'all': {
+      const m = (shareAtLeast(s, bins, RELIEF_FROM.mountains) + shareAtLeast(s, bins, RELIEF_FROM.dramatic)
+        + shareAtLeast(s, bins, RELIEF_FROM.veryDramatic)) / 3;
+      return Math.round(ALL_WEIGHTS.mountains * m + ALL_WEIGHTS.forest * s.forest + ALL_WEIGHTS.water * waterScore(s, kind));
+    }
+  }
+}
+
+// The number beside each row while ordered by it: "דרמטי 56%", "ציון נוף 72".
+export function sortBadge(s: LandscapeSummary | undefined, bins: number[], sort: LandscapeSort, kind: Kind = 'area'): string | null {
+  if (!s || sort === 'default') return null;
+  const v = sortValue(s, bins, sort, kind);
+  if (sort === 'all') return `ציון נוף ${Math.round(v / 10)}`;
+  const of = kind === 'trail' ? 'מהדרך' : 'מהשטח';
+  const what: Record<Exclude<LandscapeSort, 'default' | 'all'>, string> = {
+    mountains: 'הררי', dramatic: 'דרמטי', veryDramatic: 'דרמטי מאוד', forest: 'יער', water: 'נחלים זורמים',
+  };
+  return `${what[sort]} ${Math.round(v / 10)}% ${of}`;
 }
 
 // ── Words ───────────────────────────────────────────────────────────────────
 
 const pct = (thousandths: number) => `${Math.max(1, Math.round(thousandths / 10))}%`;
 
-// "הרים דרמטיים ב-15% מהשטח", or "שטוח" — the mountain line.
-export function reliefLine(s: LandscapeSummary, bins: number[]): string {
+// "הרים דרמטיים ב-15% מהשטח", or "שטוח ברובו" — the mountain line in full.
+export function reliefLine(s: LandscapeSummary, bins: number[], kind: Kind = 'area'): string {
   const level = reliefLevel(s, bins);
   if (level === 'flat') return 'שטוח ברובו';
-  return `${RELIEF_LABELS[level]} ב-${pct(shareAtLeast(s, bins, RELIEF_FROM[level]))} מהשטח`;
+  return `${RELIEF_LABELS[level]} ב-${pct(shareAtLeast(s, bins, RELIEF_FROM[level]))} ${kind === 'trail' ? 'מהדרך' : 'מהשטח'}`;
 }
 
-// "יער ב-45% מהשטח, מחטני ונשיר", or "מעט יער".
-export function forestLine(s: LandscapeSummary): string {
+// "יער ב-45% מהשטח: מחטני ונשיר", or "כמעט בלי יער".
+export function forestLine(s: LandscapeSummary, kind: Kind = 'area'): string {
   if (s.forest < MIN_FOREST_FOR_TYPES) return 'כמעט בלי יער';
   const types = mainForestTypes(s).slice(0, 2).map((t) => FOREST_LABELS[t]);
-  return `יער ב-${pct(s.forest)} מהשטח${types.length ? `, ${types.join(' ו')}` : ''}`;
-}
-
-const WATER_WORDS: Record<Water, string> = { many: 'הרבה', some: 'לא מעט', few: 'מעט' };
-
-// "הרבה נהרות שזורמים כל השנה", or the seasonal ones when those are what there is.
-export function waterLine(s: LandscapeSummary): string {
-  const all = perennialWater(s);
-  if (all !== 'few') return `${WATER_WORDS[all]} נהרות ונחלים שזורמים כל השנה`;
-  const any = anyWater(s);
-  if (any !== 'few') return `${WATER_WORDS[any]} נחלים עונתיים, מעט שזורמים כל השנה`;
-  return 'מעט נהרות ונחלים';
+  const where = kind === 'trail' ? 'מהשטח סביב הדרך' : 'מהשטח';
+  return `יער ב-${pct(s.forest)} ${where}${types.length ? `: ${types.join(' ו')}` : ''}`;
 }
 
 // The same, short, for a row in a list.
@@ -234,11 +287,18 @@ export function forestShort(s: LandscapeSummary): string {
   return `יער ${pct(s.forest)}${type ? ` ${FOREST_LABELS[type]}` : ''}`;
 }
 
-export function waterShort(s: LandscapeSummary): string {
-  const all = perennialWater(s);
+export function waterShort(s: LandscapeSummary, kind: Kind = 'area'): string {
+  const all = perennialWater(s, kind);
+  const any = anyWater(s, kind);
+  if (kind === 'trail') {
+    if (all === 'many') return 'לאורך נחל זורם';
+    if (all === 'some') return 'עובר ליד נחל זורם';
+    if (any !== 'few') return 'ליד נחל עונתי';
+    return 'בלי נחלים בדרך';
+  }
   if (all === 'many') return 'הרבה נחלים זורמים';
   if (all === 'some') return 'נחלים זורמים';
-  return anyWater(s) !== 'few' ? 'נחלים עונתיים' : 'מעט נחלים';
+  return any !== 'few' ? 'נחלים עונתיים' : 'מעט נחלים';
 }
 
 // GMBA marks a range with no name of its own "(nn)" ("Peloponnese (nn)": the

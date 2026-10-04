@@ -15,8 +15,8 @@ import {
 } from '../lib/trailCrowd/score';
 import { useLeaders } from '../lib/trailLeadersClient';
 import {
-  LANDSCAPE_VERSION, NO_LANDSCAPE_FILTER, landscapeFilterCount, passesLandscape, rangeName,
-  type LandscapeData, type LandscapeFilter, type LandscapeSummary,
+  LANDSCAPE_VERSION, NO_LANDSCAPE_FILTER, landscapeFilterCount, passesLandscape, rangeName, sortBadge, sortValue,
+  type LandscapeData, type LandscapeFilter, type LandscapeSort, type LandscapeSummary,
 } from '../lib/landscape';
 import { LandscapeFilterPanel, LandscapeLine } from './LandscapeFilters';
 
@@ -105,7 +105,8 @@ const regionLandscapeMemo = new Map<string, CountryLandscape>();
 // the country, the area, the month and the filters all over again.
 const kept: {
   mode?: Mode; month?: number; rating?: MonthRating; country?: string | null;
-  region?: string | null; crowdFilter?: CrowdFilter; landscapeFilter?: LandscapeFilter; scroll?: number;
+  region?: string | null; crowdFilter?: CrowdFilter; landscapeFilter?: LandscapeFilter;
+  landscapeSort?: LandscapeSort; scroll?: number;
 } = {};
 
 function keepScroll(top: number) {
@@ -128,9 +129,10 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
   const [query, setQuery] = useState('');
   const [crowdFilter, setCrowdFilter] = useState<CrowdFilter>(kept.crowdFilter ?? NO_CROWD_FILTER);
   const [landscapeFilter, setLandscapeFilter] = useState<LandscapeFilter>(kept.landscapeFilter ?? NO_LANDSCAPE_FILTER);
+  const [landscapeSort, setLandscapeSort] = useState<LandscapeSort>(kept.landscapeSort ?? 'default');
   useEffect(() => {
-    Object.assign(kept, { mode, month, rating, country, region, crowdFilter, landscapeFilter });
-  }, [mode, month, rating, country, region, crowdFilter, landscapeFilter]);
+    Object.assign(kept, { mode, month, rating, country, region, crowdFilter, landscapeFilter, landscapeSort });
+  }, [mode, month, rating, country, region, crowdFilter, landscapeFilter, landscapeSort]);
   // Another country or area is another list: from its top.
   const shownList = useRef(`${country}|${region}`);
   useEffect(() => {
@@ -302,8 +304,15 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
     return countryData.regions
       .map((r) => ({ ...r, count: counts.get(r.id) ?? 0, landscape: countryLandscape?.regions[r.id] }))
       .filter((r) => !activeLandscape || !countryLandscape || passesLandscape(r.landscape, countryLandscape.reliefBins, landscapeFilter))
-      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'he'));
-  }, [countryData, month, rating, crowdF, countryLandscape, landscapeFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+      .sort((a, b) => {
+        if (countryLandscape && landscapeSort !== 'default') {
+          const bins = countryLandscape.reliefBins;
+          const d = sortValue(b.landscape, bins, landscapeSort) - sortValue(a.landscape, bins, landscapeSort);
+          if (d) return d;
+        }
+        return b.count - a.count || a.name.localeCompare(b.name, 'he');
+      });
+  }, [countryData, month, rating, crowdF, countryLandscape, landscapeFilter, landscapeSort]); // eslint-disable-line react-hooks/exhaustive-deps
   const matchingInCountry = useMemo(
     () => (countryList ?? []).filter(matchesFilters).length,
     [countryList, month, rating, crowdF], // eslint-disable-line react-hooks/exhaustive-deps
@@ -315,14 +324,30 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
   const matches = (code: string) =>
     (!q || countryName(code).includes(q) || code.toLowerCase() === q.toLowerCase()) && matchesLandscape(code);
 
-  const inSeason = useMemo(() => (climate?.months[month] ?? []).filter((c) => matches(c.country)), [climate, month, q, landscape, landscapeFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Ordered by a landscape when one is chosen; otherwise as before — the
+  // share in season, or the alphabet.
+  const byLandscape = (a: string, b: string) =>
+    landscape && landscapeSort !== 'default'
+      ? sortValue(landscape.countries[b], landscape.reliefBins, landscapeSort) - sortValue(landscape.countries[a], landscape.reliefBins, landscapeSort)
+      : 0;
+  const inSeason = useMemo(
+    () => (climate?.months[month] ?? []).filter((c) => matches(c.country)).sort((a, b) => byLandscape(a.country, b.country)),
+    [climate, month, q, landscape, landscapeFilter, landscapeSort], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const allCountries = useMemo(
-    () => (climate?.countries ?? []).filter(matches).sort((a, b) => countryName(a).localeCompare(countryName(b), 'he')),
-    [climate, q, landscape, landscapeFilter], // eslint-disable-line react-hooks/exhaustive-deps
+    () => (climate?.countries ?? []).filter(matches).sort((a, b) => byLandscape(a, b) || countryName(a).localeCompare(countryName(b), 'he')),
+    [climate, q, landscape, landscapeFilter, landscapeSort], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const landscapeLine = (code: string) => {
     const s = landscape?.countries[code];
-    return s ? <LandscapeLine s={s} bins={landscape!.reliefBins} /> : null;
+    if (!s) return null;
+    const badge = sortBadge(s, landscape!.reliefBins, landscapeSort);
+    return (
+      <>
+        <LandscapeLine s={s} bins={landscape!.reliefBins} />
+        {badge && <span className="text-xs font-bold text-emerald-300">{badge}</span>}
+      </>
+    );
   };
 
   const allLeaders = useLeaders(!country);
@@ -449,7 +474,13 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
   );
 
   const landscapeFilters = (what: string) => (
-    <LandscapeFilterPanel filter={landscapeFilter} onChange={setLandscapeFilter} what={what} />
+    <LandscapeFilterPanel
+      filter={landscapeFilter}
+      onChange={setLandscapeFilter}
+      sort={landscapeSort}
+      onSort={setLandscapeSort}
+      what={what}
+    />
   );
 
   // What is being looked at — the area chosen, or the whole country — and its
@@ -572,6 +603,9 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
                     </span>
                     {r.latin && <span className="text-xs text-white" dir="ltr">{r.latin}</span>}
                     {r.landscape && countryLandscape && <LandscapeLine s={r.landscape} bins={countryLandscape.reliefBins} />}
+                    {countryLandscape && sortBadge(r.landscape, countryLandscape.reliefBins, landscapeSort) && (
+                      <span className="text-xs font-bold text-emerald-300">{sortBadge(r.landscape, countryLandscape.reliefBins, landscapeSort)}</span>
+                    )}
                   </span>
                   <span className={`text-xs font-bold shrink-0 flex items-center gap-1 ${r.count ? 'text-sky-300' : 'text-white'}`}>
                     {r.count ? `${r.count} מסלולים` : 'אין'} <ChevronLeft className="w-4 h-4" />
