@@ -206,7 +206,8 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
                 <>{trail.totalDistance.toFixed(0)} ק״מ{trail.driveDurationSec != null && <> · <span className="text-sky-400">{formatDuration(trail.driveDurationSec)}</span></>}</>
               ) : (
                 <>
-                  {trail.totalDistance.toFixed(1)} ק״מ · {Math.round(trail.minEle)}–{Math.round(trail.maxEle)} מ׳
+                  {trail.totalDistance.toFixed(1)} ק״מ
+                  {climb && <> · <span className="text-emerald-400 font-bold">↑{climb.gain}</span> <span className="text-red-400 font-bold">↓{climb.loss}</span> מ׳</>}
                   {shade && <> · <span className="text-lime-400">{Math.round(shade.shadePct)}% אפשרות לצל</span></>}
                 </>
               )}
@@ -320,26 +321,27 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
             </div>
           </div>
         ) : (<>
+        {/* Climb and descent are what decide how hard a walk is, so they get
+            the big figures; the lowest and highest points sit in the line below. */}
         <div className="text-center flex-1 border-r border-white/5 px-1">
-          <div className="text-xs text-white mb-1 font-bold">גובה מינימלי</div>
-          <div className="text-xl font-bold text-red-400">
-            {Math.round(trail.minEle)}
+          <div className="text-xs text-white mb-1 font-bold flex items-center justify-center gap-1"><TrendingUp className="w-3.5 h-3.5 text-emerald-400" />עלייה</div>
+          <div className="text-xl font-bold text-emerald-400">
+            {climb ? climb.gain : '—'}
             <span className="text-xs font-normal text-white mr-1">מ׳</span>
           </div>
         </div>
         <div className="text-center flex-1 border-r border-white/5 px-1">
-          <div className="text-xs text-white mb-1 font-bold">גובה מקסימלי</div>
-          <div className="text-xl font-bold text-emerald-400">
-            {Math.round(trail.maxEle)}
+          <div className="text-xs text-white mb-1 font-bold flex items-center justify-center gap-1"><TrendingDown className="w-3.5 h-3.5 text-red-400" />ירידה</div>
+          <div className="text-xl font-bold text-red-400">
+            {climb ? climb.loss : '—'}
             <span className="text-xs font-normal text-white mr-1">מ׳</span>
           </div>
         </div>
         </>)}
       </div>
       {climb && (
-        <div className="flex justify-center gap-6 text-xs font-bold mt-2 pt-2 border-t border-white/5">
-          <span className="text-emerald-400 flex items-center gap-1"><TrendingUp className="w-3.5 h-3.5" /> עלייה {climb.gain} {"מ'"}</span>
-          <span className="text-red-400 flex items-center gap-1"><TrendingDown className="w-3.5 h-3.5" /> ירידה {climb.loss} {"מ'"}</span>
+        <div className="text-xs text-white text-center mt-2 pt-2 border-t border-white/5">
+          גובה מינימלי <b>{Math.round(trail.minEle)}</b> · גובה מקסימלי <b>{Math.round(trail.maxEle)}</b> מ׳
         </div>
       )}
       {isDrive && (

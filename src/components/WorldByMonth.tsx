@@ -19,6 +19,7 @@ import {
   type LandscapeData, type LandscapeFilter, type LandscapeSort, type LandscapeSummary,
 } from '../lib/landscape';
 import { LandscapeFilterPanel, LandscapeLine } from './LandscapeFilters';
+import { CONTINENTS, inContinent, type Continent } from '../lib/continents';
 
 // "בעולם לפי חודש": marked trails abroad, chosen by when they are in season.
 //
@@ -108,7 +109,7 @@ const regionLandscapeMemo = new Map<string, CountryLandscape>();
 const kept: {
   mode?: Mode; month?: number; rating?: MonthRating; country?: string | null;
   region?: string | null; crowdFilter?: CrowdFilter; landscapeFilter?: LandscapeFilter;
-  landscapeSort?: LandscapeSort; scroll?: number;
+  landscapeSort?: LandscapeSort; continent?: Continent | null; scroll?: number;
 } = {};
 
 function keepScroll(top: number) {
@@ -132,9 +133,11 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
   const [crowdFilter, setCrowdFilter] = useState<CrowdFilter>(kept.crowdFilter ?? NO_CROWD_FILTER);
   const [landscapeFilter, setLandscapeFilter] = useState<LandscapeFilter>(kept.landscapeFilter ?? NO_LANDSCAPE_FILTER);
   const [landscapeSort, setLandscapeSort] = useState<LandscapeSort>(kept.landscapeSort ?? 'default');
+  // One continent, or null for the whole world: both lists of countries.
+  const [continent, setContinent] = useState<Continent | null>(kept.continent ?? null);
   useEffect(() => {
-    Object.assign(kept, { mode, month, rating, country, region, crowdFilter, landscapeFilter, landscapeSort });
-  }, [mode, month, rating, country, region, crowdFilter, landscapeFilter, landscapeSort]);
+    Object.assign(kept, { mode, month, rating, country, region, crowdFilter, landscapeFilter, landscapeSort, continent });
+  }, [mode, month, rating, country, region, crowdFilter, landscapeFilter, landscapeSort, continent]);
   // Another country or area is another list: from its top.
   const shownList = useRef(`${country}|${region}`);
   useEffect(() => {
@@ -334,7 +337,8 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
   const matchesLandscape = (code: string) =>
     !activeLandscape || !landscape || passesLandscape(landscape.countries[code], landscape.reliefBins, landscapeFilter);
   const matches = (code: string) =>
-    (!q || countryName(code).includes(q) || code.toLowerCase() === q.toLowerCase()) && matchesLandscape(code);
+    (!q || countryName(code).includes(q) || code.toLowerCase() === q.toLowerCase()) &&
+    inContinent(code, continent) && matchesLandscape(code);
 
   // Ordered by a landscape when one is chosen; otherwise as before — the
   // share in season, or the alphabet.
@@ -344,11 +348,11 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
       : 0;
   const inSeason = useMemo(
     () => (climate?.months[month] ?? []).filter((c) => matches(c.country)).sort((a, b) => byLandscape(a.country, b.country)),
-    [climate, month, q, landscape, landscapeFilter, landscapeSort], // eslint-disable-line react-hooks/exhaustive-deps
+    [climate, month, q, continent, landscape, landscapeFilter, landscapeSort], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const allCountries = useMemo(
     () => (climate?.countries ?? []).filter(matches).sort((a, b) => byLandscape(a, b) || countryName(a).localeCompare(countryName(b), 'he')),
-    [climate, q, landscape, landscapeFilter, landscapeSort], // eslint-disable-line react-hooks/exhaustive-deps
+    [climate, q, continent, landscape, landscapeFilter, landscapeSort], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const landscapeLine = (code: string) => {
     const s = landscape?.countries[code];
@@ -410,6 +414,23 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
           className={`rounded-lg py-1.5 text-xs font-bold transition-colors border ${i === month ? 'bg-orange-500 text-white border-orange-400' : 'bg-white/5 text-white border-white/10 hover:bg-white/10'}`}
         >
           {m}
+        </button>
+      ))}
+    </div>
+  );
+
+  const continentLabel = CONTINENTS.find((c) => c.id === continent)?.label;
+  const continentChips = (
+    <div className="flex flex-wrap gap-1.5 shrink-0" role="radiogroup" aria-label="סינון לפי יבשת">
+      {[{ id: null, label: 'כל העולם' }, ...CONTINENTS].map((c) => (
+        <button
+          key={c.id ?? 'all'}
+          role="radio"
+          aria-checked={continent === c.id}
+          onClick={() => setContinent(c.id)}
+          className={`px-2.5 py-1 rounded-full text-xs font-bold border transition-colors ${continent === c.id ? 'bg-orange-500 text-white border-orange-400' : 'bg-white/5 text-white border-white/15 hover:bg-white/10'}`}
+        >
+          {c.label}
         </button>
       ))}
     </div>
@@ -704,6 +725,10 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
             פעם ראשונה, ואז המספר מופיע ליד שמה.
           </p>
           <p className="mt-2">
+            <b>יבשות:</b> בשתי הדרכים אפשר לצמצם את הרשימה ליבשת אחת. מרכז אמריקה והאיים הקריביים נמצאים תחת צפון
+            אמריקה; רוסיה, טורקיה וארצות הקווקז מופיעות גם באירופה וגם באסיה.
+          </p>
+          <p className="mt-2">
             <b>המסלולים</b> הם מסלולים מסומנים מ-Waymarked Trails: במדינה קטנה גם מקומיים, ובמדינה גדולה בעיקר אזוריים
             וארציים. כל מסלול מדורג לפי האקלים לאורכו, הגובה שלו והאורך, כמו בכרטיס המסלול.
           </p>
@@ -722,6 +747,7 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
       </div>
 
       {mode === 'month' && monthChips}
+      {continentChips}
 
       <div className="relative shrink-0">
         <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-300" size={16} />
@@ -748,7 +774,8 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
         {climate && mode === 'month' && (
           <>
             <div className="text-xs text-white">
-              {MONTH_NAMES[month]}: <span className="font-bold text-emerald-300">{inSeason.length} מדינות</span> עם אזורים בעונה מומלצת
+              {MONTH_NAMES[month]}: <span className="font-bold text-emerald-300">{inSeason.length} מדינות</span>
+              {continentLabel && ` ב${continentLabel}`} עם אזורים בעונה מומלצת
               {activeLandscape > 0 && ' שעונות על הסינון לפי נוף'}
             </div>
             {inSeason.map((c) => {
@@ -774,9 +801,11 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
           </>
         )}
 
-        {climate && mode === 'country' && activeLandscape > 0 && (
+        {climate && mode === 'country' && (activeLandscape > 0 || continentLabel) && (
           <div className="text-xs text-white">
-            <span className="font-bold text-emerald-300">{allCountries.length} מדינות</span> עונות על הסינון לפי נוף
+            <span className="font-bold text-emerald-300">{allCountries.length} מדינות</span>
+            {continentLabel && ` ב${continentLabel}`}
+            {activeLandscape > 0 && ' שעונות על הסינון לפי נוף'}
           </div>
         )}
         {climate && mode === 'country' && allCountries.map((code) => (
