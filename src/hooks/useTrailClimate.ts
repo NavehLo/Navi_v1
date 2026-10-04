@@ -74,6 +74,7 @@ export function useTrailClimate(trail: TrailData | null, hours: number): TrailCl
             ...extremes(trail.coords, trail.maxEle > trail.minEle),
             hours,
             km: trail.totalDistance,
+            name: trail.name,
             samples: samplesAlong(trail.coords, trail.maxEle > trail.minEle),
           }),
           signal: controller.signal,

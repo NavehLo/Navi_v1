@@ -1,16 +1,17 @@
 import { NextResponse } from 'next/server';
 import { rateLimit, clientIp } from '../../../lib/rateLimit';
 import { climateAt } from '../../../lib/climateGrid';
-import { rateMonths, rateLongWalk, CLIMATE_VERSION, MULTI_DAY_KM, type MonthVerdict } from '../../../lib/climate';
+import { rateMonths, rateLongWalk, isGorgeName, CLIMATE_VERSION, MULTI_DAY_KM, type MonthVerdict } from '../../../lib/climate';
 import { countriesByMonth } from '../../../lib/climateCountries';
 
 // "מתי כדאי ללכת": the twelve months for one trail, from the climate grid that
 // ships with the server (see climateGrid.ts) — no outside service, nothing paid.
 //
-//   POST { low: {lat, lon, ele}, high: {lat, lon, ele}, hours, km?, samples? }
+//   POST { low: {lat, lon, ele}, high: {lat, lon, ele}, hours, km?, samples?, name? }
 //        → { status, version, months: MonthVerdict[12] }
 //        A walk longer than a day (km over MULTI_DAY_KM, with points along
 //        it in `samples`) is rated section by section — see rateLongWalk.
+//        `name` tells a gorge or canyon (isGorgeName), where rain counts more.
 //   GET  ?countries=1
 //        → { status, version, months: CountryMonth[][12] } — where it is in
 //          season, month by month, for the month-first world list
@@ -39,7 +40,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: 'rate-limited' satisfies Status }, { status: 429 });
   }
   try {
-    const body = (await request.json()) as { low?: unknown; high?: unknown; hours?: unknown; km?: unknown; samples?: unknown };
+    const body = (await request.json()) as { low?: unknown; high?: unknown; hours?: unknown; km?: unknown; samples?: unknown; name?: unknown };
+    const gorge = isGorgeName(typeof body.name === 'string' ? body.name.slice(0, 200) : null);
     const low = point(body.low);
     const high = point(body.high) ?? low;
     const hours = Number(body.hours);
@@ -53,7 +55,7 @@ export async function POST(request: Request) {
         .filter((p) => p.c != null)
         .map((p) => ({ months: p.c!.months, lat: p.lat }));
       if (points.length === 0) return NextResponse.json({ status: 'unavailable' satisfies Status });
-      return NextResponse.json({ status: 'ok' satisfies Status, version: CLIMATE_VERSION, months: rateLongWalk(points) });
+      return NextResponse.json({ status: 'ok' satisfies Status, version: CLIMATE_VERSION, months: rateLongWalk(points, gorge) });
     }
 
     const lowClimate = climateAt(low.lat, low.lon, low.ele);
@@ -65,6 +67,7 @@ export async function POST(request: Request) {
       high: highClimate.months,
       lat: (low.lat + high.lat) / 2,
       hours,
+      gorge,
     });
     return NextResponse.json({ status: 'ok' satisfies Status, version: CLIMATE_VERSION, months });
   } catch (error) {

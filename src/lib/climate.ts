@@ -16,7 +16,7 @@
 
 import { heatLoad } from './hikeAdvice';
 
-export const CLIMATE_VERSION = 3;
+export const CLIMATE_VERSION = 4;
 
 export type MonthRating = 'good' | 'fair' | 'bad';
 
@@ -43,6 +43,7 @@ export interface ClimateInput {
   high: MonthClimate[];   // its highest (coldest) point; the same as low on a flat walk
   lat: number;            // for the length of the day
   hours: number;          // time out there, breaks included
+  gorge?: boolean;        // a gorge or canyon (isGorgeName): rain there is a flood
 }
 
 export interface MonthReason {
@@ -112,17 +113,71 @@ function judgeCold(top: MonthClimate, dayHigh: number): MonthReason | null {
 }
 
 // ── Rain ─────────────────────────────────────────────────────────────────────
-// Cold rain soaks and chills and turns paths to mud; a warm month's rain is
-// mostly afternoon showers that pass. So the bar is higher when it is warmer —
-// otherwise the Alps' and Iceland's wet, perfectly walkable summers would read
-// as a warning.
-function judgeRain(m: MonthClimate, low: MonthClimate): MonthReason | null {
-  const fairAt = low.tmax >= 15 ? 200 : low.tmax >= 10 ? 150 : 100;
-  const badAt = low.tmax >= 15 ? 350 : 250;
+// What a month's rain does to a walk depends on what kind of rain it is, and
+// that is a matter of season, not of temperature. In a place's warm half of
+// the year rain mostly comes as afternoon showers that pass — the Alps' and
+// Iceland's wet, perfectly walkable summers. In its cool half it comes with
+// fronts: whole grey days, mud, swollen streams, wet rock — and that holds
+// even where the winter is mild. (The first version went by the thermometer,
+// counted any month over 15° as "warm rain", and so called Crete's and
+// Lycia's January — 15–17° and 130–160 mm — perfect walking weather.)
+//
+// How warm a month is for its place: its high against the middle of the
+// place's own yearly range, as 0 (cool half) to 1 (warm half), changing
+// gradually over the shoulder months so that October does not flip between
+// two bars over a tenth of a degree. In the tropics, where the highs move by a
+// few degrees a year, there is no cool season of fronts at all — the rain is
+// the monsoon's, and every month counts as warm. The warm bar: 150 mm
+// "בהיערכות", 300 mm (monsoon) "לא מומלץ". The cool bar: from 90 mm — about
+// ten rainy days — and 200 mm.
+// (60 mm was tried and was too strict: it took April from the Cinque Terre
+// and November from the Galilee, both prime walking months.)
+const RAIN = {
+  warm: { fair: 150, bad: 300 },
+  cool: { fair: 90, bad: 200 },
+};
+
+// A gorge or canyon in a rainy month is another thing again: the path is the
+// stream bed, a storm upstream fills it, and polished rock is treacherous wet.
+// Named as such by the trail itself (isGorgeName). Not the Israeli "נחל",
+// which names almost every trail here; the desert's flash floods have their
+// own line below.
+const GORGE_RAIN = { fair: 40, bad: 100 };
+
+// 0 (cool half) … 1 (warm half) for a month's high in its place's year; the
+// change happens over the middle half of the yearly range.
+export function warmth(tmax: number, coolest: number, warmest: number): number {
+  const range = warmest - coolest;
+  if (range < 8) return 1;
+  const x = (tmax - (coolest + warmest) / 2) / (range / 2) + 0.5;
+  return Math.max(0, Math.min(1, x));
+}
+
+function judgeRain(m: MonthClimate, w: number, gorge: boolean): MonthReason | null {
   const mm = Math.round(m.ppt);
+  if (gorge && w < 0.5) {
+    if (m.ppt >= GORGE_RAIN.bad) return { rating: 'bad', text: `גשום (כ-${mm} מ״מ בחודש) — בערוץ: סכנת שיטפון וסלעים חלקים` };
+    if (m.ppt >= GORGE_RAIN.fair) return { rating: 'fair', text: `גשם בחלק מהימים (כ-${mm} מ״מ) — בערוץ: לבדוק תחזית, להימנע אחרי גשם` };
+  }
+  const fairAt = RAIN.cool.fair + w * (RAIN.warm.fair - RAIN.cool.fair);
+  const badAt = RAIN.cool.bad + w * (RAIN.warm.bad - RAIN.cool.bad);
   if (m.ppt >= badAt) return { rating: 'bad', text: `גשום מאוד: כ-${mm} מ״מ בחודש` };
-  if (m.ppt >= fairAt) return { rating: 'fair', text: `גשום: כ-${mm} מ״מ בחודש` };
+  if (m.ppt >= fairAt) {
+    return w >= 0.5
+      ? { rating: 'fair', text: `גשום: כ-${mm} מ״מ בחודש — ממטרים` }
+      : { rating: 'fair', text: `עונת הגשמים: כ-${mm} מ״מ בחודש — בוץ ושבילים חלקים` };
+  }
   return null;
+}
+
+// Gorge and canyon in the languages the world-trail lists are written in.
+// Word edges by letter class (\b only knows Latin letters, and would miss
+// Φαράγγι). German writes the word as an ending (Partnachklamm). Hebrew
+// "קניון" is a mall as often as a canyon, so it needs "נחל" or "ה" before it.
+const GORGE_WORDS = /(schlucht|klamm)(?!\p{L})|(?<!\p{L})(gorges?|canyons?|cañ[oó]n|gola|gole|forra|barrancos?|garganta|congost|kanjon|kanyon|soutěska|wąwóz|ущелье|каньон|φαράγγι|φαραγγι|kloof)(?!\p{L})|(נחל|ה)קניון/iu;
+
+export function isGorgeName(name: string | null | undefined): boolean {
+  return !!name && GORGE_WORDS.test(name);
 }
 
 // ── Daylight ─────────────────────────────────────────────────────────────────
@@ -149,15 +204,17 @@ function judgeDaylight(daylight: number, hours: number): MonthReason | null {
 // endless one — no one walks a 300 km trail before dark.
 const MAX_DAY_HOURS = 8;
 
-export function rateMonths({ low, high, lat, hours }: ClimateInput): MonthVerdict[] {
+export function rateMonths({ low, high, lat, hours, gorge = false }: ClimateInput): MonthVerdict[] {
   const day = Math.min(hours, MAX_DAY_HOURS);
   const annualRain = low.reduce((s, m) => s + m.ppt, 0);
+  const highs = low.map((m) => m.tmax);
+  const coolest = Math.min(...highs), warmest = Math.max(...highs);
   return low.map((lo, i) => {
     const hi = high[i] ?? lo;
     // The rain of whichever point gets more: a ridge catches more than its valley.
     const wet = hi.ppt > lo.ppt ? hi : lo;
     const daylight = daylightHours(lat, i);
-    const reasons = [judgeHeat(lo, day), judgeCold(hi, (lo.tmax + hi.tmax) / 2), judgeRain(wet, lo), judgeDaylight(daylight, day)]
+    const reasons = [judgeHeat(lo, day), judgeCold(hi, (lo.tmax + hi.tmax) / 2), judgeRain(wet, warmth(lo.tmax, coolest, warmest), gorge), judgeDaylight(daylight, day)]
       .filter((r): r is MonthReason => r != null)
       .sort((a, b) => ORDER[b.rating] - ORDER[a.rating]);
     const rating = reasons.reduce<MonthRating>((acc, r) => worse(acc, r.rating), 'good');
@@ -189,8 +246,8 @@ export function rateMonths({ low, high, lat, hours }: ClimateInput): MonthVerdic
 // world-trail lists both use this, so they agree.
 export const MULTI_DAY_KM = 25;
 
-export function rateLongWalk(points: Array<{ months: MonthClimate[]; lat: number }>): MonthVerdict[] {
-  const per = points.map((p) => rateMonths({ low: p.months, high: p.months, lat: p.lat, hours: MAX_DAY_HOURS }));
+export function rateLongWalk(points: Array<{ months: MonthClimate[]; lat: number }>, gorge = false): MonthVerdict[] {
+  const per = points.map((p) => rateMonths({ low: p.months, high: p.months, lat: p.lat, hours: MAX_DAY_HOURS, gorge }));
   return Array.from({ length: 12 }, (_, m) => {
     const votes: Record<MonthRating, number> = { good: 0, fair: 0, bad: 0 };
     for (const v of per) votes[v[m].rating]++;

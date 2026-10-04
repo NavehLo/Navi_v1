@@ -3,7 +3,7 @@ import { serviceClient } from './supabaseService';
 import { fetchWmt } from './wmtServer';
 import { lonLatToMercator, mercatorToLonLat, type WmtRouteSummary } from './waymarked';
 import { countryCells, climateAt } from './climateGrid';
-import { rateMonths, rateLongWalk, CLIMATE_VERSION, MULTI_DAY_KM, type MonthRating } from './climate';
+import { rateMonths, rateLongWalk, isGorgeName, CLIMATE_VERSION, MULTI_DAY_KM, type MonthRating } from './climate';
 import { estimateHike } from './hikeEffort';
 import { lookupEnglish } from './trailNameCache';
 import { needsEnglish } from './trailNames';
@@ -206,7 +206,7 @@ async function pool<T>(items: T[], size: number, work: (item: T) => Promise<unkn
 
 interface Sample { lon: number; lat: number; ele: number | null }
 
-function rateTrail(samples: Sample[], km: number, multiDay: boolean): MonthRating[] | null {
+function rateTrail(samples: Sample[], km: number, multiDay: boolean, gorge: boolean): MonthRating[] | null {
   if (!multiDay) {
     // A day walk: like the trail card, heat at its lowest point and cold at
     // its highest, for the time it takes.
@@ -218,14 +218,14 @@ function rateTrail(samples: Sample[], km: number, multiDay: boolean): MonthRatin
     if (!lowC || !highC) return null;
     const relief = known.length ? Math.max(0, high.ele! - low.ele!) : 0;
     const hours = estimateHike(km, relief, relief).totalHours;
-    return rateMonths({ low: lowC.months, high: highC.months, lat: (low.lat + high.lat) / 2, hours }).map((m) => m.rating);
+    return rateMonths({ low: lowC.months, high: highC.months, lat: (low.lat + high.lat) / 2, hours, gorge }).map((m) => m.rating);
   }
   // A walk of days: point by point, as rateLongWalk explains.
   const points = samples
     .map((s) => ({ c: climateAt(s.lat, s.lon, s.ele), lat: s.lat }))
     .filter((p): p is { c: NonNullable<typeof p.c>; lat: number } => p.c != null)
     .map((p) => ({ months: p.c.months, lat: p.lat }));
-  return points.length ? rateLongWalk(points).map((m) => m.rating) : null;
+  return points.length ? rateLongWalk(points, gorge).map((m) => m.rating) : null;
 }
 
 // ── Building ─────────────────────────────────────────────────────────────────
@@ -275,7 +275,8 @@ async function build(country: string): Promise<CountryTrailList | null> {
   const trails: CountryTrail[] = [];
   for (const c of chosen) {
     const multiDay = c.km > MULTI_DAY_KM || c.summary.group === 'INT' || c.summary.group === 'NAT';
-    const months = rateTrail(c.samples, c.km, multiDay);
+    const gorge = isGorgeName(c.summary.name) || isGorgeName(english.get(c.summary.id));
+    const months = rateTrail(c.samples, c.km, multiDay, gorge);
     if (!months) continue;
     const mid = c.samples[Math.floor(c.samples.length / 2)];
     trails.push({
