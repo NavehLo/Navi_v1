@@ -41,7 +41,10 @@ export default function MapComponent({ onMapLoad }: { onMapLoad?: (map: mapboxgl
         style: "mapbox://styles/mapbox/satellite-streets-v12",
         center: [34.8516, 31.0461],
         zoom: 6,
-        pitch: 0,
+        // The app opens in 3D (page.tsx: is3D), and terrain seen from straight
+        // above looks flat — the map only looked 3D after turning it off and
+        // on again, which tilts it. Tilted from the start, as that does.
+        pitch: 50,
         // Turned off so the default control can be replaced by a compact one
         // below. It is not optional: the map is Mapbox, the water sources come
         // from OpenStreetMap (ODbL, which requires the credit) and the shade
@@ -170,7 +173,7 @@ export default function MapComponent({ onMapLoad }: { onMapLoad?: (map: mapboxgl
   };
 
   return (
-    <div style={{ width: "100%", height: "100%", position: "absolute" }} className="z-0">
+    <div style={{ width: "100%", height: "100%", position: "absolute" }} className="z-0 select-none">
       <div ref={mapContainer} style={{ width: "100%", height: "100%" }} />
 
       {/* Token input overlay — no window.prompt, works on all devices */}

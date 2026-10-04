@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, ChevronLeft, Footprints, Loader2, RefreshCw, Search, Star, Trophy, X } from 'lucide-react';
 import InfoButton from './help/InfoButton';
 import Collapsible from './Collapsible';
@@ -85,6 +85,18 @@ function crowdFilterCount(f: CrowdFilter): number {
 }
 const trailsMemo = new Map<string, CountryData>();
 
+// Where the reader was: a trail opened from the list unmounts it (the list
+// is not shown over an open trail), and coming back must not mean choosing
+// the country, the area, the month and the filters all over again.
+const kept: {
+  mode?: Mode; month?: number; rating?: MonthRating; country?: string | null;
+  region?: string | null; crowdFilter?: CrowdFilter; scroll?: number;
+} = {};
+
+function keepScroll(top: number) {
+  kept.scroll = top;
+}
+
 function defaultMonth(): number {
   const d = readTripDate();
   const m = d ? Number(d.slice(5, 7)) - 1 : NaN;
@@ -92,14 +104,28 @@ function defaultMonth(): number {
 }
 
 export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: WmtRouteSummary) => void }) {
-  const [mode, setMode] = useState<Mode>('month');
-  const [month, setMonth] = useState(defaultMonth);
-  const [rating, setRating] = useState<MonthRating>('good');
-  const [country, setCountry] = useState<string | null>(null);
+  const [mode, setMode] = useState<Mode>(kept.mode ?? 'month');
+  const [month, setMonth] = useState(() => kept.month ?? defaultMonth());
+  const [rating, setRating] = useState<MonthRating>(kept.rating ?? 'good');
+  const [country, setCountry] = useState<string | null>(kept.country ?? null);
   // The area chosen in the country: null while choosing, 'all' for the whole.
-  const [region, setRegion] = useState<string | null>(null);
+  const [region, setRegion] = useState<string | null>(kept.region ?? null);
   const [query, setQuery] = useState('');
-  const [crowdFilter, setCrowdFilter] = useState<CrowdFilter>(NO_CROWD_FILTER);
+  const [crowdFilter, setCrowdFilter] = useState<CrowdFilter>(kept.crowdFilter ?? NO_CROWD_FILTER);
+  useEffect(() => {
+    Object.assign(kept, { mode, month, rating, country, region, crowdFilter });
+  }, [mode, month, rating, country, region, crowdFilter]);
+  // Another country or area is another list: from its top.
+  const shownList = useRef(`${country}|${region}`);
+  useEffect(() => {
+    const now = `${country}|${region}`;
+    if (shownList.current !== now) keepScroll(0);
+    shownList.current = now;
+  }, [country, region]);
+
+  // The list's scroll position too, so the trail just opened is in view.
+  const listRef = useRef<HTMLDivElement>(null);
+  const restoredScroll = useRef(false);
 
   // ── The countries' climate (instant, cached by the CDN) ─────────────────
   const [climate, setClimate] = useState<Climate | null>(climateMemo);
@@ -176,6 +202,11 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
   const hasRegionStep = (countryData?.regions.length ?? 0) > 1;
   const choosingRegion = hasRegionStep && region == null;
   const countryStatus: Status = country && trailsMemo.has(country) ? 'ok' : trails?.country === country ? trails.status : 'loading';
+  useEffect(() => {
+    if (restoredScroll.current || countryStatus !== 'ok' || !listRef.current) return;
+    restoredScroll.current = true;
+    if (kept.scroll) listRef.current.scrollTop = kept.scroll;
+  }, [countryStatus]);
 
   const shownTrails = useMemo(
     // Day walks first — what most people opening a country are after — then
@@ -398,7 +429,11 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar flex flex-col gap-2 min-h-0">
+        <div
+          ref={listRef}
+          onScroll={(e) => keepScroll(e.currentTarget.scrollTop)}
+          className="flex-1 overflow-y-auto pr-1 custom-scrollbar flex flex-col gap-2 min-h-0"
+        >
           {/* Inside the scrolling part: opened, they are taller than a phone's
               panel, and above the list they would leave the list no room. */}
           {leaders && (

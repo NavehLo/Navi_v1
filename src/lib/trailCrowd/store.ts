@@ -53,8 +53,11 @@ export async function crowdRows(country: string, { fresh = false } = {}): Promis
 
 // The summaries for a country's list, or null when the country has no data
 // (the list then shows nothing about hikers at all).
-export async function crowdForCountry(country: string): Promise<Map<number, CrowdSummary> | null> {
-  const rows = await crowdRows(country);
+// `ids`: the trails of the country's current list. A trail that has left it
+// since (a rebuilt list) must not count in the comparison.
+export async function crowdForCountry(country: string, ids?: Set<number>): Promise<Map<number, CrowdSummary> | null> {
+  const all = await crowdRows(country);
+  const rows = ids ? all.filter((r) => ids.has(r.id)) : all;
   return rows.length ? crowdSummaries(rows) : null;
 }
 

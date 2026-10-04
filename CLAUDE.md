@@ -103,6 +103,16 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   triggered by a visitor; a run that read too few routes must not save. Bump
   `CROWD_VERSION` only when what is stored changes. Google ratings may not be
   stored, so they are not a source.
+- **Going back never loses the reader's place.** A panel that unmounts while
+  a trail is open keeps its state at module level (`WorldByMonth`,
+  `TrailDiscovery`: `kept`) and is reopened through `openSignal`. Close a
+  trail only through `closeTrail` in `page.tsx` — it keeps the trail for
+  "חזרה ל…" and returns to the list it came from; the phone's back button runs
+  the same path (`backRef`).
+- **Every table needs grants in schema.sql**, including service-role-only
+  caches (RLS alone is not enough here; see the rule on database changes).
+  `trail_pois`, `poi_narration`, `narration_audio`, `trail_info`,
+  `trail_name_en` and `trail_country` were missing theirs until 2026-10.
 - **Israel-only data stays in Israel.** The summer water/shade section and the
   רט״ג reminder are shown only when `isTrailInIsrael` (`src/lib/inIsrael.ts`)
   says so; anything new that relies on Israeli data (the canopy grid, the

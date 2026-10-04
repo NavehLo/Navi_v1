@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useOutsideTap } from '../hooks/useOutsideTap';
-import { X, ExternalLink, BookOpen, BookOpenText, Download, Loader2, TrendingUp, TrendingDown, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, ExternalLink, BookOpen, BookOpenText, Download, Loader2, TrendingUp, TrendingDown, ChevronDown, ChevronUp, List } from 'lucide-react';
 import type { WorldTrailSelection } from '../hooks/useWorldTrails';
 import { groupLabel, wikipediaUrl } from '../lib/waymarked';
 import { englishFromTags, needsEnglish, usefulEnglish } from '../lib/trailNames';
@@ -36,7 +36,7 @@ function useEnglishName(id: number, name: string | undefined, tags: Record<strin
 // route it describes can be looked at on the map — on a phone the open card
 // covers much of it. A new card always opens unfolded.
 export default function WorldTrailCard({
-  selection, onClose, onLoad, onShowInfo, onPickStage, onBackToParent, siblings = null, onStep,
+  selection, onClose, onLoad, onShowInfo, onPickStage, onBackToParent, siblings = null, onStep, onBackToList,
 }: {
   selection: WorldTrailSelection;
   onClose: () => void;
@@ -50,6 +50,8 @@ export default function WorldTrailCard({
   // On a stage: its long trail's stages, to step to the one before or after.
   siblings?: WmtStage[] | null;
   onStep: (stage: WmtStage) => void;
+  // Opened from "בעולם לפי חודש": back to that list, as it was left.
+  onBackToList?: () => void;
 }) {
   const d = selection.details;
   const name = d?.name ?? selection.summary?.name ?? 'מסלול מסומן';
@@ -123,6 +125,15 @@ export default function WorldTrailCard({
           <X className="w-4 h-4 text-white" />
         </button>
       </div>
+
+      {onBackToList && (
+        <button
+          onClick={onBackToList}
+          className="self-start flex items-center gap-1.5 text-xs font-bold text-white bg-white/10 hover:bg-white/15 border border-white/15 px-3 py-1.5 rounded-full transition-colors"
+        >
+          <List className="w-3.5 h-3.5" /> חזרה לרשימה
+        </button>
+      )}
 
       {selection.parent && (
         collapsed

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, memo, useRef, useSyncExternalStore } from "react";
 import mapboxgl from "mapbox-gl";
-import { EyeOff, TriangleAlert, LocateFixed, VolumeX } from "lucide-react";
+import { EyeOff, TriangleAlert, LocateFixed, VolumeX, Undo2, X } from "lucide-react";
 import MapComponent from "@/components/Map";
 import StatsPanel from "@/components/StatsPanel";
 import TrailDiscovery from "@/components/TrailDiscovery";
@@ -53,7 +53,7 @@ import {
   saveTrail, recordTour, SavedTrail, describeSupabaseError, clearPersonalCache,
   listSavedTrails, listTourHistory, listTrailNotes, cachePersonalData, warmSavedTrailFiles,
 } from "@/lib/personalArea";
-import type { TrailPOI, DrivePlace, TrailSource, WmtParent } from "@/hooks/useTrailData";
+import type { TrailData, TrailPOI, DrivePlace, TrailSource, WmtParent } from "@/hooks/useTrailData";
 import { ElevenLabsCreditsAlert } from "@/components/ElevenLabsCredits";
 
 // Which of the two worlds the home screen is in: hiking trails, or a drive
@@ -160,6 +160,10 @@ function TokenGate({ children }: { children: React.ReactNode }) {
 export default function TrailApp() {
   const [map, setMap] = useState<mapboxgl.Map | null>(null);
   const [is3D, setIs3D] = useState(true);
+  // For what reads it without re-running on a toggle: the fit to a newly
+  // opened trail, and a change of map style.
+  const is3DRef = useRef(is3D);
+  useEffect(() => { is3DRef.current = is3D; }, [is3D]);
   const [mapBearing, setMapBearing] = useState(0);
   const [styleRev, setStyleRev] = useState(0);
   // Which of the three map styles is showing. The offline pack is saved in
@@ -177,11 +181,45 @@ export default function TrailApp() {
     enableWorldTrails();
     selectWorldTrail(summary.id, summary, { fit: true });
   }, [enableWorldTrails, selectWorldTrail]);
+  // ── Going back ────────────────────────────────────────────────────────────
+  // A card opened from "בעולם לפי חודש" leads back to that list, and so does
+  // closing a trail loaded from such a card: the panel opens where the reader
+  // left it (it remembers the country, area, month and filters). Any closed
+  // trail can be brought back with one tap, until another one is opened.
+  const [cardFromList, setCardFromList] = useState(false);
+  const [discoveryOpen, setDiscoveryOpen] = useState(0);
+  const trailFromListRef = useRef(false);
+  const [lastClosed, setLastClosed] = useState<{ trail: TrailData; source: TrailSource | null } | null>(null);
+  const pickFromList = useCallback((summary: WmtRouteSummary) => {
+    setCardFromList(true);
+    pickWorldTrail(summary);
+  }, [pickWorldTrail]);
+  const pickFromMap = useCallback((summary: WmtRouteSummary) => {
+    setCardFromList(false);
+    pickWorldTrail(summary);
+  }, [pickWorldTrail]);
+  const closeTrail = useCallback(() => {
+    if (trail) setLastClosed({ trail, source: trailSource });
+    setTrail(null);
+    if (trailFromListRef.current) {
+      trailFromListRef.current = false;
+      setDiscoveryOpen((n) => n + 1);
+    }
+  }, [trail, trailSource, setTrail]);
+  const reopenLastTrail = useCallback(() => {
+    if (!lastClosed) return;
+    const { trail: t, source } = lastClosed;
+    setLastClosed(null);
+    loadTrailFromCoords(t.coords, t.name, source ?? { kind: 'file', content: coordsToGpx(t.coords, t.name) }, {
+      kind: t.kind, driveDurationSec: t.driveDurationSec,
+    });
+  }, [lastClosed, loadTrailFromCoords]);
+
   // The leading trails of the collected countries, as stars over the overlay.
   useTrailLeaders(map, styleRev, {
     enabled: worldTrails.enabled,
     muted: !!trail || !!worldTrails.selection,
-    onPick: pickWorldTrail,
+    onPick: pickFromMap,
   });
 
   // "על המסלול": which trail's description is open, if any.
@@ -561,29 +599,34 @@ export default function TrailApp() {
     initializedMap.on('rotate', () => setMapBearing(initializedMap.getBearing()));
   }, []);
 
-  // Handle Android/Smartphone back button
+  // An open trail, and a world trail's card, each get an entry in the
+  // browser's history, so the phone's back button steps back out of them:
+  // the trail closes (to the list it was opened from, if any — and it can be
+  // brought back, see "Going back"), the card goes back to its list or
+  // closes. No "are you sure": nothing is lost by stepping back.
+  const hasCard = !!worldTrails.selection;
   useEffect(() => {
-    if (trail) {
-      // Add a history entry when a trail becomes active
-      window.history.pushState({ trailLoaded: true }, "");
-    }
+    if (trail) window.history.pushState({ navi: 'trail' }, "");
   }, [trail]);
-
   useEffect(() => {
-    const handlePopState = (e: PopStateEvent) => {
-      if (trail) {
-        const confirmExit = window.confirm("האם ברצונך לצאת ממפת המסלול ולחזור למסך הבית?");
-        if (confirmExit) {
-          setTrail(null);
-        } else {
-          // Push state again to keep them on the trail
-          window.history.pushState({ trailLoaded: true }, "");
-        }
+    if (hasCard) window.history.pushState({ navi: 'card' }, "");
+  }, [hasCard]);
+  const backRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    backRef.current = () => {
+      if (trail) closeTrail();
+      else if (worldTrails.selection) {
+        if (cardFromList) setDiscoveryOpen((n) => n + 1);
+        setCardFromList(false);
+        worldTrails.clearSelection();
       }
     };
+  });
+  useEffect(() => {
+    const handlePopState = () => backRef.current();
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [trail, setTrail]);
+  }, []);
 
   const handleStyleChange = useCallback((key: string) => {
     if (!map) return;
@@ -592,6 +635,8 @@ export default function TrailApp() {
                      'mapbox://styles/mapbox/light-v11';
     map.setStyle(styleUrl);
     map.once('style.load', () => {
+      // Map.tsx puts the terrain back on every new style; 2D stays 2D.
+      if (!is3DRef.current) { try { map.setTerrain(null); } catch {} }
       setStyleKey(key);
       setStyleRev(r => r + 1);
     });
@@ -878,14 +923,17 @@ export default function TrailApp() {
     const lats = trail.coords.map(c => c[0]);
     map.fitBounds(
       [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
-      { padding: 60, duration: 1200, pitch: 45 }
+      { padding: 60, duration: 1200, pitch: is3D ? 45 : 0 }
     );
-  }, [map, trail]);
+  }, [map, trail, is3D]);
 
   // Render trail cleanly via useEffect to avoid rendering phase side-effects
   const currentTrailIdRef = useRef<string | null>(null);
 
   useEffect(() => {
+    // Closed, a trail is forgotten here: opened again (from "חזרה ל…"),
+    // it is framed again like any new one.
+    if (!trail) currentTrailIdRef.current = null;
     if (!map || !trail) return;
 
     const addTrailLayers = () => {
@@ -930,7 +978,7 @@ export default function TrailApp() {
         currentTrailIdRef.current = trail.name || "temp";
         const bounds = new mapboxgl.LngLatBounds();
         trail.coords.forEach(c => bounds.extend([c[1], c[0]]));
-        map.fitBounds(bounds, { padding: 80, duration: 1500, pitch: 45 });
+        map.fitBounds(bounds, { padding: 80, duration: 1500, pitch: is3DRef.current ? 45 : 0 });
       }
     };
 
@@ -1194,8 +1242,11 @@ export default function TrailApp() {
     worldTrails.clearSelection();
   };
 
+  // Text in the panels and cards can be selected and copied — a village's
+  // name to look up, a place from "על המסלול". The map and the button rails
+  // are not (Map.tsx, Controls.tsx): there a long press is a gesture.
   return (
-    <div className="w-full h-dvh relative bg-zinc-900 overflow-hidden m-0 p-0 select-none touch-none" dir="rtl">
+    <div className="w-full h-dvh relative bg-zinc-900 overflow-hidden m-0 p-0 touch-none" dir="rtl">
       {/* Map Engine Layer */}
       <MemoizedMapComponent onMapLoad={handleMapLoad} />
 
@@ -1225,9 +1276,11 @@ export default function TrailApp() {
         </div>
       )}
 
-      {/* Where in the world to look. Both home screens get it; a trail does
-          not — once one is open the map follows the trail, not a search. */}
-      {map && !trail && !uiHidden && (
+      {/* Where in the world to look — on both home screens, and over an open
+          trail too: a village named in "על המסלול", the way to the start.
+          A place picked there only moves the map and gets a pin; the trail
+          stays as it is. */}
+      {map && !uiHidden && !isMeasuring && (
         <PlaceSearchBox
           // A new one for each mode, so the pin of a place searched on the
           // other side goes with it.
@@ -1239,7 +1292,8 @@ export default function TrailApp() {
           // Trails are found by name only where trails are being looked for.
           // A route picked from the list should be visible on the map, so the
           // world trails layer is switched on with it.
-          onPickTrail={appMode === 'trails' ? (t) => {
+          onPickTrail={appMode === 'trails' && !trail ? (t) => {
+            setCardFromList(false);
             worldTrails.enable();
             worldTrails.select(t.id, t, { fit: true });
           } : undefined}
@@ -1263,7 +1317,8 @@ export default function TrailApp() {
             offlinePacks={mapPacks}
             onSelectPack={openPack}
             online={online}
-            onPickWorldTrail={pickWorldTrail}
+            onPickWorldTrail={pickFromList}
+            openSignal={discoveryOpen}
           />
         </div>
       )}
@@ -1288,7 +1343,7 @@ export default function TrailApp() {
 
       {/* Stats UI Layer */}
       {trail && !uiHidden && !isMeasuring && (
-        <MemoizedStatsPanel trail={trail} progress={progress} onClose={() => setTrail(null)} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} water={water} waterStatus={waterStatus} userPos={userOnTrail} weather={tripWeather} climate={trailClimate} waypoints={activeWaypoints} onShowInfo={openTrailInfo ? showOpenTrailInfo : undefined} inIsrael={trailInIsrael === true} stages={trailStages} />
+        <MemoizedStatsPanel trail={trail} progress={progress} onClose={closeTrail} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} water={water} waterStatus={waterStatus} userPos={userOnTrail} weather={tripWeather} climate={trailClimate} waypoints={activeWaypoints} onShowInfo={openTrailInfo ? showOpenTrailInfo : undefined} inIsrael={trailInIsrael === true} stages={trailStages} />
       )}
 
       {/* Measuring: the floating pin and its panel. Keyed by the trail so
@@ -1364,7 +1419,7 @@ export default function TrailApp() {
         mapBearing={mapBearing}
         onFitToTrail={handleFitToTrail}
         hasTrail={!!trail}
-        onHome={() => setTrail(null)}
+        onHome={closeTrail}
         tourProgress={progress}
         onOpenSettings={() => setShowSettings(true)}
         isGuideEnabled={isGuideEnabled}
@@ -1382,8 +1437,18 @@ export default function TrailApp() {
           // A new card always opens unfolded.
           key={worldTrails.selection.id}
           selection={worldTrails.selection}
-          onClose={worldTrails.clearSelection}
-          onLoad={worldTrails.loadSelected}
+          onClose={() => { setCardFromList(false); worldTrails.clearSelection(); }}
+          onLoad={() => {
+            trailFromListRef.current = cardFromList;
+            setCardFromList(false);
+            setLastClosed(null);
+            worldTrails.loadSelected();
+          }}
+          onBackToList={cardFromList ? () => {
+            setCardFromList(false);
+            worldTrails.clearSelection();
+            setDiscoveryOpen((n) => n + 1);
+          } : undefined}
           onShowInfo={() => setInfoRequest({
             kind: 'wmt',
             id: worldTrails.selection!.id,
@@ -1416,6 +1481,22 @@ export default function TrailApp() {
         />
       )}
       {infoRequest && <TrailInfoPanel key={trailInfoKey(infoRequest)} request={infoRequest} onClose={() => setInfoRequest(null)} />}
+      {/* The trail just closed, one tap from coming back — below the place
+          search, where a closed trail's reader is likely looking. */}
+      {lastClosed && !trail && !uiHidden && !isMeasuring && !worldTrails.selection && (
+        <div className="absolute top-[112px] right-4 md:top-[120px] md:right-[412px] z-40 flex items-center gap-1 bg-zinc-900/90 border border-white/15 rounded-full shadow-xl backdrop-blur-md max-w-[calc(100%-140px)] md:max-w-sm" dir="rtl">
+          <button
+            onClick={reopenLastTrail}
+            className="flex items-center gap-1.5 min-w-0 pr-3 pl-1 py-2 text-sm font-bold text-white"
+          >
+            <Undo2 className="w-4 h-4 shrink-0 text-orange-400" />
+            <span className="truncate">חזרה ל<bdi>{lastClosed.trail.name}</bdi></span>
+          </button>
+          <button onClick={() => setLastClosed(null)} className="p-2 shrink-0 text-white" aria-label="הסתר">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
       {worldTrails.hint && (
         // Below the place search, which used to be hidden under it.
         <div className="absolute top-[112px] md:top-[120px] left-1/2 -translate-x-1/2 z-50 bg-zinc-900/90 text-white text-xs font-bold px-4 py-2 rounded-full border border-white/10 backdrop-blur-md shadow-xl pointer-events-none" dir="rtl">

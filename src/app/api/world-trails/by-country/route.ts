@@ -21,7 +21,7 @@ import { crowdForCountry } from '../../../../lib/trailCrowd/store';
 type Status = 'ok' | 'unavailable' | 'rate-limited';
 
 async function withCrowd(list: CountryTrailList) {
-  const crowd = await crowdForCountry(list.country);
+  const crowd = await crowdForCountry(list.country, new Set(list.trails.map((t) => t.id)));
   if (!crowd) return list;
   return { ...list, hasCrowd: true, trails: list.trails.map((t) => ({ ...t, crowd: crowd.get(t.id) })) };
 }

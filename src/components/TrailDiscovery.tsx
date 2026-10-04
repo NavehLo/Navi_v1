@@ -41,24 +41,53 @@ interface TrailDiscoveryProps {
   // A world trail picked from "בעולם לפי חודש": opens its card, as the search
   // box does.
   onPickWorldTrail?: (summary: WmtRouteSummary) => void;
+  // Raised by the page to open the panel on the list the reader came from
+  // ("חזרה לרשימה" on a trail's card, or closing a trail opened from it).
+  openSignal?: number;
+}
+
+// What the panel was showing: an open trail unmounts it, and closing the
+// trail should find the same tab and filters (WorldByMonth keeps its own).
+const kept: {
+  scope?: 'israel' | 'world'; region?: string | null; type?: string | null;
+  shade?: ShadeFilter | null; water?: WaterFilter | null;
+} = {};
+// The last open request acted on — one request opens the panel once, not on
+// every later remount.
+let openedFor = 0;
+function markOpened(n: number) {
+  openedFor = n;
 }
 
 function packDaysLeft(pack: MapPack): number {
   return Math.ceil((pack.expiresAt - Date.now()) / (24 * 60 * 60 * 1000));
 }
 
-export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading, error, styleRev, offlinePacks = [], onSelectPack, online = true, onPickWorldTrail }: TrailDiscoveryProps) {
+export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading, error, styleRev, offlinePacks = [], onSelectPack, online = true, onPickWorldTrail, openSignal = 0 }: TrailDiscoveryProps) {
   const [trails, setTrails] = useState<TrailInfo[]>([]);
-  const [filterRegion, setFilterRegion] = useState<string | null>(null);
-  const [filterType, setFilterType] = useState<string | null>(null);
+  const [filterRegion, setFilterRegion] = useState<string | null>(kept.region ?? null);
+  const [filterType, setFilterType] = useState<string | null>(kept.type ?? null);
   const [showUploader, setShowUploader] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(() => openSignal > openedFor);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [filterShade, setFilterShade] = useState<ShadeFilter | null>(null);
-  const [filterWater, setFilterWater] = useState<WaterFilter | null>(null);
+  const [filterShade, setFilterShade] = useState<ShadeFilter | null>(kept.shade ?? null);
+  const [filterWater, setFilterWater] = useState<WaterFilter | null>(kept.water ?? null);
   // The packaged Israeli trails, or marked trails abroad chosen by month.
-  const [scope, setScope] = useState<'israel' | 'world'>('israel');
+  const [scope, setScope] = useState<'israel' | 'world'>(kept.scope ?? 'israel');
+  useEffect(() => {
+    Object.assign(kept, { scope, region: filterRegion, type: filterType, shade: filterShade, water: filterWater });
+  }, [scope, filterRegion, filterType, filterShade, filterWater]);
+  // Opened on request: on mounting with a new one (a trail just closed), or
+  // when one comes while the panel is only hidden (a card just closed).
+  const [seenSignal, setSeenSignal] = useState(openSignal);
+  if (openSignal !== seenSignal) {
+    setSeenSignal(openSignal);
+    if (openSignal > openedFor) setIsExpanded(true);
+  }
+  useEffect(() => {
+    if (openSignal > openedFor) markOpened(openSignal);
+  }, [openSignal]);
 
   // Open, the list covers the side buttons (see the z-index below); a tap
   // anywhere else folds it back to its title bar.

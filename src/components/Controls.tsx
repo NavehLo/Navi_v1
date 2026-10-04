@@ -158,7 +158,7 @@ export default function Controls(props: ControlsProps) {
   return (
     <>
       {/* Top-right: home + hide-everything */}
-      <div className="absolute top-3 right-3 z-[42] flex flex-col items-end gap-2" dir="rtl">
+      <div className="absolute top-3 right-3 z-[42] flex flex-col items-end gap-2 select-none" dir="rtl">
         <div className={PILL}>
           {hasTrail && onHome && (
             <RailBtn label="בית" labelsOn={labelsOn} onClick={onHome} title="מסך הבית — יציאה מהמסלול">
@@ -183,7 +183,7 @@ export default function Controls(props: ControlsProps) {
           that is the left: with items-start the pills lined up on the right
           of the column, which is as wide as the scale bar under them, and so
           stood off the edge of the screen by however long the bar was. */}
-      <div className="absolute top-3 left-3 z-[42] flex flex-col items-end gap-2" dir="rtl" data-tour="rail">
+      <div className="absolute top-3 left-3 z-[42] flex flex-col items-end gap-2 select-none" dir="rtl" data-tour="rail">
         <div className={PILL}>
           <RailBtn
             btnRef={layersBtnRef}

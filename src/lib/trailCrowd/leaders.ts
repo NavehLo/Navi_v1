@@ -3,7 +3,7 @@
 // own list picks its leaders itself, from the same function (leadersOf).
 
 import { serviceClient } from '../supabaseService';
-import { storedCountryTrails, type CountryTrail } from '../countryTrails';
+import { countryTrails, type CountryTrail } from '../countryTrails';
 import { CROWD_VERSION, leadersOf, type CrowdSummary } from './score';
 import { crowdForCountry } from './store';
 
@@ -41,8 +41,12 @@ export async function allLeaders(): Promise<Record<string, CountryLeaders>> {
   if (memo && Date.now() - memo.at < MEMORY_MS) return memo.leaders;
   const out: Record<string, CountryLeaders> = {};
   for (const country of await collectedCountries()) {
-    const [list, crowd] = await Promise.all([storedCountryTrails(country), crowdForCountry(country)]);
-    if (!list || !crowd) continue;
+    // Built if need be (a new list format rebuilds every country): a country
+    // skipped here would be missing from the cache for its whole lifetime.
+    const list = await countryTrails(country);
+    if (!list) continue;
+    const crowd = await crowdForCountry(country, new Set(list.trails.map((t) => t.id)));
+    if (!crowd) continue;
     const trails = list.trails.map((t) => ({ ...t, crowd: crowd.get(t.id) }));
     const { day, long } = leadersOf(trails);
     const slim = (t: (typeof trails)[number]): LeaderTrail => ({

@@ -56,9 +56,10 @@ export interface CountryTrailList {
 }
 
 // What a stored list is checked against: the rating rules, and the shape of
-// the list itself (LIST_FORMAT — 2 added the areas). Both live in the table's
-// climate_version column, so a change to either rebuilds every country.
-const LIST_FORMAT = 2;
+// the list itself (LIST_FORMAT — 2 added the areas, 4 left out the
+// international paths). Both live in the table's climate_version column, so a
+// change to either rebuilds every country.
+const LIST_FORMAT = 4;
 const STORED_VERSION = CLIMATE_VERSION * 100 + LIST_FORMAT;
 
 const MAX_TILES = 12;
@@ -250,6 +251,13 @@ async function build(country: string): Promise<CountryTrailList | null> {
     const sampled = evenly(lines.flat(), 30);
     const inside = sampled.filter(([lon, lat]) => iso1A2Code([lon, lat]) === country);
     if (inside.length === 0) continue;
+    // An international path (the E4, ten thousand kilometres from Gibraltar
+    // to Cyprus) is not this country's trail: the squares see only its part
+    // here — often all of it inside, so it does not even seem to cross the
+    // border — but its card and "טען" are the whole of it, and load its
+    // longest piece, in Spain. Its parts in this country are mapped as routes
+    // of their own ("E4 – part Greece, Central"), and those are kept.
+    if (summary.group === 'INT') continue;
     // The squares reach over the border; only the share inside counts.
     const km = lines.reduce((s, l) => s + lineKm(l), 0) * (inside.length / sampled.length);
     if (km < 0.5) continue;

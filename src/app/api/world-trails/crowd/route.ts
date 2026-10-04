@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { rateLimit, clientIp } from '../../../../lib/rateLimit';
 import { crowdCountryOf, crowdRows } from '../../../../lib/trailCrowd/store';
 import { crowdSummaries } from '../../../../lib/trailCrowd/score';
+import { storedCountryTrails } from '../../../../lib/countryTrails';
 
 // GET ?id=<relation> → "מה אומרים מטיילים" for the trail card: the traffic
 // tier and rating (as in the country list) and each review site's numbers
@@ -16,7 +17,10 @@ export async function GET(request: Request) {
   }
   const country = await crowdCountryOf(id);
   if (!country) return NextResponse.json({ status: 'none' });
-  const rows = await crowdRows(country);
+  // Compared with the trails of the country's current list, as in the list.
+  const list = await storedCountryTrails(country);
+  const all = await crowdRows(country);
+  const rows = list ? all.filter((r) => list.trails.some((t) => t.id === r.id) || r.id === id) : all;
   const row = rows.find((r) => r.id === id);
   if (!row) return NextResponse.json({ status: 'none' });
   const summary = crowdSummaries(rows).get(id)!;

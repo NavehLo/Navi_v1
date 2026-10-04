@@ -41,6 +41,8 @@ export interface CrowdSummary {
   // Its place among the country's trails with any signal, 0–1 (1 = the
   // busiest); null without one. Orders the trails within a tier.
   score: number | null;
+  // Hikers by the sites' own count (Komoot); null when only Wikipedia knows it.
+  hikers: number | null;
   rating: number | null;   // null: fewer than MIN_REVIEWS reviews with a score
   ratingCount: number;
 }
@@ -147,7 +149,11 @@ export function crowdSummaries(rows: CrowdData[]): Map<number, CrowdSummary> {
   for (const r of rows) {
     const { rating, count } = ratingOf(r.sources);
     const traffic = tiers.get(r.id) ?? 'unknown';
-    out.set(r.id, { traffic, score: traffic === 'unknown' ? null : scores.get(r.id) ?? null, rating, ratingCount: count });
+    const hikers = trafficSignal(r.sources);
+    out.set(r.id, {
+      traffic, score: traffic === 'unknown' ? null : scores.get(r.id) ?? null,
+      hikers: hikers > 0 ? hikers : null, rating, ratingCount: count,
+    });
   }
   return out;
 }
@@ -155,9 +161,9 @@ export function crowdSummaries(rows: CrowdData[]): Map<number, CrowdSummary> {
 // ── The leading trails ───────────────────────────────────────────────────────
 // "המסלולים המובילים": a country's (or an area's) busiest trails, the same
 // everywhere they are shown — the country's list, the country picker and the
-// stars on the map. Day walks and long-distance paths apart: the busiest of
-// the first are known from Komoot's hikers, of the second mostly from
-// Wikipedia, and the two do not compare.
+// stars on the map. Day walks and long-distance paths apart, and only trails
+// hikers were counted on: a long path known only from Wikipedia may be famous
+// for something else (Greece's "classic marathon" route is the race's).
 
 export const LEADING_DAY = 10;
 export const LEADING_LONG = 3;
@@ -169,21 +175,10 @@ export function byTraffic<T extends { crowd?: CrowdSummary }>(a: T, b: T): numbe
 }
 
 export function leadersOf<T extends { crowd?: CrowdSummary; multiDay: boolean }>(trails: T[]): { day: T[]; long: T[] } {
-  const ranked = trails.filter((t) => t.crowd && t.crowd.traffic !== 'unknown').sort(byTraffic);
-  // The parts of one long-distance path (the E4 through Crete, through the
-  // Peloponnese…) share its Wikipedia article, and so its number exactly;
-  // the first stands for them all.
-  const seen = new Set<number>();
-  const long = ranked.filter((t) => {
-    if (!t.multiDay) return false;
-    const key = t.crowd!.score!;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const ranked = trails.filter((t) => t.crowd && t.crowd.traffic !== 'unknown' && t.crowd.hikers).sort(byTraffic);
   return {
     day: ranked.filter((t) => !t.multiDay).slice(0, LEADING_DAY),
-    long: long.slice(0, LEADING_LONG),
+    long: ranked.filter((t) => t.multiDay).slice(0, LEADING_LONG),
   };
 }
 

@@ -167,6 +167,9 @@ alter table public.poi_narration enable row level security;
 alter table public.narration_audio enable row level security;
 -- אין policy בכוונה: service_role עוקף RLS, ולקוחות לא ניגשים לטבלאות האלה
 -- ישירות — הם מקבלים טקסט ו-URL מ-/api/tour-guide.
+-- RLS לא מספיק: בפרויקט אין הרשאות ברירת מחדל, ובלי grant גם service_role נדחה (42501).
+grant select, insert, update on public.poi_narration to service_role;
+grant select, insert, update on public.narration_audio to service_role;
 
 -- ── cache קבוע לנקודות שהתגלו במסלול ────────────────────────────────────────
 -- הגילוי פונה ל-Overpass, שירות ציבורי חינמי שעונה תוך שנייה או נכשל בשגיאת
@@ -188,6 +191,7 @@ create table if not exists public.trail_pois (
 alter table public.trail_pois enable row level security;
 -- אין policy, מאותה סיבה: הכתיבה והקריאה נעשות רק מהשרת עם service_role,
 -- והלקוח מקבל את הרשימה מ-/api/pois.
+grant select, insert, update on public.trail_pois to service_role;
 
 -- ── שמות באנגלית למסלולי עולם ──────────────────────────────────────────────
 -- מסלולים מ-Waymarked Trails ששמם בכתב לא-לטיני (יוונית, קירילית, יפנית…)
@@ -241,6 +245,7 @@ create table if not exists public.trail_info (
 
 alter table public.trail_info enable row level security;
 -- אין policy: רק השרת עם service_role קורא וכותב.
+grant select, insert, update on public.trail_info to service_role;
 
 -- bucket ציבורי לקריאה. קבצי ה-mp3 מוגשים ישירות ממנו, כך שה-Service Worker
 -- והדפדפן יכולים לשמור אותם, ואפשר להוריד מסלול שלם לשימוש בלי קליטה.

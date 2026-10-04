@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { allLeaders } from '../../../../lib/trailCrowd/leaders';
 
+// A country's list may have to be built first (tens of seconds, rarely).
+export const maxDuration = 60;
+
 // GET → {status, countries: {GR: {day, long}}}: the leading trails of every
 // country whose "מה אומרים מטיילים" has been collected — the names under a
 // country in the picker, and the stars on the map. The same for everybody,
