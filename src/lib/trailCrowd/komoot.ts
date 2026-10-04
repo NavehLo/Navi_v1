@@ -99,7 +99,10 @@ export function parseGuide(url: string, html: string): KomootRoute[] {
   const start = text.indexOf('"discoverTours":{"items":[');
   if (start < 0) return [];
   const body = text.slice(start);
-  const heads = [...body.matchAll(/\{"id":"(\d+)","status":"public","name":"((?:[^"\\]|\\.)*)"/g)];
+  // A route's id is a number for Komoot's own suggestions and a code
+  // ("e945461356") for a hiker's published one; Spain's pages are mostly the
+  // second. What follows the name tells a route from anything else so shaped.
+  const heads = [...body.matchAll(/\{"id":"([0-9a-z]+)","status":"public","name":"((?:[^"\\]|\\.)*)"(?=,"(?:source|nameTranslationMetadata)")/g)];
   const routes: KomootRoute[] = [];
   const seen = new Set<string>();
   for (let k = 0; k < heads.length && routes.length < 10; k++) {

@@ -50,8 +50,10 @@ export interface CrowdSummary {
 // Below this many scored reviews an average says little.
 export const MIN_REVIEWS = 5;
 // Below this many trails with any signal, "compared with the others in the
-// country" compares too few to mean anything.
-export const MIN_SIGNALS = 20;
+// country" compares too few to mean anything. Ten still splits into the five
+// tiers (one or two in each end); twenty left Malta, with 14 of its 37 trails
+// on Komoot, without any.
+export const MIN_SIGNALS = 10;
 
 // Shares of the trails with a signal, busiest first: 10% / 20% / 40% / 20% / 10%.
 const TIER_CUTS: Array<[number, Traffic]> = [
