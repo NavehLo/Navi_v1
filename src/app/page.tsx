@@ -45,6 +45,7 @@ import { useSummerConditions } from "@/hooks/useSummerConditions";
 import { useTripWeather } from "@/hooks/useTripWeather";
 import { useTrailClimate } from "@/hooks/useTrailClimate";
 import { useWorldTrails } from "@/hooks/useWorldTrails";
+import { usePlacePhotos } from "@/hooks/usePlacePhotos";
 import { useTrailLeaders } from "@/hooks/useTrailLeaders";
 import { useWmtStages } from "@/hooks/useWmtStages";
 import type { TrailStages } from "@/components/StatsPanel";
@@ -174,6 +175,8 @@ export default function TrailApp() {
   const { trail, setTrail, trailSource, loadTrailFile, loadTrailFromUrl, loadTrailFromText, loadTrailFromCoords, trailError, trailLoading } = useTrailData();
   // Marked hiking routes from OSM, worldwide, as an overlay anyone can tap.
   const worldTrails = useWorldTrails(map, styleRev, { onLoadTrail: loadTrailFromCoords, focused: !!trail });
+  // A tap on a beach, peak or village named on the map offers its photos on Google.
+  usePlacePhotos(map);
   // A world trail chosen from "בעולם לפי חודש" opens its card, as one picked
   // in the search box does — with the layer on, so it can be seen.
   const { enable: enableWorldTrails, select: selectWorldTrail } = worldTrails;

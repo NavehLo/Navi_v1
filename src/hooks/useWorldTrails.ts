@@ -18,6 +18,7 @@ import { needsEnglish } from '../lib/trailNames';
 import { translateWorldTrails } from '../lib/worldTrailSearch';
 import { seedWmtStages } from './useWmtStages';
 import { LEADERS_DOT } from './useTrailLeaders';
+import { placeLabelAt } from './usePlacePhotos';
 
 // The world trails overlay: every marked hiking route in OpenStreetMap, drawn
 // from Waymarked Trails' tiles, with a tap on a route opening its card.
@@ -373,6 +374,8 @@ export function useWorldTrails(map: mapboxgl.Map | null, styleRev: number, { onL
       // marker's business.
       const markerLayers = ['unclustered-point', 'clusters', LEADERS_DOT].filter((id) => map.getLayer(id));
       if (markerLayers.length && map.queryRenderedFeatures(e.point, { layers: markerLayers }).length) return;
+      // So is a tap on a place name the map writes: it opens that place's photos.
+      if (placeLabelAt(map, e.point)) return;
 
       if (map.getZoom() < MIN_CLICK_ZOOM) {
         showHint('התקרב כדי לבחור מסלול');

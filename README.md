@@ -24,6 +24,7 @@
 | בניית מסלול וניווט | כפתור "בניית מסלול": מסלול הליכה בין כמה נקודות עם המרחק, צמוד לשבילים, והפיכתו למסלול לניווט | `src/components/MeasureTool.tsx`, `src/lib/pathSnap.ts` |
 | נסיעה בכביש | מוצא, יעד ועצירות, עד שלוש דרכים לבחירה (Mapbox Directions) | `src/components/DrivePlanner.tsx`, `src/lib/mapboxDirections.ts` |
 | חיפוש מקומות | תיבת חיפוש בעברית ובאנגלית (Mapbox ו-OpenStreetMap), גם כשמסלול פתוח — מקום שנבחר מקבל סיכה והמסלול נשאר | `src/components/PlaceSearchBox.tsx`, `src/lib/mapboxSearch.ts`, `src/lib/osmPlaces.ts` |
+| תמונות של מקום | לחיצה על שם שהמפה עצמה כותבת (חוף, פסגה, מפרץ, מערה, כפר) פותחת כרטיס קטן עם כפתור "📷 תמונות בגוגל", שפותח בדפדפן את תמונות Google של המקום לפי שמו המקומי. חינם — זה רק קישור, בלי קריאה לשירות בתשלום | `src/hooks/usePlacePhotos.ts` |
 | אזור אישי | התחברות עם Google, מסלולים שמורים, הערות ודירוג, היסטוריה | `src/components/PersonalArea.tsx`, `src/lib/personalArea.ts` |
 | הדרכה למשתמשים חדשים | סיור פתיחה, טיפים חד-פעמיים, כפתורי ⓘ ו"מדריכים ומידע נוסף" בהגדרות (שורה אחת שנפתחת בלחיצה) | `src/components/help/`, `src/lib/onboarding.ts` |
 | כלי המנהל | ספק ה-AI, הקול, הניקוד, בדיקה בלי קליטה, איסוף "מה אומרים מטיילים" למדינה, שימוש ועלויות AI וקרדיטים של ElevenLabs | `src/components/SettingsPanel.tsx`, `AiUsagePanel.tsx`, `ElevenLabsCredits.tsx` |
