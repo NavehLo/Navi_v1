@@ -3,7 +3,7 @@ import { serviceClient } from './supabaseService';
 import { fetchWmt } from './wmtServer';
 import { lonLatToMercator, mercatorToLonLat, type WmtRouteSummary } from './waymarked';
 import { countryCells, climateAt } from './climateGrid';
-import { rateMonths, rateLongWalk, isGorgeName, CLIMATE_VERSION, MULTI_DAY_KM, type MonthRating } from './climate';
+import { rateMonths, rateLongWalk, crossesClimates, isGorgeName, CLIMATE_VERSION, MULTI_DAY_KM, type MonthRating } from './climate';
 import { estimateHike } from './hikeEffort';
 import { lookupEnglish } from './trailNameCache';
 import { needsEnglish } from './trailNames';
@@ -225,9 +225,9 @@ async function pool<T>(items: T[], size: number, work: (item: T) => Promise<unkn
 interface Sample { lon: number; lat: number; ele: number | null }
 
 function rateTrail(samples: Sample[], km: number, multiDay: boolean, gorge: boolean): MonthRating[] | null {
-  if (!multiDay) {
-    // A day walk: like the trail card, heat at its lowest point and cold at
-    // its highest, for the time it takes.
+  if (!multiDay || !crossesClimates(samples)) {
+    // A day walk, or a long one that stays in one place: like the trail card,
+    // heat at its lowest point and cold at its highest, for the time it takes.
     const known = samples.filter((s) => s.ele != null);
     const low = known.length ? known.reduce((a, b) => (b.ele! < a.ele! ? b : a)) : samples[0];
     const high = known.length ? known.reduce((a, b) => (b.ele! > a.ele! ? b : a)) : samples[0];

@@ -10,7 +10,7 @@ import { register } from 'node:module';
 register('./tsResolve.mjs', import.meta.url);
 
 const { climateAt } = await import('../src/lib/climateGrid.ts');
-const { rateMonths, monthRuns, MONTH_SHORT } = await import('../src/lib/climate.ts');
+const { rateMonths, monthRuns, crossesClimates, MONTH_SHORT } = await import('../src/lib/climate.ts');
 
 // [name, lat, lon, lowest m, highest m, hours, { month index: expected }, gorge?]
 //
@@ -34,6 +34,8 @@ const PLACES = [
   ['Samaria Gorge, כרתים', 35.27, 23.96, 0, 1230, 6.5, { 0: 'bad', 4: 'good', 9: 'good' }, true],
   ['הדרך הליקית בחורף', 36.2, 29.6, 0, 400, 6, { 0: 'fair', 11: 'fair', 2: 'good', 3: 'good', 10: 'good' }],
   ['צ׳ינקווה טרה', 44.12, 9.71, 0, 500, 5, { 3: 'good', 4: 'good', 10: 'fair' }],
+  // A 26 km loop near the coast that climbs to 1436 m: winter is cold at the top.
+  ['Anello Rocchetta Nervina, ליגוריה', 43.89, 7.60, 215, 1436, 9, { 0: 'fair', 1: 'fair', 3: 'good', 4: 'good', 7: 'fair' }],
 ];
 
 const DOT = { good: '🟢', fair: '🟡', bad: '🔴' };
@@ -62,6 +64,19 @@ for (const [name, lat, lon, lowEle, highEle, hours, expect, gorge = false] of PL
     const v = months[i];
     console.log(`  ${MONTH_SHORT[i]}: ${v.tmax}°/${v.tmin}°, ${v.ppt} mm, ${v.daylight} h — ${v.reasons.map((r) => r.text).join('; ')}`);
   }
+}
+
+// A long walk is rated point by point only when it crosses climates
+// (rateLongWalk); a long loop in one place is a day walk's low and high.
+const SPREAD = [
+  ['Anello Rocchetta Nervina (לולאה)', [[43.933, 7.571], [43.920, 7.599], [43.891, 7.598], [43.934, 7.574], [43.931, 7.606], [43.903, 7.593]], false],
+  ['שביל ישראל', [[33.24, 35.65], [32.7, 35.0], [31.8, 35.0], [30.6, 34.8], [29.55, 34.95]], true],
+];
+console.log('');
+for (const [name, pts, want] of SPREAD) {
+  const got = crossesClimates(pts.map(([lat, lon]) => ({ lat, lon })));
+  if (got !== want) failed++;
+  console.log(`${got === want ? 'ok  ' : 'FAIL'}  ${name}: ${got ? 'בין אקלימים' : 'מקום אחד'}`);
 }
 
 console.log(failed ? `\n${failed} FAILED` : '\nall ok');

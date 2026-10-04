@@ -16,7 +16,7 @@
 
 import { heatLoad } from './hikeAdvice';
 
-export const CLIMATE_VERSION = 4;
+export const CLIMATE_VERSION = 5;
 
 export type MonthRating = 'good' | 'fair' | 'bad';
 
@@ -245,6 +245,29 @@ export function rateMonths({ low, high, lat, hours, gorge = false }: ClimateInpu
 // goes by most of them (the worse on a tie). The trail card and the
 // world-trail lists both use this, so they agree.
 export const MULTI_DAY_KM = 25;
+
+// But a long walk that stays in one place — a loop round a village, a circuit
+// in one massif — crosses no climates: all that changes along it is height,
+// and that is what the day walk's lowest and highest points judge. Rated
+// point by point, its valley points outvote its ridge: the 26 km loop above
+// Rocchetta Nervina (Liguria, 215–1436 m) came out "עונה מומלצת" in January
+// because four of its seven points were low, while the top is about 0–6° then.
+// So a long walk is rated section by section only when its points lie
+// further apart than this — about a cell of the climate grid.
+const ONE_PLACE_KM = 15;
+
+export function crossesClimates(points: Array<{ lat: number; lon: number }>): boolean {
+  const rad = Math.PI / 180;
+  for (let i = 0; i < points.length; i++) {
+    for (let j = i + 1; j < points.length; j++) {
+      const a = points[i], b = points[j];
+      const x = (b.lon - a.lon) * rad * Math.cos(((a.lat + b.lat) / 2) * rad);
+      const y = (b.lat - a.lat) * rad;
+      if (Math.hypot(x, y) * 6371 > ONE_PLACE_KM) return true;
+    }
+  }
+  return false;
+}
 
 export function rateLongWalk(points: Array<{ months: MonthClimate[]; lat: number }>, gorge = false): MonthVerdict[] {
   const per = points.map((p) => rateMonths({ low: p.months, high: p.months, lat: p.lat, hours: MAX_DAY_HOURS, gorge }));

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { rateLimit, clientIp } from '../../../lib/rateLimit';
 import { climateAt } from '../../../lib/climateGrid';
-import { rateMonths, rateLongWalk, isGorgeName, CLIMATE_VERSION, MULTI_DAY_KM, type MonthVerdict } from '../../../lib/climate';
+import { rateMonths, rateLongWalk, crossesClimates, isGorgeName, CLIMATE_VERSION, MULTI_DAY_KM, type MonthVerdict } from '../../../lib/climate';
 import { countriesByMonth } from '../../../lib/climateCountries';
 
 // "מתי כדאי ללכת": the twelve months for one trail, from the climate grid that
@@ -10,7 +10,8 @@ import { countriesByMonth } from '../../../lib/climateCountries';
 //   POST { low: {lat, lon, ele}, high: {lat, lon, ele}, hours, km?, samples?, name? }
 //        → { status, version, months: MonthVerdict[12] }
 //        A walk longer than a day (km over MULTI_DAY_KM, with points along
-//        it in `samples`) is rated section by section — see rateLongWalk.
+//        it in `samples` that lie far apart — crossesClimates) is rated
+//        section by section — see rateLongWalk.
 //        `name` tells a gorge or canyon (isGorgeName), where rain counts more.
 //   GET  ?countries=1
 //        → { status, version, months: CountryMonth[][12] } — where it is in
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'low, high and hours required' }, { status: 400 });
     }
     const samples = Array.isArray(body.samples) ? body.samples.slice(0, 12).map(point).filter((p): p is Point => p != null) : [];
-    if (Number(body.km) > MULTI_DAY_KM && samples.length >= 2) {
+    if (Number(body.km) > MULTI_DAY_KM && samples.length >= 2 && crossesClimates(samples)) {
       const points = samples
         .map((p) => ({ c: climateAt(p.lat, p.lon, p.ele), lat: p.lat }))
         .filter((p) => p.c != null)
