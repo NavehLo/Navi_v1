@@ -10,12 +10,21 @@
 // lapse rate, so a cell's average height matters as much as its average
 // temperature.
 //
+// Thirty-year normals describe the climate of about 2005, and the world has
+// warmed since: comparing 2016–2025 with 1991–2020 in TerraClimate's own
+// monthly series gives +0.7° in Israel and +1.25° in the Alps. So the normals
+// are moved to the last decade (see "The last decade" below) — the
+// temperatures, humidity and snow, by how much the decade differed from the
+// normal, smoothed so that one odd winter does not become a rule. Rain is left
+// on the thirty years: ten years of rain are too noisy to say anything, and
+// the decade shows no clear change in it.
+//
 // What comes out is a few megabytes, land only, south to 60°S (nothing below
 // is walked). Each cell also carries the country it lies in, from the borders
 // that ship with country-coder, so "which countries are in season in May" is a
 // pass over the grid and not a question to anyone.
 //
-// Run once; the raw downloads (about a gigabyte) are kept in a cache folder so
+// Run once; the raw downloads (about a gigabyte and a half) are kept in a cache folder so
 // a second run, after changing the packing below, takes seconds.
 //
 //   node scripts/buildClimateGrid.mjs [cacheDir]
@@ -70,10 +79,10 @@ async function fetchSlab(file, variable, month) {
 
 // The values of a DAP2 binary answer: the text header, "Data:\n", the length
 // twice, then one big-endian 4-byte word per value (Int16 is sent widened).
-function values(buf, kind) {
+function values(buf, kind, expected = SUB_ROWS * SUB_COLS) {
   const at = buf.indexOf('\nData:\n') + 7;
   const n = buf.readUInt32BE(at);
-  if (n !== SUB_ROWS * SUB_COLS) throw new Error(`expected ${SUB_ROWS * SUB_COLS} values, got ${n}`);
+  if (n !== expected) throw new Error(`expected ${expected} values, got ${n}`);
   const out = new Float32Array(n);
   const start = at + 8;
   for (let i = 0; i < n; i++) {
@@ -127,6 +136,125 @@ for (const v of VARS) {
     for (const s of slabs) monthly[v.name].push(cellMeans(values(s, 'i32'), v.valid, v.scale, v.offset));
   }
 }
+
+// ── The last decade ─────────────────────────────────────────────────────────
+// How 2016–2025 differed from 1991–2020, month by month, on a coarse 0.5°
+// grid: warming is a large-scale signal, and every twelfth pixel is plenty to
+// see it (a megabyte a month rather than sixteen). The difference is then
+// smoothed over the 3×3 neighbouring coarse cells and the month either side —
+// ten years are few, and a single run of warm Februaries would otherwise
+// read as February itself having warmed by three degrees — and added to the
+// fine normals above. Snow goes by ratio rather than difference, so it can
+// shrink but never go below nothing.
+
+const RECENT_FROM = 2016, RECENT_TO = 2025;
+const CSTRIDE = 12;                                  // every twelfth pixel: 0.5°
+const C_ROWS = SRC_ROWS / CSTRIDE, C_COLS = SRC_COLS / CSTRIDE;
+const C_PER_YEAR = 12 * C_ROWS * C_COLS;
+const AGG = 'http://thredds.northwestknowledge.net:8080/thredds/dodsC';
+
+async function fetchCoarse(url, name) {
+  const path = join(CACHE, name);
+  if (existsSync(path)) return readFileSync(path);
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(300_000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buf = Buffer.from(await res.arrayBuffer());
+      writeFileSync(path, buf);
+      console.log(`  ${name}  ${(buf.length / 1e6).toFixed(1)} MB`);
+      return buf;
+    } catch (e) {
+      if (attempt >= 4) throw e;
+      console.log(`  ${name}: ${e.message}, again…`);
+      await new Promise((r) => setTimeout(r, 5000 * attempt));
+    }
+  }
+}
+
+const space = `[${CSTRIDE / 2}:${CSTRIDE}:${SRC_ROWS - 1}][${CSTRIDE / 2}:${CSTRIDE}:${SRC_COLS - 1}]`;
+// The series is packed differently from the normals file.
+const SERIES = {
+  tmax: { valid: (v) => v !== -32768, scale: 0.01, offset: -99 },
+  tmin: { valid: (v) => v !== -32768, scale: 0.01, offset: -99 },
+  vap: { valid: (v) => v !== -32768 && v >= 0, scale: 0.001, offset: 0 },
+  swe: { valid: (v) => v !== -2147483648 && v >= 0, scale: 0.1, offset: 0 },
+};
+
+async function coarseRecent(name) {
+  const { valid, scale, offset } = SERIES[name];
+  const sum = new Float64Array(C_PER_YEAR), cnt = new Uint16Array(C_PER_YEAR);
+  const years = Array.from({ length: RECENT_TO - RECENT_FROM + 1 }, (_, i) => RECENT_FROM + i);
+  for (let y = 0; y < years.length; y += 3) {
+    const bufs = await Promise.all(years.slice(y, y + 3).map((year) => {
+      const t0 = (year - 1950) * 12;
+      const url = `${AGG}/agg_terraclimate_${name}_1950_CurrentYear_GLOBE.nc.dods?${enc(`${name}.${name}[${t0}:1:${t0 + 11}]${space}`)}`;
+      return fetchCoarse(url, `recent-${name}-${year}.bin`);
+    }));
+    for (const b of bufs) {
+      const v = values(b, 'i32', C_PER_YEAR);
+      for (let i = 0; i < C_PER_YEAR; i++) if (valid(v[i])) { sum[i] += v[i] * scale + offset; cnt[i]++; }
+    }
+  }
+  return Float32Array.from(sum, (s, i) => (cnt[i] >= 5 ? s / cnt[i] : NaN));
+}
+
+async function coarseNormal(v) {
+  const url = `${BASE}/climatology/TerraClimate_19912020_${v.name}.nc.dods?${enc(`${v.name}.${v.name}[0:1:11]${space}`)}`;
+  const raw = values(await fetchCoarse(url, `normal-${v.name}.bin`), 'i32', C_PER_YEAR);
+  return Float32Array.from(raw, (x) => (v.valid(x) ? x * v.scale + v.offset : NaN));
+}
+
+// Smoothed over the neighbouring cells and the month either side.
+// `ratio`: the sums' ratio (snow), else the mean difference.
+function smoothedChange(recent, normal, ratio) {
+  const out = new Float32Array(C_PER_YEAR);
+  for (let m = 0; m < 12; m++) {
+    for (let r = 0; r < C_ROWS; r++) {
+      for (let c = 0; c < C_COLS; c++) {
+        let a = 0, b = 0, n = 0;
+        for (const mm of [(m + 11) % 12, m, (m + 1) % 12]) {
+          for (let dr = -1; dr <= 1; dr++) {
+            const rr = r + dr;
+            if (rr < 0 || rr >= C_ROWS) continue;
+            for (let dc = -1; dc <= 1; dc++) {
+              const i = mm * C_ROWS * C_COLS + rr * C_COLS + ((c + dc + C_COLS) % C_COLS);
+              if (!Number.isFinite(recent[i]) || !Number.isFinite(normal[i])) continue;
+              a += recent[i]; b += normal[i]; n++;
+            }
+          }
+        }
+        const k = m * C_ROWS * C_COLS + r * C_COLS + c;
+        if (ratio) out[k] = n && b >= 3 * n ? Math.max(0.3, Math.min(1.5, a / b)) : 1;
+        else out[k] = n ? (a - b) / n : 0;
+      }
+    }
+  }
+  return out;
+}
+
+console.log(`adjusting to ${RECENT_FROM}–${RECENT_TO}…`);
+const report = [];
+for (const v of VARS.filter((x) => x.name !== 'ppt')) {
+  const change = smoothedChange(await coarseRecent(v.name), await coarseNormal(v), v.name === 'swe');
+  let total = 0, counted = 0;
+  for (let m = 0; m < 12; m++) {
+    const fine = monthly[v.name][m];
+    for (let r = 0; r < ROWS; r++) {
+      // A fine 0.25° cell lies in coarse cell (r/2, c/2).
+      const cr = r >> 1;
+      for (let c = 0; c < COLS; c++) {
+        const i = r * COLS + c;
+        if (!Number.isFinite(fine[i])) continue;
+        const d = change[m * C_ROWS * C_COLS + cr * C_COLS + (c >> 1)];
+        fine[i] = v.name === 'swe' ? fine[i] * d : v.name === 'vap' ? Math.max(0, fine[i] + d) : fine[i] + d;
+        total += d; counted++;
+      }
+    }
+  }
+  report.push(`${v.name} ${v.name === 'swe' ? '×' : '+'}${(total / counted).toFixed(2)} on average`);
+}
+console.log('  ' + report.join(', '));
 
 // ── Land cells, their countries, and packing ────────────────────────────────
 
@@ -200,6 +328,7 @@ for (const v of VARS) {
 const header = Buffer.from(JSON.stringify({
   format: 1, rows: ROWS, cols: COLS, lat0: 90, lon0: -180, res: RES, n, countries,
   source: 'TerraClimate 1991-2020 monthly normals (Abatzoglou et al. 2018, CC0)',
+  adjusted: `temperature, vapour pressure and snow moved to ${RECENT_FROM}-${RECENT_TO}`,
 }));
 const pad4 = (len) => Buffer.alloc((4 - (len % 4)) % 4);
 const head = Buffer.alloc(8);

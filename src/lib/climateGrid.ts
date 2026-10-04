@@ -4,7 +4,7 @@ import { gunzipSync } from 'node:zlib';
 import type { MonthClimate } from './climate';
 
 // The climate grid built by scripts/buildClimateGrid.mjs: TerraClimate's
-// 1991–2020 monthly normals in 0.25° land cells, each with its average
+// 1991–2020 monthly normals, moved to the 2016–2025 decade, in 0.25° land cells, each with its average
 // height and its country. Server only — it is a few megabytes, read once per
 // instance and kept.
 //
@@ -13,7 +13,8 @@ import type { MonthClimate } from './climate';
 // kilometre) before they are blended. Without that, a ridge walk in the Alps
 // would get the climate of the valley floor the cell averages over.
 
-const FILE = join(process.cwd(), 'src/data/climate-grid.bin.gz');
+// CLIMATE_GRID_FILE lets a script compare another build against this one.
+const FILE = process.env.CLIMATE_GRID_FILE ?? join(process.cwd(), 'src/data/climate-grid.bin.gz');
 const LAPSE = 6.5 / 1000;
 
 interface Grid {

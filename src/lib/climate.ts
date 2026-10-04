@@ -3,7 +3,8 @@
 // Seasons do not travel: spring in the Arava is summer on the Hermon and
 // winter in the Alps. So each of the twelve months is judged on its own, from
 // the long-term averages at the trail's own place and height (TerraClimate
-// 1991–2020, read by climateGrid.ts on the server), and on how long the walk
+// 1991–2020 moved to the 2016–2025 decade, read by climateGrid.ts on the
+// server), and on how long the walk
 // keeps somebody out there. Pure functions, used on the server for the trail
 // card, the world-trail lists and the month-first country list, so all three
 // say the same thing. scripts/checkClimate.mjs pins them against known places.
@@ -15,7 +16,7 @@
 
 import { heatLoad } from './hikeAdvice';
 
-export const CLIMATE_VERSION = 2;
+export const CLIMATE_VERSION = 3;
 
 export type MonthRating = 'good' | 'fair' | 'bad';
 
