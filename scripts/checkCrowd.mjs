@@ -8,7 +8,7 @@
 import { register } from 'node:module';
 register('./tsResolve.mjs', import.meta.url);
 
-const { trafficTiers, ratingOf, crowdSummaries, MIN_SIGNALS } = await import('../src/lib/trailCrowd/score.ts');
+const { trafficTiers, ratingOf, crowdSummaries, leadersOf, MIN_SIGNALS } = await import('../src/lib/trailCrowd/score.ts');
 
 let failed = 0;
 function check(name, ok, detail = '') {
@@ -61,6 +61,15 @@ const hik = trafficTiers([...rows.slice(0, 100), row(600, 0, [k])]);
 check('hikers count as traffic', hik.get(600) === 'very_high', hik.get(600));
 const rk = ratingOf([k]);
 check('the rating weighs by ratings, not hikers', rk.rating === 4.9 && rk.count === 300, JSON.stringify(rk));
+
+// The leaders: busiest first, day walks and long paths apart, and one long
+// path's parts (the same Wikipedia number) once.
+const lrows = [...rows.slice(0, 100), row(700, 50_000), row(701, 50_000), row(702, 40_000)];
+const ls = crowdSummaries(lrows);
+const ltrails = lrows.map((r) => ({ id: r.id, multiDay: r.id >= 700, crowd: ls.get(r.id) }));
+const { day, long } = leadersOf(ltrails);
+check('ten day walks, busiest first', day.length === 10 && day[0].id === 100 && day[9].id === 91, day.map((t) => t.id).join(','));
+check('a long path\'s parts once', long.map((t) => t.id).join(',') === '700,702', long.map((t) => t.id).join(','));
 
 const s = crowdSummaries(rows).get(1000);
 check('summary of a trail with nothing', s.traffic === 'unknown' && s.rating === null && s.ratingCount === 0);

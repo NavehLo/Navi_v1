@@ -38,6 +38,9 @@ export const TRAFFIC_ORDER: Traffic[] = ['very_high', 'high', 'medium', 'low', '
 // What a list row carries.
 export interface CrowdSummary {
   traffic: Traffic | 'unknown';
+  // Its place among the country's trails with any signal, 0–1 (1 = the
+  // busiest); null without one. Orders the trails within a tier.
+  score: number | null;
   rating: number | null;   // null: fewer than MIN_REVIEWS reviews with a score
   ratingCount: number;
 }
@@ -104,6 +107,10 @@ function percentiles(values: Map<number, number>): Map<number, number> {
 // A trail with neither is 'unknown' — never "few": no information is not
 // evidence of few hikers.
 export function trafficTiers(rows: CrowdData[]): Map<number, Traffic | 'unknown'> {
+  return trafficTiersAndScores(rows).tiers;
+}
+
+function trafficTiersAndScores(rows: CrowdData[]): { tiers: Map<number, Traffic | 'unknown'>; scores: Map<number, number> } {
   const reviews = percentiles(new Map(rows.map((r) => [r.id, trafficSignal(r.sources)])));
   const views = percentiles(new Map(rows.map((r) => [r.id, r.pageviews])));
 
@@ -116,7 +123,8 @@ export function trafficTiers(rows: CrowdData[]): Map<number, Traffic | 'unknown'
   }
 
   const out = new Map<number, Traffic | 'unknown'>(rows.map((r) => [r.id, 'unknown']));
-  if (scored.length < MIN_SIGNALS) return out;
+  const scores = new Map(scored);
+  if (scored.length < MIN_SIGNALS) return { tiers: out, scores };
 
   scored.sort((a, b) => b[1] - a[1]);
   const n = scored.length;
@@ -130,17 +138,53 @@ export function trafficTiers(rows: CrowdData[]): Map<number, Traffic | 'unknown'
     for (let k = i; k <= j; k++) out.set(scored[k][0], tier);
     i = j + 1;
   }
-  return out;
+  return { tiers: out, scores };
 }
 
 export function crowdSummaries(rows: CrowdData[]): Map<number, CrowdSummary> {
-  const tiers = trafficTiers(rows);
+  const { tiers, scores } = trafficTiersAndScores(rows);
   const out = new Map<number, CrowdSummary>();
   for (const r of rows) {
     const { rating, count } = ratingOf(r.sources);
-    out.set(r.id, { traffic: tiers.get(r.id) ?? 'unknown', rating, ratingCount: count });
+    const traffic = tiers.get(r.id) ?? 'unknown';
+    out.set(r.id, { traffic, score: traffic === 'unknown' ? null : scores.get(r.id) ?? null, rating, ratingCount: count });
   }
   return out;
+}
+
+// ── The leading trails ───────────────────────────────────────────────────────
+// "המסלולים המובילים": a country's (or an area's) busiest trails, the same
+// everywhere they are shown — the country's list, the country picker and the
+// stars on the map. Day walks and long-distance paths apart: the busiest of
+// the first are known from Komoot's hikers, of the second mostly from
+// Wikipedia, and the two do not compare.
+
+export const LEADING_DAY = 10;
+export const LEADING_LONG = 3;
+
+// Busiest first; the rating breaks a tie.
+export function byTraffic<T extends { crowd?: CrowdSummary }>(a: T, b: T): number {
+  const d = (b.crowd?.score ?? -1) - (a.crowd?.score ?? -1);
+  return d || (b.crowd?.rating ?? 0) - (a.crowd?.rating ?? 0);
+}
+
+export function leadersOf<T extends { crowd?: CrowdSummary; multiDay: boolean }>(trails: T[]): { day: T[]; long: T[] } {
+  const ranked = trails.filter((t) => t.crowd && t.crowd.traffic !== 'unknown').sort(byTraffic);
+  // The parts of one long-distance path (the E4 through Crete, through the
+  // Peloponnese…) share its Wikipedia article, and so its number exactly;
+  // the first stands for them all.
+  const seen = new Set<number>();
+  const long = ranked.filter((t) => {
+    if (!t.multiDay) return false;
+    const key = t.crowd!.score!;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return {
+    day: ranked.filter((t) => !t.multiDay).slice(0, LEADING_DAY),
+    long: long.slice(0, LEADING_LONG),
+  };
 }
 
 // ── Words ────────────────────────────────────────────────────────────────────

@@ -92,8 +92,9 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   stateful one with a `hidden` wrapper rather than unmounting it. Long
   sections open as one line with a summary (`Collapsible`).
 - **"מה אומרים מטיילים" is derived in one place.** The traffic tier and the
-  rating are computed only in `src/lib/trailCrowd/score.ts` (list, filters and
-  trail card all call it); run `node scripts/checkCrowd.mjs` after changing a
+  rating are computed only in `src/lib/trailCrowd/score.ts` (list, filters,
+  trail card, and the leading trails via `leadersOf` — list, country picker and
+  map stars — all call it); run `node scripts/checkCrowd.mjs` after changing a
   rule. Tiers are relative to the country and computed on read — never store
   them. A trail with no signal is "אין מספיק מידע", never "few". The numbers
   come from Komoot's per-area "best hikes" pages, tied to our trails by

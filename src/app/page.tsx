@@ -45,6 +45,7 @@ import { useSummerConditions } from "@/hooks/useSummerConditions";
 import { useTripWeather } from "@/hooks/useTripWeather";
 import { useTrailClimate } from "@/hooks/useTrailClimate";
 import { useWorldTrails } from "@/hooks/useWorldTrails";
+import { useTrailLeaders } from "@/hooks/useTrailLeaders";
 import { useWmtStages } from "@/hooks/useWmtStages";
 import type { TrailStages } from "@/components/StatsPanel";
 import type { WmtRouteSummary } from "@/lib/waymarked";
@@ -176,6 +177,12 @@ export default function TrailApp() {
     enableWorldTrails();
     selectWorldTrail(summary.id, summary, { fit: true });
   }, [enableWorldTrails, selectWorldTrail]);
+  // The leading trails of the collected countries, as stars over the overlay.
+  useTrailLeaders(map, styleRev, {
+    enabled: worldTrails.enabled,
+    muted: !!trail || !!worldTrails.selection,
+    onPick: pickWorldTrail,
+  });
 
   // "על המסלול": which trail's description is open, if any.
   const [infoRequest, setInfoRequest] = useState<TrailInfoRequest | null>(null);

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, ChevronLeft, Footprints, Loader2, RefreshCw, Search, Star, X } from 'lucide-react';
+import { ArrowRight, ChevronLeft, Footprints, Loader2, RefreshCw, Search, Star, Trophy, X } from 'lucide-react';
 import InfoButton from './help/InfoButton';
 import Collapsible from './Collapsible';
 import { RATING_DOT, RATING_TEXT } from './BestMonthsSection';
@@ -11,8 +11,9 @@ import type { CountryMonth } from '../lib/climateCountries';
 import type { CountryTrail } from '../lib/countryTrails';
 import type { RegionInfo } from '../lib/regions';
 import {
-  NO_CROWD_INFO, TRAFFIC_LABELS, TRAFFIC_ORDER, TRAFFIC_SHORT, type CrowdSummary, type Traffic,
+  NO_CROWD_INFO, TRAFFIC_LABELS, TRAFFIC_ORDER, TRAFFIC_SHORT, byTraffic, leadersOf, type CrowdSummary, type Traffic,
 } from '../lib/trailCrowd/score';
+import { useLeaders } from '../lib/trailLeadersClient';
 
 // "בעולם לפי חודש": marked trails abroad, chosen by when they are in season.
 //
@@ -27,8 +28,10 @@ import {
 //
 // Where the admin has collected "מה אומרים מטיילים" for a country (so far
 // Greece, as a pilot), each trail also shows how busy it is compared with the
-// country's other trails and how hikers rated it, and the list can be
-// filtered by both. Countries without it look exactly as before.
+// country's other trails and how hikers rated it; the list opens busiest
+// first and can be filtered by both; "המסלולים המובילים" heads it (of the
+// country, or of the area chosen); and in the country picker such a country
+// names its leading trails. Countries without it look exactly as before.
 //
 // Read outdoors on a phone — white text, nothing under text-xs (CLAUDE.md).
 
@@ -61,7 +64,8 @@ interface CrowdFilter {
   keepUnknown: boolean;
   sort: CrowdSort;
 }
-const NO_CROWD_FILTER: CrowdFilter = { traffic: [], minRating: 0, keepUnknown: true, sort: 'default' };
+// Busiest first by default, where there are numbers to sort by.
+const NO_CROWD_FILTER: CrowdFilter = { traffic: [], minRating: 0, keepUnknown: true, sort: 'traffic' };
 
 function passesCrowd(t: ListTrail, f: CrowdFilter): boolean {
   const c = t.crowd;
@@ -77,7 +81,7 @@ function passesCrowd(t: ListTrail, f: CrowdFilter): boolean {
 }
 
 function crowdFilterCount(f: CrowdFilter): number {
-  return (f.traffic.length ? 1 : 0) + (f.minRating ? 1 : 0) + (f.sort !== 'default' ? 1 : 0);
+  return (f.traffic.length ? 1 : 0) + (f.minRating ? 1 : 0) + (f.sort !== NO_CROWD_FILTER.sort ? 1 : 0);
 }
 const trailsMemo = new Map<string, CountryData>();
 
@@ -185,18 +189,24 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
         if (crowdF.sort === 'rating') {
           const d = (b.crowd?.rating ?? -1) - (a.crowd?.rating ?? -1);
           if (d) return d;
-        } else if (crowdF.sort === 'traffic') {
-          const rank = (t: ListTrail) => {
-            const i = TRAFFIC_ORDER.indexOf(t.crowd?.traffic as Traffic);
-            return i < 0 ? 99 : i;
-          };
-          const d = rank(a) - rank(b);
+        } else if (crowdF.sort === 'traffic' && hasCrowd) {
+          const d = byTraffic(a, b);
           if (d) return d;
         }
         return Number(a.multiDay) - Number(b.multiDay);
       }),
     [countryList, month, rating, region, crowdF], // eslint-disable-line react-hooks/exhaustive-deps
   );
+
+  // The leading trails of what is being looked at — the country, or the area
+  // chosen — whatever the month: a famous trail stays famous in January, and
+  // its dot says whether January suits it.
+  const leaders = useMemo(() => {
+    if (!hasCrowd || !countryList) return null;
+    const scope = region && region !== 'all' ? countryList.filter((t) => t.regions.includes(region)) : countryList;
+    const l = leadersOf(scope);
+    return l.day.length || l.long.length ? l : null;
+  }, [hasCrowd, countryList, region]);
 
   // How many trails of each area match the month and rating — the number the
   // area list is chosen by. A long trail counts in every area it crosses.
@@ -224,6 +234,17 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
     () => (climate?.countries ?? []).filter(matches).sort((a, b) => countryName(a).localeCompare(countryName(b), 'he')),
     [climate, q], // eslint-disable-line react-hooks/exhaustive-deps
   );
+
+  const allLeaders = useLeaders(!country);
+  const leaderLine = (code: string) => {
+    const l = allLeaders[code];
+    return l ? (
+      <span className="text-xs font-semibold text-sky-200 flex items-center gap-1 min-w-0">
+        <Trophy className="w-3.5 h-3.5 shrink-0 text-amber-300" />
+        <NameList names={l.day.slice(0, 3).map((t) => t.name_en ?? t.name)} />
+      </span>
+    ) : null;
+  };
 
   const openCountry = (code: string) => {
     setCountry(code);
@@ -321,7 +342,7 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
         <div className="flex flex-col gap-1.5">
           <span className="font-bold">סדר</span>
           <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="סדר הרשימה">
-            {([['default', 'רגיל'], ['rating', 'לפי ציון'], ['traffic', 'הכי הרבה מטיילים']] as const).map(([v, label]) => (
+            {([['traffic', 'הכי הרבה מטיילים'], ['rating', 'לפי ציון'], ['default', 'טיולי יום קודם']] as const).map(([v, label]) => (
               <button key={v} role="radio" aria-checked={crowdFilter.sort === v} onClick={() => setF({ sort: v })} className={chip(crowdFilter.sort === v)}>
                 {label}
               </button>
@@ -378,8 +399,17 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
         </div>
 
         <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar flex flex-col gap-2 min-h-0">
-          {/* Inside the scrolling part: opened, it is taller than a phone's
-              panel, and above the list it would leave the list no room. */}
+          {/* Inside the scrolling part: opened, they are taller than a phone's
+              panel, and above the list they would leave the list no room. */}
+          {leaders && (
+            <LeadersSection
+              area={region && region !== 'all' ? regionNames.get(region)?.name ?? null : null}
+              leaders={leaders}
+              month={month}
+              regionLabel={region && region !== 'all' ? null : regionLabel}
+              onPick={(t) => onPickTrail({ type: 'relation', id: t.id, name: t.name, group: t.group, linear: t.linear })}
+            />
+          )}
           {hasCrowd && crowdFilters}
           {countryStatus === 'loading' && (
             <div className="flex items-center gap-2 text-sm text-white py-4">
@@ -543,7 +573,10 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
                   onClick={() => openCountry(c.country)}
                   className="text-right bg-white/5 border border-white/5 px-3 py-2.5 rounded-xl hover:bg-white/10 hover:border-orange-500/40 transition-all flex items-center justify-between gap-2"
                 >
-                  <span className="text-sm font-bold text-white">{countryName(c.country)}</span>
+                  <span className="min-w-0 flex flex-col gap-0.5">
+                    <span className="text-sm font-bold text-white">{countryName(c.country)}</span>
+                    {leaderLine(c.country)}
+                  </span>
                   <span className="text-xs text-white flex items-center gap-2 shrink-0">
                     {n != null && <span className="text-sky-300 font-bold">{n} מסלולים</span>}
                     <span className="text-emerald-300 font-bold">{Math.max(1, Math.round(c.share * 100))}% מהשטח</span>
@@ -558,9 +591,10 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
           <button
             key={code}
             onClick={() => openCountry(code)}
-            className="text-right bg-white/5 border border-white/5 px-3 py-2.5 rounded-xl hover:bg-white/10 hover:border-orange-500/40 transition-all text-sm font-bold text-white"
+            className="text-right bg-white/5 border border-white/5 px-3 py-2.5 rounded-xl hover:bg-white/10 hover:border-orange-500/40 transition-all text-sm font-bold text-white flex flex-col gap-0.5"
           >
             {countryName(code)}
+            {leaderLine(code)}
           </button>
         ))}
       </div>
@@ -587,6 +621,76 @@ function CrowdLine({ crowd }: { crowd?: CrowdSummary }) {
           ? <>{rating.toFixed(1)} <span className="font-semibold text-white">({crowd!.ratingCount.toLocaleString('he-IL')} דירוגים)</span></>
           : <span className="font-semibold text-white">ציון: {NO_CROWD_INFO}</span>}
       </span>
+    </span>
+  );
+}
+
+// "המסלולים המובילים": the busiest day walks and long-distance paths of the
+// country or area, ranked, each with its numbers and this month's dot.
+function LeadersSection({ area, leaders, month, regionLabel, onPick }: {
+  // The area chosen, or null for the whole country (named in the header).
+  area: string | null;
+  leaders: { day: ListTrail[]; long: ListTrail[] };
+  month: number;
+  // Across the whole country, where each one is.
+  regionLabel: ((id: string) => string | null) | null;
+  onPick: (t: ListTrail) => void;
+}) {
+  const row = (t: ListTrail, i: number) => (
+    <button
+      key={t.id}
+      onClick={() => onPick(t)}
+      className="text-right flex items-start gap-2 rounded-xl px-2 py-2 hover:bg-white/10 transition-colors"
+    >
+      <span className="text-sm font-extrabold text-amber-300 w-5 shrink-0 text-center">{i + 1}</span>
+      <span className="min-w-0 flex-1 flex flex-col gap-0.5">
+        <span className="flex items-center gap-2 text-sm font-bold text-white">
+          <span className="min-w-0">{t.name}</span>
+          <span className={`w-2 h-2 rounded-full shrink-0 ${RATING_DOT[t.months[month]]}`} title={RATING_LABELS[t.months[month]]} />
+        </span>
+        {t.name_en && t.name_en !== t.name && <span className="text-xs text-white" dir="ltr">{t.name_en}</span>}
+        <span className="text-xs text-white">
+          {t.km >= 10 ? Math.round(t.km) : t.km} ק״מ
+          {regionLabel && t.regions[0] && regionLabel(t.regions[0]) ? ` · ${regionLabel(t.regions[0])}` : ''}
+        </span>
+        <CrowdLine crowd={t.crowd} />
+      </span>
+    </button>
+  );
+  const top = leaders.day.length ? leaders.day : leaders.long;
+  return (
+    <Collapsible
+      className="shrink-0"
+      icon={<Trophy className="w-4 h-4 text-amber-300" />}
+      title={<span className="whitespace-nowrap">{area ? `המובילים ב${area}` : 'המסלולים המובילים'}</span>}
+      summary={<span className="max-w-[8rem] text-sky-200 flex min-w-0"><NameList names={[top[0].name_en ?? top[0].name]} /></span>}
+    >
+      <div className="flex flex-col gap-1">
+        <span className="text-xs text-white">לפי מספר המטיילים, בלי קשר לעונה. הנקודה ליד השם: ירוק — מומלץ בחודש שנבחר, צהוב — בהיערכות, אדום — לא מומלץ.</span>
+        {leaders.day.length > 0 && (
+          <>
+            <span className="text-xs font-bold text-white mt-1">טיולי יום</span>
+            {leaders.day.map(row)}
+          </>
+        )}
+        {leaders.long.length > 0 && (
+          <>
+            <span className="text-xs font-bold text-white mt-2">שבילים ארוכים</span>
+            {leaders.long.map(row)}
+          </>
+        )}
+      </div>
+    </Collapsible>
+  );
+}
+
+// Names in any script, in reading order from the right, cut at the last one
+// when the line runs out — each isolated, or an English run of them would be
+// laid out left to right and lose its first name instead.
+function NameList({ names }: { names: string[] }) {
+  return (
+    <span className="truncate min-w-0">
+      {names.map((n, i) => <span key={i}>{i > 0 && ' · '}<bdi>{n}</bdi></span>)}
     </span>
   );
 }
