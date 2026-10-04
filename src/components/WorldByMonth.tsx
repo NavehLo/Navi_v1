@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, ChevronLeft, Loader2, RefreshCw, Search, X } from 'lucide-react';
+import { ArrowRight, ChevronLeft, Footprints, Loader2, RefreshCw, Search, Star, X } from 'lucide-react';
 import InfoButton from './help/InfoButton';
+import Collapsible from './Collapsible';
 import { RATING_DOT, RATING_TEXT } from './BestMonthsSection';
 import { CLIMATE_VERSION, MONTH_NAMES, MONTH_SHORT, RATING_LABELS, type MonthRating } from '../lib/climate';
 import { countryName } from '../lib/worldTrailSearch';
@@ -9,6 +10,9 @@ import { readTripDate } from '../lib/weatherCache';
 import type { CountryMonth } from '../lib/climateCountries';
 import type { CountryTrail } from '../lib/countryTrails';
 import type { RegionInfo } from '../lib/regions';
+import {
+  NO_CROWD_INFO, TRAFFIC_LABELS, TRAFFIC_ORDER, TRAFFIC_SHORT, type CrowdSummary, type Traffic,
+} from '../lib/trailCrowd/score';
 
 // "בעולם לפי חודש": marked trails abroad, chosen by when they are in season.
 //
@@ -20,6 +24,11 @@ import type { RegionInfo } from '../lib/regions';
 // (provinces, cantons, states; see lib/regions), each with how many of its
 // trails match, then the trails of the area chosen. Hundreds of names mean
 // little until one knows which part of the country they are in.
+//
+// Where the admin has collected "מה אומרים מטיילים" for a country (so far
+// Greece, as a pilot), each trail also shows how busy it is compared with the
+// country's other trails and how hikers rated it, and the list can be
+// filtered by both. Countries without it look exactly as before.
 //
 // Read outdoors on a phone — white text, nothing under text-xs (CLAUDE.md).
 
@@ -34,9 +43,41 @@ interface Climate {
 // Kept for the session: the country climate list is the same for everybody,
 // and a country's trail list does not change in a sitting.
 let climateMemo: Climate | null = null;
+type ListTrail = CountryTrail & { crowd?: CrowdSummary };
 interface CountryData {
   regions: RegionInfo[];
-  trails: CountryTrail[];
+  trails: ListTrail[];
+  hasCrowd: boolean;
+}
+
+type MinRating = 0 | 4 | 4.5;
+type CrowdSort = 'default' | 'rating' | 'traffic';
+
+interface CrowdFilter {
+  traffic: Traffic[];       // empty: any
+  minRating: MinRating;
+  // Trails with no number for what is filtered on: kept by default — no
+  // information is not a reason to hide a trail.
+  keepUnknown: boolean;
+  sort: CrowdSort;
+}
+const NO_CROWD_FILTER: CrowdFilter = { traffic: [], minRating: 0, keepUnknown: true, sort: 'default' };
+
+function passesCrowd(t: ListTrail, f: CrowdFilter): boolean {
+  const c = t.crowd;
+  if (f.traffic.length) {
+    const tier = c?.traffic ?? 'unknown';
+    if (tier === 'unknown' ? !f.keepUnknown : !f.traffic.includes(tier)) return false;
+  }
+  if (f.minRating > 0) {
+    const r = c?.rating ?? null;
+    if (r == null ? !f.keepUnknown : r < f.minRating) return false;
+  }
+  return true;
+}
+
+function crowdFilterCount(f: CrowdFilter): number {
+  return (f.traffic.length ? 1 : 0) + (f.minRating ? 1 : 0) + (f.sort !== 'default' ? 1 : 0);
 }
 const trailsMemo = new Map<string, CountryData>();
 
@@ -54,6 +95,7 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
   // The area chosen in the country: null while choosing, 'all' for the whole.
   const [region, setRegion] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [crowdFilter, setCrowdFilter] = useState<CrowdFilter>(NO_CROWD_FILTER);
 
   // ── The countries' climate (instant, cached by the CDN) ─────────────────
   const [climate, setClimate] = useState<Climate | null>(climateMemo);
@@ -106,7 +148,7 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
       .then((d) => {
         if (cancelled) return;
         if (d.status === 'ok' && Array.isArray(d.trails)) {
-          const data: CountryData = { regions: d.regions ?? [], trails: d.trails };
+          const data: CountryData = { regions: d.regions ?? [], trails: d.trails, hasCrowd: !!d.hasCrowd };
           trailsMemo.set(country, data);
           setTrails({ country, list: data, status: 'ok' });
         } else {
@@ -120,6 +162,11 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
 
   const countryData = country ? trailsMemo.get(country) ?? (trails?.country === country ? trails.list : null) : null;
   const countryList = countryData?.trails ?? null;
+  const hasCrowd = !!countryData?.hasCrowd;
+  const crowdF = hasCrowd ? crowdFilter : NO_CROWD_FILTER;
+  // The month, the rating for it, and the hikers' filters: what every count
+  // and list below is made of.
+  const matchesFilters = (t: ListTrail) => t.months[month] === rating && passesCrowd(t, crowdF);
   const regionNames = useMemo(() => new Map((countryData?.regions ?? []).map((r) => [r.id, r])), [countryData]);
   // One area or none: straight to the trails.
   const hasRegionStep = (countryData?.regions.length ?? 0) > 1;
@@ -131,10 +178,24 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
     // the long-distance paths; within each, the server's order (most
     // important first).
     () => (countryList ?? [])
-      .filter((t) => t.months[month] === rating)
+      .filter(matchesFilters)
       .filter((t) => !region || region === 'all' || t.regions.includes(region))
-      .sort((a, b) => Number(a.multiDay) - Number(b.multiDay)),
-    [countryList, month, rating, region],
+      .sort((a, b) => {
+        // Sorted by the hikers: those with no number go last, in the usual order.
+        if (crowdF.sort === 'rating') {
+          const d = (b.crowd?.rating ?? -1) - (a.crowd?.rating ?? -1);
+          if (d) return d;
+        } else if (crowdF.sort === 'traffic') {
+          const rank = (t: ListTrail) => {
+            const i = TRAFFIC_ORDER.indexOf(t.crowd?.traffic as Traffic);
+            return i < 0 ? 99 : i;
+          };
+          const d = rank(a) - rank(b);
+          if (d) return d;
+        }
+        return Number(a.multiDay) - Number(b.multiDay);
+      }),
+    [countryList, month, rating, region, crowdF], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // How many trails of each area match the month and rating — the number the
@@ -143,16 +204,16 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
     if (!countryData) return [];
     const counts = new Map<string, number>();
     for (const t of countryData.trails) {
-      if (t.months[month] !== rating) continue;
+      if (!matchesFilters(t)) continue;
       for (const id of t.regions) counts.set(id, (counts.get(id) ?? 0) + 1);
     }
     return countryData.regions
       .map((r) => ({ ...r, count: counts.get(r.id) ?? 0 }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'he'));
-  }, [countryData, month, rating]);
+  }, [countryData, month, rating, crowdF]); // eslint-disable-line react-hooks/exhaustive-deps
   const matchingInCountry = useMemo(
-    () => (countryList ?? []).filter((t) => t.months[month] === rating).length,
-    [countryList, month, rating],
+    () => (countryList ?? []).filter(matchesFilters).length,
+    [countryList, month, rating, crowdF], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const q = query.trim();
@@ -168,6 +229,7 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
     setCountry(code);
     setRegion(null);
     setQuery('');
+    setCrowdFilter(NO_CROWD_FILTER);
     if (mode === 'month') setRating('good');
   };
 
@@ -203,6 +265,76 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
         </button>
       ))}
     </div>
+  );
+
+  const chip = (on: boolean) =>
+    `px-2.5 py-1 rounded-full text-xs font-bold border transition-colors ${on ? 'bg-sky-600 text-white border-sky-400' : 'bg-transparent text-white border-white/20 hover:bg-white/5'}`;
+  const setF = (patch: Partial<CrowdFilter>) => setCrowdFilter((f) => ({ ...f, ...patch }));
+  const activeCrowd = crowdFilterCount(crowdFilter);
+
+  const crowdFilters = (
+    <Collapsible
+      className="shrink-0"
+      icon={<Footprints className="w-4 h-4 text-sky-300" />}
+      title="סינון לפי מטיילים"
+      summary={activeCrowd ? <span className="text-sky-300">{activeCrowd === 1 ? 'מסנן אחד פעיל' : `${activeCrowd} מסננים פעילים`}</span> : 'הכל'}
+    >
+      <div className="flex flex-col gap-3 text-sm text-white">
+        <div className="flex flex-col gap-1.5">
+          <span className="font-bold">כמות מטיילים</span>
+          <span className="text-xs">בהשוואה לשאר המסלולים ב{country ? countryName(country) : 'מדינה'}. אפשר לבחור כמה.</span>
+          <div className="flex flex-wrap gap-1.5">
+            {TRAFFIC_ORDER.map((t) => {
+              const on = crowdFilter.traffic.includes(t);
+              return (
+                <button
+                  key={t}
+                  aria-pressed={on}
+                  onClick={() => setF({ traffic: on ? crowdFilter.traffic.filter((x) => x !== t) : [...crowdFilter.traffic, t] })}
+                  className={chip(on)}
+                >
+                  {TRAFFIC_SHORT[t]}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <span className="font-bold">ציון מטיילים</span>
+          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="ציון מינימלי">
+            {([[0, 'הכל'], [4, '4 ומעלה'], [4.5, '4.5 ומעלה']] as const).map(([v, label]) => (
+              <button key={v} role="radio" aria-checked={crowdFilter.minRating === v} onClick={() => setF({ minRating: v })} className={chip(crowdFilter.minRating === v)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={crowdFilter.keepUnknown}
+            onChange={(e) => setF({ keepUnknown: e.target.checked })}
+            className="w-4 h-4 accent-sky-500"
+          />
+          להשאיר מסלולים שאין עליהם מספיק מידע
+        </label>
+        <div className="flex flex-col gap-1.5">
+          <span className="font-bold">סדר</span>
+          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="סדר הרשימה">
+            {([['default', 'רגיל'], ['rating', 'לפי ציון'], ['traffic', 'הכי הרבה מטיילים']] as const).map(([v, label]) => (
+              <button key={v} role="radio" aria-checked={crowdFilter.sort === v} onClick={() => setF({ sort: v })} className={chip(crowdFilter.sort === v)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {activeCrowd > 0 && (
+          <button onClick={() => setCrowdFilter(NO_CROWD_FILTER)} className="self-start text-xs font-bold text-sky-300 underline">
+            ניקוי הסינון
+          </button>
+        )}
+      </div>
+    </Collapsible>
   );
 
   const failure = (status: Status, retry: () => void, what: string) => (
@@ -246,6 +378,9 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
         </div>
 
         <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar flex flex-col gap-2 min-h-0">
+          {/* Inside the scrolling part: opened, it is taller than a phone's
+              panel, and above the list it would leave the list no room. */}
+          {hasCrowd && crowdFilters}
           {countryStatus === 'loading' && (
             <div className="flex items-center gap-2 text-sm text-white py-4">
               <Loader2 className="w-4 h-4 animate-spin text-orange-400 shrink-0" />
@@ -296,7 +431,9 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
             <div className="text-sm text-white py-3">
               {countryList.length === 0
                 ? 'לא נמצאו מסלולים מסומנים במדינה הזו.'
-                : `אין מסלולים ב"${RATING_LABELS[rating]}" ב${MONTH_NAMES[month]} מבין אלה שנמצאו. נסו חודש או דרגה אחרים.`}
+                : activeCrowd
+                  ? `אין מסלולים ב"${RATING_LABELS[rating]}" ב${MONTH_NAMES[month]} שעונים על הסינון לפי מטיילים. נסו לרכך אותו.`
+                  : `אין מסלולים ב"${RATING_LABELS[rating]}" ב${MONTH_NAMES[month]} מבין אלה שנמצאו. נסו חודש או דרגה אחרים.`}
             </div>
           )}
           {!choosingRegion && shownTrails.map((t) => (
@@ -314,6 +451,7 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
                 {t.multiDay ? 'רב-יומי' : groupLabel(t.group)} · {t.km >= 10 ? Math.round(t.km) : t.km} ק״מ
                 {t.crossesBorder ? ` ב${countryName(country)}, וממשיך מעבר לגבול` : ''}
               </span>
+              {hasCrowd && <CrowdLine crowd={t.crowd} />}
               {/* Across the whole country, where each one is. */}
               {region === 'all' && t.regions.length > 0 && (
                 <span className="text-xs text-amber-200">
@@ -360,6 +498,11 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
           <p className="mt-2">
             <b>המסלולים</b> הם מסלולים מסומנים מ-Waymarked Trails: במדינה קטנה גם מקומיים, ובמדינה גדולה בעיקר אזוריים
             וארציים. כל מסלול מדורג לפי האקלים לאורכו, הגובה שלו והאורך, כמו בכרטיס המסלול.
+          </p>
+          <p className="mt-2">
+            <b>מה אומרים מטיילים</b> (כרגע ביוון): ליד כל מסלול כמה מטיילים יש בו ביחס לשאר המסלולים במדינה, וציון
+            המטיילים מאתרי מסלולים כמו AllTrails ו-Wikiloc. אפשר לסנן ולמיין לפי שניהם. כשאין מספיק ביקורות כתוב
+            &quot;אין מספיק מידע&quot; — זה לא אומר שיש בו מעט מטיילים.
           </p>
         </InfoButton>
       </div>
@@ -422,5 +565,28 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
         ))}
       </div>
     </div>
+  );
+}
+
+// What hikers say, in one line: how busy, and how they rated it.
+function CrowdLine({ crowd }: { crowd?: CrowdSummary }) {
+  const traffic = crowd && crowd.traffic !== 'unknown' ? crowd.traffic : null;
+  const rating = crowd?.rating ?? null;
+  if (!traffic && rating == null) {
+    return <span className="text-xs text-white flex items-center gap-1"><Footprints className="w-3.5 h-3.5 shrink-0" /> מטיילים: {NO_CROWD_INFO}</span>;
+  }
+  return (
+    <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold">
+      <span className="flex items-center gap-1 text-sky-200">
+        <Footprints className="w-3.5 h-3.5 shrink-0" />
+        {traffic ? TRAFFIC_LABELS[traffic] : `כמות מטיילים: ${NO_CROWD_INFO}`}
+      </span>
+      <span className="flex items-center gap-1 text-yellow-300">
+        <Star className="w-3.5 h-3.5 shrink-0 fill-yellow-300" />
+        {rating != null
+          ? <>{rating.toFixed(1)} <span className="font-semibold text-white">({crowd!.ratingCount.toLocaleString('he-IL')} ביקורות)</span></>
+          : <span className="font-semibold text-white">ציון: {NO_CROWD_INFO}</span>}
+      </span>
+    </span>
   );
 }

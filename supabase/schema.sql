@@ -379,5 +379,29 @@ alter table public.country_trails enable row level security;
 -- אין policy: רק השרת עם service_role קורא וכותב.
 grant select, insert, update on public.country_trails to service_role;
 
+-- ── מה אומרים מטיילים: ציון וכמות מטיילים למסלולי עולם ─────────────────────
+-- לכל מסלול עולם (relation ב-OSM) במדינה שהמנהל הריץ לה את האיסוף: כמה
+-- קראו את ערכי הוויקיפדיה שלו ב-24 החודשים האחרונים, ומה הציון ומספר
+-- הביקורות שלו באתרי ביקורות (AllTrails, Wikiloc וכו', ב-sources). רמת
+-- התנועה ("הרבה", "מעט"…) לא נשמרת — היא מחושבת בקריאה מול שאר מסלולי
+-- המדינה (src/lib/trailCrowd/score.ts). crowd_version עולה כשמשתנה האיסוף.
+create table if not exists public.trail_crowd (
+  trail_id bigint not null,
+  country text not null,
+  crowd_version int not null,
+  fetched_at timestamptz not null default now(),
+  pageviews int not null default 0,
+  sources jsonb not null default '[]',
+  rating numeric(3, 1),
+  rating_count int not null default 0,
+  primary key (trail_id, country)
+);
+
+create index if not exists trail_crowd_country_idx on public.trail_crowd (country);
+
+alter table public.trail_crowd enable row level security;
+-- אין policy: רק השרת עם service_role קורא וכותב.
+grant select, insert, update on public.trail_crowd to service_role;
+
 -- PostgREST מכיר פונקציה חדשה רק אחרי רענון של מטמון הסכמה.
 notify pgrst, 'reload schema';

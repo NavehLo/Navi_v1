@@ -6,6 +6,7 @@ import { type VoicePrefs, readVoicePrefs, rememberVoiceNames, writeVoicePrefs } 
 import { readSimulateOffline, setSimulateOffline, storageEstimate } from "../lib/offlineMap";
 import OffRouteSetting from "./OffRouteSetting";
 import AiUsagePanel from "./AiUsagePanel";
+import TrailCrowdAdmin from "./TrailCrowdAdmin";
 // The admin-only tools below carry the signed-in user's token. The server
 // decides who the admin is (ADMIN_EMAILS in Vercel); the page only carries
 // the proof of who is asking.
@@ -730,6 +731,8 @@ export default function SettingsPanel({ onClose, children, help }: SettingsPanel
               {(storage.quota / (1024 * 1024 * 1024)).toFixed(1)} GB זמינים.
             </p>
           )}
+
+          <TrailCrowdAdmin />
           </div>
         )}
 

@@ -23,6 +23,7 @@ export type AiArea =
   | 'trail_info'     // "על המסלול"
   | 'trail_translate'// English names for world trails
   | 'trip_advice'    // the weather explanation for the trip day
+  | 'trail_crowd'    // "מה אומרים מטיילים": ratings read off review sites
   | 'other';
 
 // What the call did.

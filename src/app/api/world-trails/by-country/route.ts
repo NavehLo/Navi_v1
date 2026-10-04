@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { rateLimit, clientIp } from '../../../../lib/rateLimit';
-import { countryTrails, storedCountryTrails, builtCountryCounts } from '../../../../lib/countryTrails';
+import { countryTrails, storedCountryTrails, builtCountryCounts, type CountryTrailList } from '../../../../lib/countryTrails';
+import { crowdForCountry } from '../../../../lib/trailCrowd/store';
 
 // World trails by country, each with its twelve months rated (see
 // countryTrails.ts). Two reads, both GET:
@@ -9,11 +10,21 @@ import { countryTrails, storedCountryTrails, builtCountryCounts } from '../../..
 //   ?counts=1     for every country built so far, how many trails are in
 //                 season each month — the numbers beside the month-first list
 //
+// Where the admin has collected "מה אומרים מטיילים" for the country (see
+// api/admin/trail-crowd), each trail also carries `crowd`: its traffic tier
+// and rating. Joined here on every read, so the stored list stays as it is.
+//
 // Building a country costs a few dozen requests to Waymarked Trails and
 // Open-Meteo, community services, so it has its own small allowance; a
 // country already built costs nothing and has a generous one.
 
 type Status = 'ok' | 'unavailable' | 'rate-limited';
+
+async function withCrowd(list: CountryTrailList) {
+  const crowd = await crowdForCountry(list.country);
+  if (!crowd) return list;
+  return { ...list, hasCrowd: true, trails: list.trails.map((t) => ({ ...t, crowd: crowd.get(t.id) })) };
+}
 
 export const maxDuration = 60;
 
@@ -38,13 +49,13 @@ export async function GET(request: Request) {
 
   try {
     const stored = await storedCountryTrails(country);
-    if (stored) return NextResponse.json({ status: 'ok' satisfies Status, ...stored });
+    if (stored) return NextResponse.json({ status: 'ok' satisfies Status, ...(await withCrowd(stored)) });
     if (!(await rateLimit(`country-build:${ip}`, 4, 10 * 60_000))) {
       return NextResponse.json({ status: 'rate-limited' satisfies Status }, { status: 429 });
     }
     const list = await countryTrails(country);
     if (!list) return NextResponse.json({ status: 'unavailable' satisfies Status });
-    return NextResponse.json({ status: 'ok' satisfies Status, ...list });
+    return NextResponse.json({ status: 'ok' satisfies Status, ...(await withCrowd(list)) });
   } catch (error) {
     console.error('Country trails error:', error);
     return NextResponse.json({ status: 'unavailable' satisfies Status });

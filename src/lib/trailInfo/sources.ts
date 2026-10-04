@@ -148,7 +148,7 @@ async function wikidataFacts(qid: string, localLang: string | null): Promise<Wik
 // An article found by searching is accepted only if its title *is* the
 // trail's name — a search for "Menalon Trail" otherwise returns the article
 // about a village that mentions it once.
-async function wikiByName(lang: string, name: string): Promise<WikiRef | null> {
+export async function wikiByName(lang: string, name: string): Promise<WikiRef | null> {
   const params = new URLSearchParams({
     action: 'query', format: 'json', formatversion: '2', list: 'search', srsearch: name, srlimit: '5',
   });
@@ -168,7 +168,7 @@ const COUNTRY_LANG: Record<string, string> = {
   DK: 'da', JP: 'ja', GE: 'ka', AM: 'hy', HU: 'hu', RS: 'sr', CY: 'el', IL: 'he', JO: 'ar', MA: 'ar',
 };
 
-function countryEnglish(code: string): string {
+export function countryEnglish(code: string): string {
   try {
     return new Intl.DisplayNames(['en'], { type: 'region' }).of(code) ?? code;
   } catch {
@@ -179,26 +179,41 @@ function countryEnglish(code: string): string {
 // ── Web search (Tavily) ───────────────────────────────────────────────────────
 // 1,000 free searches a month. Unlike Google's grounding, results may be kept,
 // so each trail is searched once and the answer serves everyone after.
-interface WebResult {
+export interface WebResult {
   url: string;
   title: string;
   content: string;
+  // Tavily's own excerpt, the part of the page that answers the query.
+  snippet: string;
 }
 
+// `domains` keeps the search to those sites (the review sites, for the hiker
+// metrics in lib/trailCrowd).
 async function webSearch(query: string): Promise<WebResult[]> {
+  return (await tavilySearch(query)) ?? [];
+}
+
+// Null when the search could not be made (no key, quota spent, an outage),
+// [] when it was made and found nothing.
+export async function tavilySearch(query: string, opts: { domains?: string[]; max?: number } = {}): Promise<WebResult[] | null> {
   const key = process.env.TAVILY_API_KEY;
-  if (!key) return [];
+  if (!key) return null;
   const data = await getJson('https://api.tavily.com/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ query, search_depth: 'basic', max_results: 6, include_raw_content: 'text' }),
+    body: JSON.stringify({
+      query, search_depth: 'basic', max_results: opts.max ?? 6, include_raw_content: 'text',
+      ...(opts.domains ? { include_domains: opts.domains } : {}),
+    }),
   });
-  if (data) await recordAiUsage({ kind: 'search', provider: 'tavily', model: 'search-basic', searches: 1 });
-  return (data?.results ?? [])
+  if (!data) return null;
+  await recordAiUsage({ kind: 'search', provider: 'tavily', model: 'search-basic', searches: 1 });
+  return (data.results ?? [])
     .map((r: { url?: string; title?: string; raw_content?: string; content?: string }) => ({
       url: r.url ?? '',
       title: r.title ?? '',
       content: (r.raw_content || r.content || '').trim(),
+      snippet: (r.content ?? '').trim(),
     }))
     .filter((r: WebResult) => r.url && r.content);
 }

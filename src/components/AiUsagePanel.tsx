@@ -18,6 +18,8 @@ const FEATURE_LABELS: Record<string, string> = {
   "trail_info:search": "על המסלול — חיפוש מידע ברשת",
   "trail_translate:text": "תרגום שמות של מסלולי עולם",
   "trip_advice:text": "הסבר על מזג האוויר ביום הטיול",
+  "trail_crowd:search": "מדדי מטיילים — חיפוש באתרי ביקורות",
+  "trail_crowd:text": "מדדי מטיילים — קריאת הציונים מהעמודים",
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
