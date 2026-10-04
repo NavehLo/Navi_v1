@@ -107,6 +107,16 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   (`addTrails`) and live on through `trail_crowd`: `build()` re-adds every
   trail with numbers there. Never delete a country's `trail_crowd` rows to
   "clean up" — its list would lose its most walked local paths.
+- **"הרים, יער ונהרות" is derived in one place.** The words, levels and filters
+  for mountains, forest and rivers come only from `src/lib/landscape.ts`; the
+  build (`scripts/buildLandscape.mjs`) stores only numbers (a relief histogram,
+  shares). A relief threshold must be one of the stored bins (`RELIEF_BINS` in
+  the build); run `node scripts/checkLandscape.mjs` after changing any
+  threshold. "Dramatic" is local relief (highest minus lowest within ~2.5 km),
+  never absolute height. Rebuilding `src/data/landscape.json.gz` needs the
+  regions file first; a change to what is stored bumps `LANDSCAPE_FORMAT` in
+  the build and `LANDSCAPE_VERSION` in landscape.ts. The river model is weak in
+  the Middle East — Israeli trails keep using `perennialStreams.ts`.
 - **Going back never loses the reader's place.** A panel that unmounts while
   a trail is open keeps its state at module level (`WorldByMonth`,
   `TrailDiscovery`: `kept`) and is reopened through `openSignal`. Close a

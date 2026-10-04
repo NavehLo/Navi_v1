@@ -14,6 +14,11 @@ import {
   NO_CROWD_INFO, TRAFFIC_LABELS, TRAFFIC_ORDER, TRAFFIC_SHORT, byTraffic, leadersOf, type CrowdSummary, type Traffic,
 } from '../lib/trailCrowd/score';
 import { useLeaders } from '../lib/trailLeadersClient';
+import {
+  LANDSCAPE_VERSION, NO_LANDSCAPE_FILTER, landscapeFilterCount, passesLandscape, rangeName,
+  type LandscapeData, type LandscapeFilter, type LandscapeSummary,
+} from '../lib/landscape';
+import { LandscapeFilterPanel, LandscapeLine } from './LandscapeFilters';
 
 // "בעולם לפי חודש": marked trails abroad, chosen by when they are in season.
 //
@@ -32,6 +37,9 @@ import { useLeaders } from '../lib/trailLeadersClient';
 // first and can be filtered by both; "המסלולים המובילים" heads it (of the
 // country, or of the area chosen); and in the country picker such a country
 // names its leading trails. Countries without it look exactly as before.
+//
+// Every country and every area also says what it looks like — mountains,
+// forest, rivers (lib/landscape.ts) — and both lists can be filtered by it.
 //
 // Read outdoors on a phone — white text, nothing under text-xs (CLAUDE.md).
 
@@ -85,12 +93,19 @@ function crowdFilterCount(f: CrowdFilter): number {
 }
 const trailsMemo = new Map<string, CountryData>();
 
+// What the countries look like, and each country's areas: the same for
+// everybody, fetched once a session.
+type CountriesLandscape = LandscapeData & { countries: Record<string, LandscapeSummary> };
+type CountryLandscape = LandscapeData & { country: LandscapeSummary; regions: Record<string, LandscapeSummary> };
+let landscapeMemo: CountriesLandscape | null = null;
+const regionLandscapeMemo = new Map<string, CountryLandscape>();
+
 // Where the reader was: a trail opened from the list unmounts it (the list
 // is not shown over an open trail), and coming back must not mean choosing
 // the country, the area, the month and the filters all over again.
 const kept: {
   mode?: Mode; month?: number; rating?: MonthRating; country?: string | null;
-  region?: string | null; crowdFilter?: CrowdFilter; scroll?: number;
+  region?: string | null; crowdFilter?: CrowdFilter; landscapeFilter?: LandscapeFilter; scroll?: number;
 } = {};
 
 function keepScroll(top: number) {
@@ -112,9 +127,10 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
   const [region, setRegion] = useState<string | null>(kept.region ?? null);
   const [query, setQuery] = useState('');
   const [crowdFilter, setCrowdFilter] = useState<CrowdFilter>(kept.crowdFilter ?? NO_CROWD_FILTER);
+  const [landscapeFilter, setLandscapeFilter] = useState<LandscapeFilter>(kept.landscapeFilter ?? NO_LANDSCAPE_FILTER);
   useEffect(() => {
-    Object.assign(kept, { mode, month, rating, country, region, crowdFilter });
-  }, [mode, month, rating, country, region, crowdFilter]);
+    Object.assign(kept, { mode, month, rating, country, region, crowdFilter, landscapeFilter });
+  }, [mode, month, rating, country, region, crowdFilter, landscapeFilter]);
   // Another country or area is another list: from its top.
   const shownList = useRef(`${country}|${region}`);
   useEffect(() => {
@@ -151,6 +167,41 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
       .catch(() => { if (!cancelled) setClimateStatus('unavailable'); });
     return () => { cancelled = true; };
   }, [climateAttempt]);
+
+  // What every country looks like. Without it the lists work as before, only
+  // without the line and the filter.
+  const [landscape, setLandscape] = useState<CountriesLandscape | null>(landscapeMemo);
+  useEffect(() => {
+    if (landscapeMemo) return;
+    let cancelled = false;
+    fetch(`/api/landscape?v=${LANDSCAPE_VERSION}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled || d.status !== 'ok' || !d.countries) return;
+        landscapeMemo = d as CountriesLandscape;
+        setLandscape(landscapeMemo);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // …and the areas of the country opened.
+  const [, setRegionLandscapeTick] = useState(0);
+  useEffect(() => {
+    if (!country || regionLandscapeMemo.has(country)) return;
+    let cancelled = false;
+    fetch(`/api/landscape?country=${country}&v=${LANDSCAPE_VERSION}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled || d.status !== 'ok' || !d.regions) return;
+        regionLandscapeMemo.set(country, d as CountryLandscape);
+        setRegionLandscapeTick((n) => n + 1);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [country]);
+  const countryLandscape = country ? regionLandscapeMemo.get(country) ?? null : null;
+  const activeLandscape = landscapeFilterCount(landscapeFilter);
 
   // How many trails are in season, for countries somebody has opened before.
   useEffect(() => {
@@ -249,22 +300,30 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
       for (const id of t.regions) counts.set(id, (counts.get(id) ?? 0) + 1);
     }
     return countryData.regions
-      .map((r) => ({ ...r, count: counts.get(r.id) ?? 0 }))
+      .map((r) => ({ ...r, count: counts.get(r.id) ?? 0, landscape: countryLandscape?.regions[r.id] }))
+      .filter((r) => !activeLandscape || !countryLandscape || passesLandscape(r.landscape, countryLandscape.reliefBins, landscapeFilter))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'he'));
-  }, [countryData, month, rating, crowdF]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [countryData, month, rating, crowdF, countryLandscape, landscapeFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const matchingInCountry = useMemo(
     () => (countryList ?? []).filter(matchesFilters).length,
     [countryList, month, rating, crowdF], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const q = query.trim();
-  const matches = (code: string) => !q || countryName(code).includes(q) || code.toLowerCase() === q.toLowerCase();
+  const matchesLandscape = (code: string) =>
+    !activeLandscape || !landscape || passesLandscape(landscape.countries[code], landscape.reliefBins, landscapeFilter);
+  const matches = (code: string) =>
+    (!q || countryName(code).includes(q) || code.toLowerCase() === q.toLowerCase()) && matchesLandscape(code);
 
-  const inSeason = useMemo(() => (climate?.months[month] ?? []).filter((c) => matches(c.country)), [climate, month, q]); // eslint-disable-line react-hooks/exhaustive-deps
+  const inSeason = useMemo(() => (climate?.months[month] ?? []).filter((c) => matches(c.country)), [climate, month, q, landscape, landscapeFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const allCountries = useMemo(
     () => (climate?.countries ?? []).filter(matches).sort((a, b) => countryName(a).localeCompare(countryName(b), 'he')),
-    [climate, q], // eslint-disable-line react-hooks/exhaustive-deps
+    [climate, q, landscape, landscapeFilter], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  const landscapeLine = (code: string) => {
+    const s = landscape?.countries[code];
+    return s ? <LandscapeLine s={s} bins={landscape!.reliefBins} /> : null;
+  };
 
   const allLeaders = useLeaders(!country);
   const leaderLine = (code: string) => {
@@ -389,6 +448,19 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
     </Collapsible>
   );
 
+  const landscapeFilters = (what: string) => (
+    <LandscapeFilterPanel filter={landscapeFilter} onChange={setLandscapeFilter} what={what} />
+  );
+
+  // What is being looked at — the area chosen, or the whole country — and its
+  // main mountain ranges.
+  const shownLandscape = countryLandscape
+    ? (region && region !== 'all' ? countryLandscape.regions[region] : countryLandscape.country) ?? null
+    : null;
+  const shownRanges = shownLandscape && countryLandscape
+    ? shownLandscape.ranges.map((id) => rangeName(countryLandscape, id)).filter((n): n is string => !!n).slice(0, 3)
+    : [];
+
   const failure = (status: Status, retry: () => void, what: string) => (
     <div className="rounded-lg bg-amber-500/10 border border-amber-400/35 p-2 text-sm text-amber-100 flex items-center justify-between gap-2">
       <span>{status === 'rate-limited' ? 'יותר מדי בקשות כרגע' : `לא הצלחנו לטעון ${what}`}. נסו שוב בעוד רגע.</span>
@@ -413,6 +485,14 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
             )}
           </span>
         </div>
+        {shownLandscape && countryLandscape && (
+          <div className="flex flex-col gap-0.5 shrink-0">
+            <LandscapeLine s={shownLandscape} bins={countryLandscape.reliefBins} />
+            {shownRanges.length > 0 && (
+              <span className="text-xs text-amber-200 flex min-w-0">רכסים:&nbsp;<NameList names={shownRanges} /></span>
+            )}
+          </div>
+        )}
         {monthChips}
         <div className="flex flex-wrap gap-1.5 shrink-0" role="radiogroup" aria-label="בחירת דרגה">
           {(['good', 'fair', 'bad'] as const).map((r) => (
@@ -445,6 +525,7 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
               onPick={(t) => onPickTrail({ type: 'relation', id: t.id, name: t.name, group: t.group, linear: t.linear })}
             />
           )}
+          {choosingRegion && countryLandscape && landscapeFilters('אזורים')}
           {hasCrowd && crowdFilters}
           {countryStatus === 'loading' && (
             <div className="flex items-center gap-2 text-sm text-white py-4">
@@ -471,6 +552,13 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
                 <span className="text-sm font-bold text-white">כל {countryName(country)}</span>
                 <span className="text-xs font-bold text-sky-300 flex items-center gap-1 shrink-0">{matchingInCountry} מסלולים <ChevronLeft className="w-4 h-4" /></span>
               </button>
+              {activeLandscape > 0 && countryLandscape && (
+                <div className="text-xs text-emerald-200">
+                  {regionRows.length
+                    ? `${regionRows.length} מתוך ${countryData?.regions.length} האזורים עונים על הסינון לפי נוף`
+                    : 'אף אזור לא עונה על הסינון לפי נוף. נסו לרכך אותו.'}
+                </div>
+              )}
               {regionRows.map((r) => (
                 <button
                   key={r.id}
@@ -483,6 +571,7 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
                       {r.dir && <span className="text-xs font-bold text-amber-200 bg-white/10 rounded-md px-1.5 py-0.5">{r.dir}</span>}
                     </span>
                     {r.latin && <span className="text-xs text-white" dir="ltr">{r.latin}</span>}
+                    {r.landscape && countryLandscape && <LandscapeLine s={r.landscape} bins={countryLandscape.reliefBins} />}
                   </span>
                   <span className={`text-xs font-bold shrink-0 flex items-center gap-1 ${r.count ? 'text-sky-300' : 'text-white'}`}>
                     {r.count ? `${r.count} מסלולים` : 'אין'} <ChevronLeft className="w-4 h-4" />
@@ -569,6 +658,12 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
             המטיילים — לפי המסלולים המובילים של כל אזור ב-Komoot ולפי ויקיפדיה. אפשר לסנן ולמיין לפי שניהם. מסלול שלא
             מופיע שם מסומן &quot;אין מספיק מידע&quot; — זה לא אומר שיש בו מעט מטיילים.
           </p>
+          <p className="mt-2">
+            <b>הנוף</b> — ליד כל מדינה וכל אזור: <b>הרים</b> לפי כמה הקרקע יורדת סביבך ברדיוס של כ-2.5 ק״מ (לא לפי הגובה —
+            רמה גבוהה ושטוחה איננה דרמטית), <b>יער</b> וסוגו לפי מפת הכיסוי של Copernicus, ו<b>נהרות ונחלים</b> לפי מודל
+            עולמי שמעריך לכל קטע נהר אם הוא זורם כל השנה או רק בעונה. המילה ליד ההרים היא הדרגה הגבוהה שמכסה לפחות עשירית
+            מהשטח. נחלים קטנים מאוד (אגן קטן מ-10 קמ״ר) לא נספרים.
+          </p>
         </InfoButton>
       </div>
 
@@ -591,6 +686,7 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
       </div>
 
       <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar flex flex-col gap-1.5 min-h-0">
+        {landscape && landscapeFilters('מדינות')}
         {climateStatus === 'loading' && <div className="text-sm text-white py-3">טוען…</div>}
         {(climateStatus === 'unavailable' || climateStatus === 'rate-limited') &&
           failure(climateStatus, () => { setClimateStatus('loading'); setClimateAttempt((n) => n + 1); }, 'את רשימת המדינות')}
@@ -599,6 +695,7 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
           <>
             <div className="text-xs text-white">
               {MONTH_NAMES[month]}: <span className="font-bold text-emerald-300">{inSeason.length} מדינות</span> עם אזורים בעונה מומלצת
+              {activeLandscape > 0 && ' שעונות על הסינון לפי נוף'}
             </div>
             {inSeason.map((c) => {
               const n = counts[c.country]?.[month];
@@ -610,6 +707,7 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
                 >
                   <span className="min-w-0 flex flex-col gap-0.5">
                     <span className="text-sm font-bold text-white">{countryName(c.country)}</span>
+                    {landscapeLine(c.country)}
                     {leaderLine(c.country)}
                   </span>
                   <span className="text-xs text-white flex items-center gap-2 shrink-0">
@@ -622,6 +720,11 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
           </>
         )}
 
+        {climate && mode === 'country' && activeLandscape > 0 && (
+          <div className="text-xs text-white">
+            <span className="font-bold text-emerald-300">{allCountries.length} מדינות</span> עונות על הסינון לפי נוף
+          </div>
+        )}
         {climate && mode === 'country' && allCountries.map((code) => (
           <button
             key={code}
@@ -629,6 +732,7 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
             className="text-right bg-white/5 border border-white/5 px-3 py-2.5 rounded-xl hover:bg-white/10 hover:border-orange-500/40 transition-all text-sm font-bold text-white flex flex-col gap-0.5"
           >
             {countryName(code)}
+            {landscapeLine(code)}
             {leaderLine(code)}
           </button>
         ))}
