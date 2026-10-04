@@ -103,6 +103,10 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   triggered by a visitor; a run that read too few routes must not save. Bump
   `CROWD_VERSION` only when what is stored changes. Google ratings may not be
   stored, so they are not a source.
+  Trails found under Komoot's routes (`discover.ts`) join the country's list
+  (`addTrails`) and live on through `trail_crowd`: `build()` re-adds every
+  trail with numbers there. Never delete a country's `trail_crowd` rows to
+  "clean up" — its list would lose its most walked local paths.
 - **Going back never loses the reader's place.** A panel that unmounts while
   a trail is open keeps its state at module level (`WorldByMonth`,
   `TrailDiscovery`: `kept`) and is reopened through `openSignal`. Close a

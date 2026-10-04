@@ -27,7 +27,7 @@ const MIN_SHARE = 0.6;
 const LONGER_FACTOR = 5;
 
 type LonLat = [number, number];
-interface TrailLines {
+export interface TrailLines {
   id: number;
   km: number;
   lines: LonLat[][];
@@ -59,25 +59,41 @@ export async function trailLines(trails: CountryTrail[]): Promise<TrailLines[]> 
       for (const f of a?.features ?? []) {
         const id = Number(f.id);
         if (!km.has(id) || !f.geometry) continue;
-        const raw = f.geometry.type === 'LineString'
-          ? [f.geometry.coordinates as number[][]]
-          : f.geometry.type === 'MultiLineString' ? (f.geometry.coordinates as number[][][]) : [];
-        const lines = raw.map((l) => l.map((p) => mercatorToLonLat(p[0], p[1]))).filter((l) => l.length > 1);
-        if (!lines.length) continue;
-        const all = lines.flat();
-        out.push({
-          id,
-          km: km.get(id)!,
-          lines,
-          bbox: [
-            Math.min(...all.map((p) => p[0])), Math.min(...all.map((p) => p[1])),
-            Math.max(...all.map((p) => p[0])), Math.max(...all.map((p) => p[1])),
-          ],
-        });
+        const t = trailLinesOf(id, f.geometry, km.get(id)!);
+        if (t) out.push(t);
       }
     }
   }
   return out;
+}
+
+// One trail's outline from Waymarked (Web Mercator) as lines to match
+// against. `km`: the trail's length, or null to measure the outline.
+export function trailLinesOf(id: number, geometry: { type: string; coordinates: unknown }, km: number | null): TrailLines | null {
+  const raw = geometry.type === 'LineString'
+    ? [geometry.coordinates as number[][]]
+    : geometry.type === 'MultiLineString' ? (geometry.coordinates as number[][][]) : [];
+  const lines = raw.map((l) => l.map((p) => mercatorToLonLat(p[0], p[1]))).filter((l) => l.length > 1);
+  if (!lines.length) return null;
+  const all = lines.flat();
+  let length = km;
+  if (length == null) {
+    length = 0;
+    for (const l of lines) {
+      for (let i = 1; i < l.length; i++) {
+        length += Math.hypot((l[i][0] - l[i - 1][0]) * 111.32 * Math.cos((l[i][1] * Math.PI) / 180), (l[i][1] - l[i - 1][1]) * 111.32);
+      }
+    }
+  }
+  return {
+    id,
+    km: length,
+    lines,
+    bbox: [
+      Math.min(...all.map((p) => p[0])), Math.min(...all.map((p) => p[1])),
+      Math.max(...all.map((p) => p[0])), Math.max(...all.map((p) => p[1])),
+    ],
+  };
 }
 
 // Metres from a point to a line, on a plane local to the point.
@@ -99,7 +115,7 @@ function distanceTo(lat: number, lon: number, lines: LonLat[][]): number {
   return best;
 }
 
-function routeKm(r: KomootRoute): number {
+export function routeKm(r: KomootRoute): number {
   if (r.km) return r.km;
   let m = 0;
   for (let i = 1; i < r.points.length; i++) {
@@ -109,8 +125,8 @@ function routeKm(r: KomootRoute): number {
   return m / 1000;
 }
 
-// The trails each route runs along.
-function trailsOf(r: KomootRoute, trails: TrailLines[]): number[] {
+// The trails a route runs along.
+export function trailsOf(r: KomootRoute, trails: TrailLines[]): number[] {
   const pad = 0.003;
   const lats = r.points.map((p) => p[0]);
   const lons = r.points.map((p) => p[1]);

@@ -23,14 +23,15 @@ import { readFileSync, writeFileSync } from 'node:fs';
 
 const { withAiArea } = await import('../src/lib/aiUsage.ts');
 const { readGuides } = await import('../src/lib/trailCrowd/komoot.ts');
-const { matchRoutes, trailLines } = await import('../src/lib/trailCrowd/match.ts');
-const { countryTrails } = await import('../src/lib/countryTrails.ts');
+const { countryTrails, rebuildCountryTrails } = await import('../src/lib/countryTrails.ts');
 const c = await import('../src/lib/trailCrowd/country.ts');
 const { crowdRows } = await import('../src/lib/trailCrowd/store.ts');
 const { crowdSummaries, trafficSignal, TRAFFIC_ORDER } = await import('../src/lib/trailCrowd/score.ts');
 
 await withAiArea('trail_crowd', async () => {
-  const list = await countryTrails(country);
+  // CROWD_REBUILD=1: the country's list built afresh first (it then brings
+  // back the trails earlier runs added, under their names).
+  let list = process.env.CROWD_REBUILD ? await rebuildCountryTrails(country) : await countryTrails(country);
   if (!list) throw new Error(`no trail list for ${country}`);
   console.log(`${country}: ${list.trails.length} trails, ${list.regions.length} areas`);
 
@@ -57,8 +58,11 @@ await withAiArea('trail_crowd', async () => {
   // A page lists ten routes. Far fewer means the pages were not read, and
   // saving would replace good numbers with none.
   if (routes.length < guides.length * 3) throw new Error(`only ${routes.length} routes from ${guides.length} pages — not saving`);
-  const matches = Object.fromEntries(matchRoutes(routes, await trailLines(list.trails)));
-  console.log(`${Object.keys(matches).length} of our trails matched`);
+  const matches = await c.matchAll(list, routes);
+  const before = list.trails.length;
+  list = await c.withAddedTrails(list, matches);
+  const inList = list.trails.filter((t) => matches[t.id]).length;
+  console.log(`${inList} of the list's trails matched, ${list.trails.length - before} of them just added (${list.trails.length} trails now)`);
 
   const ask = c.wikiCandidates(list, matches);
   const views = await c.pageviewsOf(ask);

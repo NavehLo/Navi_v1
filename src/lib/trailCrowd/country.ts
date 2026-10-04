@@ -5,8 +5,9 @@
 //   1. find    Komoot's "best hikes" pages for the country and its areas
 //              (a few dozen Tavily searches)
 //   2. read    those pages: each area's most walked routes, with their lines
-//              (one Tavily credit per five pages), tied to our trails by
-//              where they go — free
+//              (read straight from Komoot — free), tied to our trails by
+//              where they go; a route on none of them leads to the trail
+//              under it, which is added to the list (discover.ts) — free
 //   3. finish  Wikipedia reads for the trails worth asking about, and a row
 //              for every trail of the country: one that no page listed is
 //              stored empty, and shows "אין מספיק מידע"
@@ -15,10 +16,12 @@
 // list the few trails most people walk, and a search for each of the
 // hundreds of others would mostly find nothing (see README).
 
-import type { CountryTrail, CountryTrailList } from '../countryTrails';
+import { iso1A2Code } from '@rapideditor/country-coder';
+import { addTrails, type CountryTrail, type CountryTrailList } from '../countryTrails';
+import { discoverTrails } from './discover';
 import { countryEnglish } from '../trailInfo/sources';
 import { findGuides, readGuides, type KomootRoute } from './komoot';
-import { matchRoutes, trailLines } from './match';
+import { matchRoutes, routeKm, trailLines, trailsOf } from './match';
 import { pageviewsFor } from './collect';
 import { writeCrowdRows } from './store';
 import type { CrowdData, CrowdSource } from './score';
@@ -43,15 +46,61 @@ async function linesFor(list: CountryTrailList) {
   return lines;
 }
 
-// Reads some pages and returns, for each of our trails found on them, the
-// numbers of its most walked route. Plain JSON, to be merged by the caller.
+// Reads some pages and returns, for each trail found on them, the numbers of
+// its most walked route — our list's trails, and the trails under routes on
+// none of them, which are not in the list yet (withAddedTrails adds them).
+// Plain JSON, to be merged by the caller. `deadline`: see discoverTrails.
 export async function readAndMatch(
   list: CountryTrailList,
-  urls: string[]
+  urls: string[],
+  opts: { deadline?: number } = {},
 ): Promise<{ routes: number; matches: Record<number, CrowdSource> }> {
   const routes: KomootRoute[] = await readGuides(urls);
+  return { routes: routes.length, matches: await matchAll(list, routes, opts) };
+}
+
+export async function matchAll(
+  list: CountryTrailList,
+  all: KomootRoute[],
+  opts: { deadline?: number } = {},
+): Promise<Record<number, CrowdSource>> {
+  // A search for a country's areas also finds pages about places of the same
+  // name elsewhere (Malta's searches: Ireland, Bohemia, Australia). Only the
+  // routes that pass through the country count.
+  const routes = all.filter((r) => r.points.some(([lat, lon], i) => i % 10 === 0 && iso1A2Code([lon, lat]) === list.country));
   const lines = await linesFor(list);
-  return { routes: routes.length, matches: Object.fromEntries(matchRoutes(routes, lines)) };
+  const km = new Map(lines.map((l) => [l.id, l.km]));
+  // A route that runs along none of the list's trails, or only along one far
+  // longer than itself (the Cares gorge walk, on the multi-day "Anillo de
+  // Picos"), is looked under: the trail it actually is may be a local path
+  // the list does not have.
+  const settled: KomootRoute[] = [];
+  const unsettled: KomootRoute[] = [];
+  for (const r of routes) {
+    const on = trailsOf(r, lines);
+    if (on.length && Math.min(...on.map((id) => km.get(id) ?? Infinity)) <= routeKm(r) * 2) settled.push(r);
+    else unsettled.push(r);
+  }
+  const matches = matchRoutes(settled, lines);
+  const found = await discoverTrails(unsettled, new Set(list.trails.map((t) => t.id)), opts);
+  // The list's trails and the ones found compete: the shortest wins.
+  for (const [id, s] of matchRoutes(unsettled, [...lines, ...found])) {
+    const prev = matches.get(id);
+    if (!prev || (prev.hikers ?? 0) < (s.hikers ?? 0)) matches.set(id, s);
+  }
+  return Object.fromEntries(matches);
+}
+
+// The list with the trails found under the routes added to it.
+export async function withAddedTrails(list: CountryTrailList, matches: Record<number, CrowdSource>): Promise<CountryTrailList> {
+  const have = new Set(list.trails.map((t) => t.id));
+  const missing = Object.keys(matches).map(Number).filter((id) => !have.has(id));
+  if (!missing.length) return list;
+  // A path mapped without a name takes the name of the route that found it.
+  const names = Object.fromEntries(missing.map((id) => [id, matches[id].route ?? null]));
+  const updated = (await addTrails(list.country, missing, names)) ?? list;
+  linesMemo = null;
+  return updated;
 }
 
 export function mergeMatches(into: Record<number, CrowdSource>, more: Record<number, CrowdSource>): void {

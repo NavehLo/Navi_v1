@@ -14,7 +14,7 @@ import type { CrowdSource } from "../lib/trailCrowd/score";
 // limit of a request: `node scripts/collectCrowd.mjs GR`.
 
 const PILOT_COUNTRIES = ["GR"];
-const READ_BATCH = 8;
+const READ_BATCH = 4;
 
 interface Progress {
   status: string;

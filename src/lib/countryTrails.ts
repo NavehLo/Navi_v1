@@ -8,6 +8,7 @@ import { estimateHike } from './hikeEffort';
 import { lookupEnglish } from './trailNameCache';
 import { needsEnglish } from './trailNames';
 import { regionsAlong, regionInfo, type RegionInfo } from './regions';
+import { CROWD_VERSION } from './trailCrowd/score';
 
 // A country's marked trails with the twelve months rated for each — the list
 // behind "מסלולים בעולם לפי חודש". Server only.
@@ -230,23 +231,12 @@ function rateTrail(samples: Sample[], km: number, multiDay: boolean, gorge: bool
 
 // ── Building ─────────────────────────────────────────────────────────────────
 
-async function build(country: string): Promise<CountryTrailList | null> {
-  const started = Date.now();
-  const tiles = tilesFor(country);
-  if (tiles.length === 0) return null;
+type Candidate = { summary: WmtRouteSummary; km: number; crossesBorder: boolean; samples: Sample[]; regions: string[] };
 
-  const found = new Map<number, Found>();
-  let answered = 0, partial = false;
-  await pool(tiles, 4, async (tile) => {
-    if (Date.now() - started > BUILD_BUDGET_MS / 2) { partial = true; return; }
-    if (await readTile(tile, found)) answered++;
-    else partial = true;
-  });
-  if (answered === 0) return null;
-
-  // Each route: its length here, and a few points on it that are in this
-  // country (a square at a border holds the neighbour's trails too).
-  const candidates: Array<{ summary: WmtRouteSummary; km: number; crossesBorder: boolean; samples: Sample[]; regions: string[] }> = [];
+// Each route: its length here, and a few points on it that are in this
+// country (a square at a border holds the neighbour's trails too).
+function candidatesFrom(country: string, found: Map<number, Found>): Candidate[] {
+  const candidates: Candidate[] = [];
   for (const { summary, lines } of found.values()) {
     const sampled = evenly(lines.flat(), 30);
     const inside = sampled.filter(([lon, lat]) => iso1A2Code([lon, lat]) === country);
@@ -263,9 +253,11 @@ async function build(country: string): Promise<CountryTrailList | null> {
     if (km < 0.5) continue;
     candidates.push({ summary, km, crossesBorder: inside.length < sampled.length, regions: regionsAlong(country, inside), samples: evenly(inside, SAMPLES).map(([lon, lat]) => ({ lon, lat, ele: null })) });
   }
-  candidates.sort((a, b) => (GROUP_ORDER[a.summary.group] ?? 4) - (GROUP_ORDER[b.summary.group] ?? 4) || b.km - a.km);
-  const chosen = candidates.slice(0, MAX_TRAILS);
+  return candidates;
+}
 
+// Heights, English names and the twelve months: candidates become trails.
+async function trailsFrom(chosen: Candidate[], fallbackNames: Record<number, string | null> = {}): Promise<CountryTrail[]> {
   const allSamples = chosen.flatMap((c) => c.samples);
   const heights = await elevations(allSamples.map((s) => [s.lon, s.lat]));
   allSamples.forEach((s, i) => { s.ele = heights[i]; });
@@ -281,7 +273,7 @@ async function build(country: string): Promise<CountryTrailList | null> {
     const mid = c.samples[Math.floor(c.samples.length / 2)];
     trails.push({
       id: c.summary.id,
-      name: c.summary.name || c.summary.ref || `מסלול ${c.summary.id}`,
+      name: c.summary.name || c.summary.ref || fallbackNames[c.summary.id] || `מסלול ${c.summary.id}`,
       name_en: english.get(c.summary.id) ?? null,
       group: c.summary.group,
       linear: c.summary.linear,
@@ -294,6 +286,99 @@ async function build(country: string): Promise<CountryTrailList | null> {
       months,
     });
   }
+  return trails;
+}
+
+// ── Trails added by id ───────────────────────────────────────────────────────
+// The squares reach a large country's local paths only where its land is small
+// (the Canaries, not mainland Spain): asked for a 50 km square, Waymarked
+// answers its 100 national and regional routes and no local one. The local
+// paths that matter most — the ones Komoot lists among an area's most walked —
+// are found by the hiker metrics' collection, under those very routes
+// (trailCrowd/discover.ts), and added here by id. They are remembered in
+// public.trail_crowd, so a rebuilt list (every 30 days, or a new format) gets
+// them back without collecting again.
+
+async function readByIds(country: string, ids: number[]): Promise<Map<number, Found>> {
+  const found = new Map<number, Found>();
+  if (!ids.length) return found;
+  const summaries = new Map<number, WmtRouteSummary>();
+  for (let i = 0; i < ids.length; i += 50) {
+    const r = (await fetchWmt(`/list/by_ids?relations=${ids.slice(i, i + 50).join(',')}`, 20_000, false)) as { results?: WmtRouteSummary[] } | null;
+    for (const s of r?.results ?? []) summaries.set(s.id, s);
+  }
+  const tiles = tilesFor(country);
+  if (!tiles.length || !summaries.size) return found;
+  // The whole country as one box; the outlines come back whole (checked 2026-10).
+  const box = mercatorBox({
+    west: Math.min(...tiles.map((t) => t.west)), south: Math.min(...tiles.map((t) => t.south)),
+    east: Math.max(...tiles.map((t) => t.east)), north: Math.max(...tiles.map((t) => t.north)), cells: 0,
+  });
+  const wanted = [...summaries.keys()];
+  for (let i = 0; i < wanted.length; i += 40) {
+    const outlines = (await fetchWmt(`/list/segments?bbox=${box}&relations=${wanted.slice(i, i + 40).join(',')}`, 30_000, false)) as { features?: Feature[] } | null;
+    for (const f of outlines?.features ?? []) {
+      const id = Number(f.id ?? f.properties?.id);
+      const summary = summaries.get(id);
+      if (!summary || !f.geometry) continue;
+      const raw = f.geometry.type === 'LineString'
+        ? [f.geometry.coordinates as number[][]]
+        : f.geometry.type === 'MultiLineString' ? (f.geometry.coordinates as number[][][]) : [];
+      const lines: Line[] = raw
+        .map((l) => l.filter((p) => Number.isFinite(p?.[0]) && Number.isFinite(p?.[1])).map((p) => mercatorToLonLat(p[0], p[1])))
+        .filter((l) => l.length > 1);
+      const entry = found.get(id) ?? { summary, lines: [] };
+      entry.lines.push(...lines);
+      found.set(id, entry);
+    }
+  }
+  return found;
+}
+
+// The trails the hiker metrics found for this country (rows with numbers),
+// each with the name of the route that found it — for a path mapped without
+// a name of its own.
+async function crowdTrails(country: string): Promise<Map<number, string | null>> {
+  const client = serviceClient();
+  if (!client) return new Map();
+  try {
+    const { data, error } = await client
+      .from('trail_crowd')
+      .select('trail_id, sources')
+      .eq('country', country)
+      .eq('crowd_version', CROWD_VERSION)
+      .gt('rating_count', 0);
+    if (error) throw error;
+    return new Map((data ?? []).map((r) => [Number(r.trail_id), (r.sources as Array<{ route?: string }>)?.[0]?.route ?? null]));
+  } catch {
+    return new Map();
+  }
+}
+
+async function build(country: string): Promise<CountryTrailList | null> {
+  const started = Date.now();
+  const tiles = tilesFor(country);
+  if (tiles.length === 0) return null;
+
+  const found = new Map<number, Found>();
+  let answered = 0, partial = false;
+  await pool(tiles, 4, async (tile) => {
+    if (Date.now() - started > BUILD_BUDGET_MS / 2) { partial = true; return; }
+    if (await readTile(tile, found)) answered++;
+    else partial = true;
+  });
+  if (answered === 0) return null;
+
+  const candidates = candidatesFrom(country, found);
+  candidates.sort((a, b) => (GROUP_ORDER[a.summary.group] ?? 4) - (GROUP_ORDER[b.summary.group] ?? 4) || b.km - a.km);
+  const chosen = candidates.slice(0, MAX_TRAILS);
+  // The trails added by id earlier, which the squares do not reach.
+  const have = new Set(chosen.map((c) => c.summary.id));
+  const crowd = await crowdTrails(country);
+  const extra = [...crowd.keys()].filter((id) => !have.has(id));
+  if (extra.length) chosen.push(...candidatesFrom(country, await readByIds(country, extra)));
+
+  const trails = await trailsFrom(chosen, Object.fromEntries(crowd));
   const regions = regionInfo(country, new Set(trails.flatMap((t) => t.regions)));
   return { country, version: STORED_VERSION, builtAt: Date.now(), partial, regions, trails };
 }
@@ -427,4 +512,38 @@ export async function builtCountryCounts(): Promise<Record<string, number[]>> {
     noteError('counts', e);
   }
   return out;
+}
+
+// Adds trails to a country's stored list by id (see "Trails added by id"),
+// and returns the list. Trails it has already, or that are not in the
+// country, are skipped.
+// `names`: for a path mapped without a name, what to call it instead.
+export async function addTrails(country: string, ids: number[], names: Record<number, string | null> = {}): Promise<CountryTrailList | null> {
+  const list = await countryTrails(country);
+  if (!list) return null;
+  const have = new Set(list.trails.map((t) => t.id));
+  const missing = [...new Set(ids)].filter((id) => !have.has(id));
+  if (!missing.length) return list;
+  const added = await trailsFrom(candidatesFrom(country, await readByIds(country, missing)), names);
+  if (!added.length) return list;
+  const trails = [...list.trails, ...added];
+  const updated: CountryTrailList = {
+    ...list,
+    trails,
+    regions: regionInfo(country, new Set(trails.flatMap((t) => t.regions))),
+  };
+  memory.set(country, updated);
+  await writeTable(updated);
+  return updated;
+}
+
+// Builds a country's list again now, whatever its age — after the hiker
+// metrics found trails for it (scripts/collectCrowd.mjs CROWD_REBUILD=1).
+export async function rebuildCountryTrails(country: string): Promise<CountryTrailList | null> {
+  const list = await build(country);
+  if (list) {
+    memory.set(country, list);
+    await writeTable(list);
+  }
+  return list;
 }

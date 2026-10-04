@@ -4,7 +4,7 @@ import { serviceClient } from '../../../../lib/supabaseService';
 import { withAiUsage } from '../../../../lib/aiUsage';
 import { countryTrails } from '../../../../lib/countryTrails';
 import {
-  findCountryGuides, pageviewsOf, readAndMatch, saveCountry, wikiCandidates,
+  findCountryGuides, pageviewsOf, readAndMatch, saveCountry, wikiCandidates, withAddedTrails,
 } from '../../../../lib/trailCrowd/country';
 import { crowdRows, isCrowdTableMissing } from '../../../../lib/trailCrowd/store';
 import { crowdSummaries, trafficSignal, type CrowdSource } from '../../../../lib/trailCrowd/score';
@@ -17,7 +17,7 @@ import { crowdSummaries, trafficSignal, type CrowdSource } from '../../../../lib
 //   GET  ?country=GR                     how the country stands: trails,
 //                                        with Komoot numbers, with a rating…
 //   POST ?country=GR {step:'find'}       → {guides}
-//   POST ?country=GR {step:'read', urls} (≤8 pages) → {routes, matches}
+//   POST ?country=GR {step:'read', urls} (≤4 pages) → {routes, matches}
 //   POST ?country=GR {step:'finish', matches, from?}
 //        Wikipedia for the next trails worth asking about, ≤12 a call:
 //        → {views, next} until next is null, then saves (with all `views`
@@ -25,7 +25,7 @@ import { crowdSummaries, trafficSignal, type CrowdSource } from '../../../../lib
 
 export const maxDuration = 60;
 
-const READ_MAX = 8;
+const READ_MAX = 4;
 const WIKI_BATCH = 12;
 
 function badCountry(country: string) {
@@ -96,7 +96,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
 
   return withAiUsage(request, 'trail_crowd', async () => {
-    const list = await countryTrails(country);
+    let list = await countryTrails(country);
     if (!list) return NextResponse.json({ status: 'unavailable' });
 
     if (body.step === 'find') {
@@ -109,12 +109,16 @@ export async function POST(request: Request) {
       const urls = (Array.isArray(body.urls) ? body.urls : [])
         .filter((u: unknown): u is string => typeof u === 'string' && /^https:\/\/www\.komoot\.com\/guide\//.test(u))
         .slice(0, READ_MAX);
-      const { routes, matches } = await readAndMatch(list, urls);
+      // Finding the trails under unmatched routes stops in time for the answer.
+      const { routes, matches } = await readAndMatch(list, urls, { deadline: Date.now() + 35_000 });
       return NextResponse.json({ status: 'ok', routes, matches }, noStore);
     }
 
     if (body.step === 'finish') {
       const matches = cleanMatches(body.matches);
+      // The trails found under Komoot's routes join the list (once; later
+      // calls find them there already).
+      list = await withAddedTrails(list, matches);
       const ask = wikiCandidates(list, matches);
       const from = Math.max(0, Number(body.from) || 0);
       if (from < ask.length) {
