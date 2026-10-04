@@ -6,7 +6,7 @@ import type { TrailKind } from "../hooks/useTrailData";
 import { tourSpeedsFor } from "../hooks/useTour";
 import {
   Home, Settings, Headphones, HeadphoneOff,
-  ListMusic, Layers, Maximize2, LocateFixed, Play, Square, Eye, Tag, Route,
+  ListMusic, Layers, Maximize2, LocateFixed, Play, Square, Eye, Tag, Route, Circle, Pause,
 } from "lucide-react";
 
 interface ControlsProps {
@@ -22,6 +22,9 @@ interface ControlsProps {
   isTracking?: boolean;
   onMeasure?: () => void;
   isMeasuring?: boolean;
+  // Recording a walk: the button starts one, or opens the one under way.
+  onRecord?: () => void;
+  recStatus?: 'idle' | 'recording' | 'paused' | 'review';
   map?: mapboxgl.Map | null;
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -116,7 +119,7 @@ export default function Controls(props: ControlsProps) {
     onLocateUser, onZoomIn, onZoomOut, onCompass, mapBearing,
     onFitToTrail, hasTrail, onHome, onOpenSettings, isGuideEnabled, onToggleGuide,
     onOpenGuidePoints, guidePointCount, onHideUI, showWorldTrails, onToggleWorldTrails,
-    offlineStyleKey, isTracking, onMeasure, isMeasuring, map,
+    offlineStyleKey, isTracking, onMeasure, isMeasuring, onRecord, recStatus = 'idle', map,
   } = props;
 
   const [showLayers, setShowLayers] = useState(false);
@@ -219,14 +222,33 @@ export default function Controls(props: ControlsProps) {
           </RailBtn>
           {onMeasure && (
             <RailBtn
-              label="בניית מסלול"
+              label="תכנון מסלול"
               labelsOn={labelsOn}
               onClick={onMeasure}
               className={`border-t border-white/10 ${isMeasuring ? 'bg-orange-500 text-white' : 'text-orange-300'}`}
-              title={hasTrail ? 'בניית מסלול בין נקודות לאורך המסלול הפתוח, עם המרחק ביניהן' : 'בניית מסלול הליכה בין נקודות על המפה, עם המרחק ביניהן'}
+              title={hasTrail ? 'תכנון מסלול בין נקודות לאורך המסלול הפתוח, עם המרחק ביניהן' : 'תכנון מסלול הליכה בין נקודות על המפה, עם המרחק ביניהן'}
               ariaPressed={!!isMeasuring}
             >
               <Route className="w-[18px] h-[18px]" />
+            </RailBtn>
+          )}
+          {onRecord && (
+            <RailBtn
+              label={recStatus === 'recording' ? 'מקליט' : recStatus === 'paused' ? 'מושהה' : 'הקלטה'}
+              labelsOn={labelsOn}
+              onClick={onRecord}
+              className={`border-t border-white/10 ${
+                recStatus === 'recording' ? 'bg-red-500/25 text-red-300'
+                  : recStatus === 'paused' ? 'bg-amber-500/20 text-amber-300'
+                  : 'text-red-400'
+              }`}
+              dataTour="record"
+              title={recStatus === 'idle' ? 'הקלטת מסלול — שומרת את הדרך שהלכת, המרחק, העלייה והזמן' : 'ההקלטה פעילה — לחיצה פותחת אותה'}
+              ariaPressed={recStatus !== 'idle'}
+            >
+              {recStatus === 'paused'
+                ? <Pause className="w-[18px] h-[18px]" />
+                : <Circle className={`w-[18px] h-[18px] fill-current ${recStatus === 'recording' ? 'animate-pulse' : ''}`} />}
             </RailBtn>
           )}
         </div>

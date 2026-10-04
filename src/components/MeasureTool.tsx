@@ -423,7 +423,7 @@ export default function MeasureTool({
         <div className="flex items-center justify-between gap-2 shrink-0">
           <div className="font-bold text-base flex items-center gap-2 min-w-0">
             <Route className="w-4 h-4 text-orange-400 shrink-0" />
-            <span className="truncate">{onTrail ? 'בניית מסלול לאורך המסלול' : 'בניית מסלול הליכה'}</span>
+            <span className="truncate">{onTrail ? 'תכנון מסלול לאורך המסלול' : 'תכנון מסלול הליכה'}</span>
           </div>
           <div className="flex items-center shrink-0">
             {/* Folded down, the running total stays in sight */}
@@ -448,7 +448,7 @@ export default function MeasureTool({
             >
               <ChevronUp className="w-5 h-5" />
             </button>
-            <button onClick={onClose} className="text-white hover:text-orange-300 p-1 mr-1" aria-label="סגור בניית מסלול"><X size={20} /></button>
+            <button onClick={onClose} className="text-white hover:text-orange-300 p-1 mr-1" aria-label="סגור תכנון מסלול"><X size={20} /></button>
           </div>
         </div>
 

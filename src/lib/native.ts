@@ -17,7 +17,10 @@ export const isNativeApp = (): boolean => {
 // ── GPS that keeps going with the screen off ─────────────────────────────────
 // @capacitor-community/background-geolocation
 
-interface BgLocation { latitude: number; longitude: number; accuracy: number }
+interface BgLocation {
+  latitude: number; longitude: number; accuracy: number;
+  altitude?: number | null; time?: number | null;
+}
 interface BgError { code?: string; message: string }
 interface BackgroundGeolocationPlugin {
   addWatcher(
@@ -35,13 +38,15 @@ interface BackgroundGeolocationPlugin {
 }
 const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('BackgroundGeolocation');
 
-export type NativeFix = { lat: number; lon: number; accuracy: number | null };
+export type NativeFix = { lat: number; lon: number; accuracy: number | null; ele: number | null; t: number };
 
 // Starts following the phone; returns the function that stops it (and takes
-// the notification away).
+// the notification away). While a walk is being recorded the notification
+// says so.
 export function watchNativePosition(
   onFix: (fix: NativeFix) => void,
-  onError: (message: string, needsSettings: boolean) => void
+  onError: (message: string, needsSettings: boolean) => void,
+  opts: { recording?: boolean } = {}
 ): () => void {
   let id: string | null = null;
   let stopped = false;
@@ -51,8 +56,10 @@ export function watchNativePosition(
     if (stopped) return;
     BackgroundGeolocation.addWatcher(
       {
-        backgroundTitle: 'Navi עוקבת אחרי המסלול',
-        backgroundMessage: 'המיקום נמדד גם כשהמסך כבוי — להתראת סטייה ולמדריכה.',
+        backgroundTitle: opts.recording ? 'Navi מקליטה את המסלול' : 'Navi עוקבת אחרי המסלול',
+        backgroundMessage: opts.recording
+          ? 'ההקלטה ממשיכה גם כשהמסך כבוי.'
+          : 'המיקום נמדד גם כשהמסך כבוי — להתראת סטייה ולמדריכה.',
         requestPermissions: true,
         stale: false,
         distanceFilter: 5,
@@ -63,7 +70,13 @@ export function watchNativePosition(
           onError(denied ? 'אין הרשאת מיקום לאפליקציה.' : err.message, denied);
           return;
         }
-        if (loc) onFix({ lat: loc.latitude, lon: loc.longitude, accuracy: Number.isFinite(loc.accuracy) ? loc.accuracy : null });
+        if (loc) onFix({
+          lat: loc.latitude,
+          lon: loc.longitude,
+          accuracy: Number.isFinite(loc.accuracy) ? loc.accuracy : null,
+          ele: typeof loc.altitude === 'number' && Number.isFinite(loc.altitude) ? loc.altitude : null,
+          t: typeof loc.time === 'number' && Number.isFinite(loc.time) ? loc.time : Date.now(),
+        });
       }
     ).then((watcherId) => {
       if (stopped) void BackgroundGeolocation.removeWatcher({ id: watcherId });
@@ -189,6 +202,43 @@ export function onNativeAlarmTapped(cb: () => void): () => void {
   keep(LocalNotifications.addListener('localNotificationActionPerformed', cb));
   if (nativeAlarmSoundAvailable()) keep(AlarmSound.addListener('silenced', cb));
   return () => { gone = true; handles.forEach((h) => void h.remove()); };
+}
+
+// ── Sharing from the app ─────────────────────────────────────────────────────
+// The app's web view has no navigator.share, so a link or a file is handed to
+// Android's share sheet by @capacitor/share; a file is first written to the
+// app's cache by @capacitor/filesystem. Both arrived with the walk recording;
+// an older install has neither, and the caller falls back (copy the link).
+
+interface SharePluginApi {
+  share(o: { title?: string; text?: string; url?: string; files?: string[]; dialogTitle?: string }): Promise<unknown>;
+}
+interface FilesystemPluginApi {
+  writeFile(o: { path: string; data: string; directory: 'CACHE'; encoding: 'utf8' }): Promise<{ uri: string }>;
+}
+const Share = registerPlugin<SharePluginApi>('Share');
+const Filesystem = registerPlugin<FilesystemPluginApi>('Filesystem');
+
+export function nativeShareAvailable(): boolean {
+  try { return isNativeApp() && Capacitor.isPluginAvailable('Share'); } catch { return false; }
+}
+
+export function nativeFileShareAvailable(): boolean {
+  try { return nativeShareAvailable() && Capacitor.isPluginAvailable('Filesystem'); } catch { return false; }
+}
+
+// Resolves once the sheet is closed; a cancel is not an error.
+export async function shareNative(o: { title: string; text?: string; url?: string; file?: { name: string; content: string } }) {
+  let files: string[] | undefined;
+  if (o.file) {
+    const { uri } = await Filesystem.writeFile({ path: o.file.name, data: o.file.content, directory: 'CACHE', encoding: 'utf8' });
+    files = [uri];
+  }
+  try {
+    await Share.share({ title: o.title, text: o.text, url: o.url, files, dialogTitle: o.title });
+  } catch (e) {
+    if (!/cancel/i.test(String((e as Error)?.message ?? e))) throw e;
+  }
 }
 
 // ── Signing in with Google from the app ──────────────────────────────────────

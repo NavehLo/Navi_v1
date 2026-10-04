@@ -66,7 +66,7 @@ function toError(error: PostgrestFailure | null, status: number): PersonalAreaEr
 }
 
 // Every query goes through here so the thrown error always carries a kind.
-async function run<T>(
+export async function run<T>(
   query: PromiseLike<{ data: T | null; error: PostgrestFailure | null; status: number }>
 ): Promise<T | null> {
   const { data, error, status } = await query;

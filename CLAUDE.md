@@ -140,6 +140,15 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   caches (RLS alone is not enough here; see the rule on database changes).
   `trail_pois`, `poi_narration`, `narration_audio`, `trail_info`,
   `trail_name_en` and `trail_country` were missing theirs until 2026-10.
+- **Recorded walks are private and never lost.** A recording's numbers are
+  computed only in `src/lib/recording/stats.ts` (live panel, summary, list
+  and shared copy alike). The walk in progress is written to the device
+  (`navi:recording.active.v1`) as it goes and comes back paused after a
+  reload — never drop it on load. Saved recordings live on the device first
+  (IndexedDB `navi-recordings`); the `recordings` table is the account copy.
+  Others read one only through `/api/walk` (service role, `shared = true`,
+  by id) — never grant `anon` on `recordings` or add a public policy, or the
+  shared ones could be listed.
 - **Israel-only data stays in Israel.** The summer water/shade section and the
   רט״ג reminder are shown only when `isTrailInIsrael` (`src/lib/inIsrael.ts`)
   says so; anything new that relies on Israeli data (the canopy grid, the

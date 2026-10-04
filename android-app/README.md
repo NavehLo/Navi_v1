@@ -8,6 +8,9 @@ unchanged; inside the app it detects `Capacitor.isNativePlatform()` (see
   the screen off (foreground service + persistent notification).
 - `@capacitor/local-notifications` — the off-route alarm as a max-importance
   notification whose sound is `android/app/src/main/res/raw/siren.wav`.
+- `@capacitor/share` + `@capacitor/filesystem` — the share sheet, for a
+  recorded walk's link and its GPX file (written to the app's cache first);
+  the web view has no `navigator.share`.
 - `@capacitor/browser` + `@capacitor/app` — Google sign-in in Chrome, returned
   via `app.navi.trails://auth-callback` (must be in Supabase → Auth → Redirect URLs).
 

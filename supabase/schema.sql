@@ -410,5 +410,33 @@ alter table public.trail_crowd enable row level security;
 -- אין policy: רק השרת עם service_role קורא וכותב.
 grant select, insert, update on public.trail_crowd to service_role;
 
+-- ── הקלטות מסלול ───────────────────────────────────────────────────────────
+-- הליכה שהמשתמש הקליט בטלפון (src/lib/recording/). ההקלטה נשמרת קודם במכשיר;
+-- כאן העותק בחשבון, כדי שתופיע בכל מכשיר ושאפשר יהיה לשתף אותה בקישור.
+-- ה-id נוצר במכשיר, ולכן שליחה חוזרת (upsert) לא יוצרת כפילות.
+-- פרטי: רק הבעלים קורא ועורך (own rows), ול-anon אין grant בכלל — כך שאי
+-- אפשר לרשום את ההקלטות. הקלטה ששותפה (shared = true) נקראת לאחרים רק דרך
+-- השרת, /api/walk, עם service_role, לפי ה-id בלבד.
+create table if not exists public.recordings (
+  id uuid primary key,
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  name text not null,
+  started_at timestamptz not null,
+  ended_at timestamptz not null,
+  stats jsonb not null,     -- מרחק, עלייה, ירידה, זמנים (src/lib/recording/stats.ts)
+  gpx text not null,        -- הנקודות עצמן, עם גובה ושעה
+  shared boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists recordings_user_idx on public.recordings (user_id, started_at desc);
+
+alter table public.recordings enable row level security;
+drop policy if exists "own rows" on public.recordings;
+create policy "own rows" on public.recordings
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+grant select, insert, update, delete on public.recordings to authenticated;
+grant select on public.recordings to service_role;
+
 -- PostgREST מכיר פונקציה חדשה רק אחרי רענון של מטמון הסכמה.
 notify pgrst, 'reload schema';

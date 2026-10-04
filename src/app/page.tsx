@@ -10,7 +10,12 @@ import Controls, { BottomBar } from "@/components/Controls";
 import AIAssistantUI, { NoGuidePointsHint } from "@/components/AIAssistantUI";
 import SettingsPanel from "@/components/SettingsPanel";
 import SettingsActions from "@/components/SettingsActions";
-import PersonalArea from "@/components/PersonalArea";
+import PersonalArea, { type Tab as PersonalTab } from "@/components/PersonalArea";
+import RecordPanel from "@/components/RecordPanel";
+import { useRecorder } from "@/hooks/useRecorder";
+import { recordingCoords, recordingToGpx } from "@/lib/recording/gpx";
+import { syncRecordings, upsertRecording } from "@/lib/recording/sync";
+import type { Recording } from "@/lib/recording/types";
 import GuidePointsPanel from "@/components/GuidePointsPanel";
 import WorldTrailCard from "@/components/WorldTrailCard";
 import TrailInfoPanel from "@/components/TrailInfoPanel";
@@ -363,10 +368,25 @@ export default function TrailApp() {
   // Measuring a distance between two points — along the trail if one is open.
   const [isMeasuring, setIsMeasuring] = useState(false);
 
+  // Recording the walk (useRecorder). The fixes come from the live location
+  // below; the recorder keeps the ones that count.
+  const recorder = useRecorder();
+  // The recorder's functions are stable; its state changes with every point.
+  const { addFix: recorderAddFix, start: recStart, pause: recPause, save: recSave, status: recStatus } = recorder;
+  const recActive = recStatus !== 'idle';
+  const [recOpenSignal, setRecOpenSignal] = useState(0);
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
   // Auth + personal area + settings
   const { user, sessionLive, signInWithGoogle, signOut, isAuthAvailable } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
   const [showPersonalArea, setShowPersonalArea] = useState(false);
+  const [personalTab, setPersonalTab] = useState<PersonalTab | undefined>(undefined);
   const [saveTrailState, setSaveTrailState] = useState<'idle' | 'saving' | 'saved'>('idle');
 
   // Reset the save indicator whenever a different trail loads
@@ -710,8 +730,9 @@ export default function TrailApp() {
       setGpsPos(null);
       return;
     }
-    const onFix = (longitude: number, latitude: number, accuracy: number | null) => {
+    const onFix = (longitude: number, latitude: number, accuracy: number | null, ele: number | null, t: number) => {
       setGpsPos({ lat: latitude, lon: longitude, accuracy });
+      recorderAddFix({ lat: latitude, lon: longitude, ele, t, acc: accuracy });
       updateUserLocLayer(longitude, latitude);
       if (centerOnNextFixRef.current && map) {
         centerOnNextFixRef.current = false;
@@ -720,12 +741,13 @@ export default function TrailApp() {
     };
     if (isNativeApp()) {
       return watchNativePosition(
-        (fix) => onFix(fix.lon, fix.lat, fix.accuracy),
+        (fix) => onFix(fix.lon, fix.lat, fix.accuracy, fix.ele, fix.t),
         (message, needsSettings) => {
           setIsTracking(false);
           if (needsSettings && window.confirm(`${message}\nלפתוח את הגדרות האפליקציה כדי לאשר מיקום?`)) openAppSettings();
           else if (!needsSettings) alert('שגיאה באיתור מיקום: ' + message);
-        }
+        },
+        { recording: recActive }
       );
     }
     if (!navigator.geolocation) {
@@ -735,8 +757,8 @@ export default function TrailApp() {
     }
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
-        const { longitude, latitude, accuracy } = pos.coords;
-        onFix(longitude, latitude, Number.isFinite(accuracy) ? accuracy : null);
+        const { longitude, latitude, accuracy, altitude } = pos.coords;
+        onFix(longitude, latitude, Number.isFinite(accuracy) ? accuracy : null, altitude != null && Number.isFinite(altitude) ? altitude : null, pos.timestamp);
       },
       (err) => {
         alert("שגיאה באיתור מיקום: " + err.message);
@@ -745,7 +767,9 @@ export default function TrailApp() {
       { enableHighAccuracy: true }
     );
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [isTracking, updateUserLocLayer, map]);
+    // recActive: in the app, the notification says "recording" while one is
+    // under way, so the watcher is set up again when that changes.
+  }, [isTracking, updateUserLocLayer, map, recorderAddFix, recActive]);
 
   // The dot is a layer on the map style; a style switch wipes it until the
   // next fix. Put it straight back instead.
@@ -769,7 +793,8 @@ export default function TrailApp() {
   // loading.
   const [helpTour, setHelpTour] = useState<HelpKey | null>(null);
   const helpQuiet = isTourActive || !!offRoute.alert || showSettings || showPersonalArea
-    || showGuidePoints || uiHidden || isMeasuring || trailLoading || !!worldTrails.selection;
+    || showGuidePoints || uiHidden || isMeasuring || trailLoading || !!worldTrails.selection
+    || recStatus === 'review';
   // Whether the screen still is the one the help was meant for — a shared
   // link can open a trail under the welcome tour. One that no longer fits is
   // simply not drawn, and gives way to whatever is due on the new screen.
@@ -814,6 +839,62 @@ export default function TrailApp() {
     if (!isMeasuring && isTourActive) stopTour();
     setIsMeasuring(!isMeasuring);
   }, [isMeasuring, isTourActive, stopTour]);
+
+  // The record button: starts a recording, or opens the one under way. The
+  // live location comes on with it; if it was off before, it goes off again
+  // when the recording is saved or thrown away.
+  const trackingBeforeRecRef = useRef(false);
+  const handleRecord = useCallback(() => {
+    if (recStatus !== 'idle') {
+      setRecOpenSignal((n) => n + 1);
+      return;
+    }
+    trackingBeforeRecRef.current = isTracking;
+    if (!isTracking) centerOnNextFixRef.current = true;
+    setIsTracking(true);
+    recStart();
+  }, [recStatus, recStart, isTracking]);
+
+  // A recording brought back after the page was dropped needs the location
+  // on again to go on.
+  useEffect(() => {
+    if (recStatus === 'recording' && !isTracking) setIsTracking(true);
+    // Only when a recording (re)starts, not every time the location is switched off.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recStatus]);
+
+  const endRecording = useCallback(() => {
+    if (!trackingBeforeRecRef.current) setIsTracking(false);
+  }, []);
+
+  const handleSaveRecording = useCallback(async (name: string) => {
+    const rec = await recSave(name, user?.id ?? null);
+    if (!rec) return;
+    endRecording();
+    setToast('ההקלטה נשמרה — היא באזור האישי, בלשונית ״הקלטות״.');
+    if (user && sessionLive && online) upsertRecording(rec, user.id).catch((e) => console.error('Recording upload failed:', e));
+  }, [recSave, user, sessionLive, online, endRecording]);
+
+  // Thrown away from the summary.
+  const prevRecStatusRef = useRef(recStatus);
+  useEffect(() => {
+    if (prevRecStatusRef.current === 'review' && recStatus === 'idle') endRecording();
+    prevRecStatusRef.current = recStatus;
+  }, [recStatus, endRecording]);
+
+  const handleLoadRecording = useCallback((rec: Recording) => {
+    setShowPersonalArea(false);
+    loadTrailFromCoords(recordingCoords(rec), rec.name, { kind: 'file', content: recordingToGpx(rec) }, { kind: 'hike' });
+  }, [loadTrailFromCoords]);
+
+  // "כבה מיקום חי" while recording: the recording cannot go on without it.
+  const handleStopTracking = useCallback(() => {
+    if (recStatus === 'recording') {
+      if (!window.confirm('ההקלטה פעילה. כיבוי המיקום ישהה אותה. להמשיך?')) return;
+      recPause();
+    }
+    setIsTracking(false);
+  }, [recStatus, recPause]);
 
   // The trail on screen is kept on the device, so that when Android drops the
   // page while another app is in front, coming back reopens it — points and
@@ -863,6 +944,13 @@ export default function TrailApp() {
     return () => { cancelled = true; };
   }, [userId, sessionLive, online, justSaved]);
 
+  // Recordings made with no reception, or before signing in, go up to the
+  // account as soon as it can be reached.
+  useEffect(() => {
+    if (!userId || !sessionLive || !online) return;
+    syncRecordings(userId).catch(() => {}); // tried again next time
+  }, [userId, sessionLive, online]);
+
   // Open a shared trail link: /?trail=<encoded url> auto-loads that trail
   const didLoadFromUrlRef = useRef(false);
   useEffect(() => {
@@ -872,7 +960,21 @@ export default function TrailApp() {
     const shared = params.get('trail');
     const sharedWmt = params.get('wmt');
     const sharedDrive = decodeDrive(params.get('drive'));
-    if (shared) {
+    const sharedWalk = params.get('walk');
+    if (sharedWalk && /^[0-9a-f-]{36}$/i.test(sharedWalk)) {
+      // A recording someone shared (lib/recording/share.ts, api/walk).
+      window.history.replaceState({}, '', window.location.pathname);
+      fetch(`/api/walk?id=${sharedWalk}`)
+        .then(async (res) => {
+          if (res.status === 404) throw new Error('gone');
+          if (!res.ok) throw new Error(String(res.status));
+          const walk = await res.json() as { name: string; gpx: string };
+          loadTrailFromText(walk.gpx, walk.name);
+        })
+        .catch((e) => alert(e?.message === 'gone'
+          ? 'ההקלטה הזו כבר לא משותפת, או שנמחקה.'
+          : 'לא הצלחנו לפתוח את ההקלטה ששותפה. נסו שוב כשיש קליטה.'));
+    } else if (shared) {
       loadTrailFromUrl(shared);
       window.history.replaceState({}, '', window.location.pathname);
     } else if (sharedWmt && /^\d+$/.test(sharedWmt)) {
@@ -888,7 +990,7 @@ export default function TrailApp() {
     } else {
       restoreOpenTrail();
     }
-  }, [loadTrailFromUrl, worldTrails, openDriveFromLink, restoreOpenTrail]);
+  }, [loadTrailFromUrl, loadTrailFromText, worldTrails, openDriveFromLink, restoreOpenTrail]);
 
   // Share the current trail (only trails that can be re-opened from a link)
   const handleShare = useCallback(async () => {
@@ -1362,6 +1464,31 @@ export default function TrailApp() {
         />
       )}
 
+      {/* Recording a walk: its line on the map, the bar under the search,
+          and the summary when it is finished. Mounted while a recording
+          exists — "hide all" hides the bar but keeps the line. */}
+      {map && recActive && (
+        <RecordPanel
+          map={map}
+          rec={recorder}
+          styleRev={styleRev}
+          openSignal={recOpenSignal}
+          hidden={uiHidden}
+          nativeApp={isNativeApp()}
+          gpsOn={isTracking}
+          onSave={handleSaveRecording}
+        />
+      )}
+      {toast && !uiHidden && (
+        <button
+          onClick={() => setToast(null)}
+          className="absolute bottom-[calc(var(--bottom-stack-h,0px)_+_12px)] left-1/2 -translate-x-1/2 z-50 max-w-[calc(100%-24px)] bg-zinc-900/95 text-white text-sm font-bold px-4 py-2.5 rounded-2xl border border-white/15 backdrop-blur-md shadow-xl"
+          dir="rtl"
+        >
+          {toast}
+        </button>
+      )}
+
       {/* Strayed off the route: said once, loudly, until back on it */}
       {/* The admin's alone: the server answers 403 to everyone else. */}
       <ElevenLabsCreditsAlert signedInAs={sessionLive ? user?.id ?? null : null} />
@@ -1415,6 +1542,8 @@ export default function TrailApp() {
         isTracking={isTracking}
         onMeasure={handleToggleMeasure}
         isMeasuring={isMeasuring}
+        onRecord={handleRecord}
+        recStatus={recStatus}
         map={map}
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
@@ -1486,7 +1615,7 @@ export default function TrailApp() {
       {infoRequest && <TrailInfoPanel key={trailInfoKey(infoRequest)} request={infoRequest} onClose={() => setInfoRequest(null)} />}
       {/* The trail just closed, one tap from coming back — below the place
           search, where a closed trail's reader is likely looking. */}
-      {lastClosed && !trail && !uiHidden && !isMeasuring && !worldTrails.selection && (
+      {lastClosed && !trail && !uiHidden && !isMeasuring && !worldTrails.selection && !recActive && (
         <div className="absolute top-[112px] right-4 md:top-[120px] md:right-[412px] z-40 flex items-center gap-1 bg-zinc-900/90 border border-white/15 rounded-full shadow-xl backdrop-blur-md max-w-[calc(100%-140px)] md:max-w-sm" dir="rtl">
           <button
             onClick={reopenLastTrail}
@@ -1525,22 +1654,26 @@ export default function TrailApp() {
           <SettingsActions
             authAvailable={isAuthAvailable}
             isSignedIn={!!user}
-            onAuthClick={() => { setShowSettings(false); if (user) setShowPersonalArea(true); else signInWithGoogle(); }}
+            onAuthClick={() => { setShowSettings(false); if (user) { setPersonalTab(undefined); setShowPersonalArea(true); } else signInWithGoogle(); }}
+            onOpenRecordings={() => { setShowSettings(false); setPersonalTab('recordings'); setShowPersonalArea(true); }}
             hasTrail={!!trail}
             onSaveTrail={handleSaveTrail}
             saveTrailState={saveTrailState}
             canShare={!!trailSource && trailSource.kind !== 'file' && !(trailSource.kind === 'pack' && !trailSource.sourceUrl)}
             onShare={() => { setShowSettings(false); handleShare(); }}
             isTracking={isTracking}
-            onStopTracking={() => setIsTracking(false)}
+            onStopTracking={handleStopTracking}
           />
         </SettingsPanel>
       )}
 
       {/* Personal area modal */}
-      {showPersonalArea && user && (
+      {showPersonalArea && (
         <PersonalArea
           user={user}
+          initialTab={personalTab}
+          authAvailable={isAuthAvailable}
+          onLoadRecording={handleLoadRecording}
           sessionLive={sessionLive}
           online={online}
           onSignIn={signInWithGoogle}

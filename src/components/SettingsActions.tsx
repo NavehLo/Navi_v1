@@ -1,15 +1,17 @@
-import { UserCircle2, BookmarkPlus, Check, Share2, LocateOff } from 'lucide-react';
+import { UserCircle2, BookmarkPlus, Check, Share2, LocateOff, Circle } from 'lucide-react';
 
 // The first things in the settings window: the account, and what can be done
 // with the trail on screen. (They used to be a separate "עוד" sheet.)
 export default function SettingsActions({
-  authAvailable, isSignedIn, onAuthClick,
+  authAvailable, isSignedIn, onAuthClick, onOpenRecordings,
   hasTrail, onSaveTrail, saveTrailState, canShare, onShare,
   isTracking, onStopTracking,
 }: {
   authAvailable?: boolean;
   isSignedIn?: boolean;
   onAuthClick?: () => void;
+  // The recordings on this device. Signed in, they are a tab of the personal area.
+  onOpenRecordings?: () => void;
   hasTrail?: boolean;
   onSaveTrail?: () => void;
   saveTrailState?: 'idle' | 'saving' | 'saved';
@@ -27,6 +29,11 @@ export default function SettingsActions({
           className={`${row} ${isSignedIn ? 'bg-orange-500/15 text-orange-300 hover:bg-orange-500/25' : 'bg-white/5 text-white hover:bg-white/10'}`}
         >
           <UserCircle2 size={16} /> {isSignedIn ? 'אזור אישי' : 'התחבר עם Google'}
+        </button>
+      )}
+      {!isSignedIn && onOpenRecordings && (
+        <button onClick={onOpenRecordings} className={`${row} bg-white/5 text-white hover:bg-white/10`}>
+          <Circle size={14} className="text-red-400 fill-red-400" /> ההקלטות שלי
         </button>
       )}
       {hasTrail && isSignedIn && onSaveTrail && (

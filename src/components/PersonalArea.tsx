@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import type { User } from "@supabase/supabase-js";
-import { X, MapPin, History, Star, Trash2, Loader2, LogOut, Route, WifiOff, RefreshCw, SlidersHorizontal } from "lucide-react";
+import { X, MapPin, History, Star, Trash2, Loader2, LogOut, Route, WifiOff, RefreshCw, SlidersHorizontal, Circle } from "lucide-react";
 import OffRouteSetting from "./OffRouteSetting";
+import MyRecordings from "./MyRecordings";
+import type { Recording } from "../lib/recording/types";
 import {
   SavedTrail,
   TourHistoryEntry,
@@ -17,7 +19,8 @@ import {
 } from "../lib/personalArea";
 
 interface PersonalAreaProps {
-  user: User;
+  // Null when nobody is signed in: then only the recordings on this device.
+  user: User | null;
   // False while the server will not take this account: no reception, or the
   // sign-in ran out and needs doing again. The copy on the device is shown.
   sessionLive: boolean;
@@ -26,12 +29,17 @@ interface PersonalAreaProps {
   onClose: () => void;
   onSignOut: () => void;
   onLoadSavedTrail: (t: SavedTrail) => void;
+  onLoadRecording: (r: Recording) => void;
+  initialTab?: Tab;
+  // Google sign-in is set up (Supabase configured).
+  authAvailable: boolean;
 }
 
-type Tab = "trails" | "history" | "settings";
+export type Tab = "trails" | "recordings" | "history" | "settings";
 
-export default function PersonalArea({ user, sessionLive, online, onSignIn, onClose, onSignOut, onLoadSavedTrail }: PersonalAreaProps) {
-  const [tab, setTab] = useState<Tab>("trails");
+export default function PersonalArea({ user, sessionLive, online, onSignIn, onClose, onSignOut, onLoadSavedTrail, onLoadRecording, initialTab, authAvailable }: PersonalAreaProps) {
+  const [tab, setTab] = useState<Tab>(user ? initialTab ?? "trails" : "recordings");
+  const userId = user?.id ?? null;
   const [trails, setTrails] = useState<SavedTrail[] | null>(null);
   const [history, setHistory] = useState<TourHistoryEntry[] | null>(null);
   const [notes, setNotes] = useState<Map<string, TrailNote>>(new Map());
@@ -45,17 +53,19 @@ export default function PersonalArea({ user, sessionLive, online, onSignIn, onCl
   const readOnly = cachedAt !== null; // אין חיבור — אפשר לצפות ולטעון, לא לערוך
 
   const showCached = useCallback(() => {
-    const cached = readCachedPersonalData(user.id);
+    if (!userId) return false;
+    const cached = readCachedPersonalData(userId);
     setTrails(cached?.trails ?? []);
     setHistory(cached?.history ?? []);
     setNotes(new Map((cached?.notes ?? []).map((x) => [x.trail_name, x])));
     // Read-only even with nothing cached: there is nothing to save to.
     setCachedAt(cached?.cachedAt ?? new Date(0).toISOString());
     return !!cached;
-  }, [user.id]);
+  }, [userId]);
 
   const refresh = useCallback(async () => {
     setError(null);
+    if (!userId) return;
     // No reception, or a sign-in the server will not take: asking would only
     // fail. The copy on the device is the whole answer.
     if (!online || !sessionLive) {
@@ -69,7 +79,7 @@ export default function PersonalArea({ user, sessionLive, online, onSignIn, onCl
       setHistory(h);
       setNotes(new Map(n.map((x) => [x.trail_name, x])));
       setCachedAt(null);
-      cachePersonalData(user.id, { trails: t, history: h, notes: n });
+      cachePersonalData(userId, { trails: t, history: h, notes: n });
     } catch (e) {
       console.error("Personal area load failed:", e);
       setError(describeSupabaseError(e));
@@ -78,7 +88,7 @@ export default function PersonalArea({ user, sessionLive, online, onSignIn, onCl
     } finally {
       setRefreshing(false);
     }
-  }, [user.id, online, sessionLive, showCached]);
+  }, [userId, online, sessionLive, showCached]);
 
   // Opening the panel, coming back into reception, or signing in again all
   // load it afresh. With no network the device's copy is read on the spot.
@@ -93,7 +103,7 @@ export default function PersonalArea({ user, sessionLive, online, onSignIn, onCl
       await deleteSavedTrail(id);
       const next = (trails ?? []).filter((t) => t.id !== id);
       setTrails(next);
-      cachePersonalData(user.id, { trails: next, history: history ?? [], notes: [...notes.values()] });
+      if (userId) cachePersonalData(userId, { trails: next, history: history ?? [], notes: [...notes.values()] });
     } catch (e) {
       console.error(e);
       setError(describeSupabaseError(e));
@@ -114,7 +124,7 @@ export default function PersonalArea({ user, sessionLive, online, onSignIn, onCl
       const next = new Map(notes);
       next.set(editingNote, { trail_name: editingNote, rating: ratingDraft, note: noteDraft || null });
       setNotes(next);
-      cachePersonalData(user.id, { trails: trails ?? [], history: history ?? [], notes: [...next.values()] });
+      if (userId) cachePersonalData(userId, { trails: trails ?? [], history: history ?? [], notes: [...next.values()] });
       setEditingNote(null);
     } catch (e) {
       console.error(e);
@@ -147,6 +157,11 @@ export default function PersonalArea({ user, sessionLive, online, onSignIn, onCl
       >
         {/* Header */}
         <div className="flex justify-between items-center p-5 pb-3 border-b border-white/5">
+          {!user ? (
+            <h2 className="text-white font-extrabold text-base leading-tight flex items-center gap-2">
+              <Circle size={14} className="text-red-400 fill-red-400" /> ההקלטות שלי
+            </h2>
+          ) : (
           <div className="flex items-center gap-3">
             {user.user_metadata?.avatar_url ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -160,46 +175,43 @@ export default function PersonalArea({ user, sessionLive, online, onSignIn, onCl
               <h2 className="text-white font-extrabold text-base leading-tight">
                 {user.user_metadata?.full_name || "האזור האישי"}
               </h2>
-              <span className="text-zinc-500 text-xs">{user.email}</span>
+              <span className="text-white/80 text-xs">{user.email}</span>
             </div>
           </div>
+          )}
           <div className="flex items-center gap-1">
-            <button onClick={onSignOut} title="התנתק" className="text-zinc-500 hover:text-red-400 transition-colors p-2">
-              <LogOut size={18} />
-            </button>
-            <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors p-2">
+            {user && (
+              <button onClick={onSignOut} title="התנתק" className="text-white/80 hover:text-red-400 transition-colors p-2">
+                <LogOut size={18} />
+              </button>
+            )}
+            <button onClick={onClose} aria-label="סגור" className="text-white/80 hover:text-white transition-colors p-2">
               <X size={20} />
             </button>
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-2 px-5 pt-3">
-          <button
-            onClick={() => setTab("trails")}
-            className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-bold py-2.5 rounded-xl transition-colors ${
-              tab === "trails" ? "bg-orange-500 text-white" : "bg-white/5 text-zinc-400 hover:bg-white/10"
-            }`}
-          >
-            <Route size={14} /> מסלולים שמורים
-          </button>
-          <button
-            onClick={() => setTab("history")}
-            className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-bold py-2.5 rounded-xl transition-colors ${
-              tab === "history" ? "bg-orange-500 text-white" : "bg-white/5 text-zinc-400 hover:bg-white/10"
-            }`}
-          >
-            <History size={14} /> היסטוריית סיורים
-          </button>
-          <button
-            onClick={() => setTab("settings")}
-            className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-bold py-2.5 rounded-xl transition-colors ${
-              tab === "settings" ? "bg-orange-500 text-white" : "bg-white/5 text-zinc-400 hover:bg-white/10"
-            }`}
-          >
-            <SlidersHorizontal size={14} /> הגדרות
-          </button>
-        </div>
+        {/* Tabs — signed out, there is only the recordings on this device */}
+        {user && (
+          <div className="flex gap-1.5 px-5 pt-3">
+            {([
+              ["trails", "שמורים", <Route key="i" size={14} />],
+              ["recordings", "הקלטות", <Circle key="i" size={12} className="fill-current" />],
+              ["history", "היסטוריה", <History key="i" size={14} />],
+              ["settings", "הגדרות", <SlidersHorizontal key="i" size={14} />],
+            ] as const).map(([key, label, icon]) => (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className={`flex-1 flex items-center justify-center gap-1 text-xs font-bold py-2.5 rounded-xl transition-colors ${
+                  tab === key ? (key === "recordings" ? "bg-red-500 text-white" : "bg-orange-500 text-white") : "bg-white/5 text-white hover:bg-white/10"
+                }`}
+              >
+                {icon} {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 flex flex-col gap-3 min-h-[200px]">
@@ -216,7 +228,7 @@ export default function PersonalArea({ user, sessionLive, online, onSignIn, onCl
             </div>
           )}
 
-          {readOnly && (
+          {readOnly && user && tab !== "recordings" && (
             <div className="bg-amber-950/70 border border-amber-500/40 rounded-xl p-3 text-amber-100 text-sm flex flex-col gap-2">
               <div className="flex items-start gap-2">
                 <WifiOff size={16} className="shrink-0 mt-0.5 text-amber-300" />
@@ -242,6 +254,15 @@ export default function PersonalArea({ user, sessionLive, online, onSignIn, onCl
           )}
 
           {tab === "settings" && <OffRouteSetting defaultOpen />}
+
+          {tab === "recordings" && (
+            <MyRecordings
+              userId={userId}
+              canReachAccount={!!user && sessionLive && online}
+              onOpen={onLoadRecording}
+              onSignIn={user || !authAvailable ? undefined : onSignIn}
+            />
+          )}
 
           {tab === "trails" && (
             // A retry after a failed load also shows the spinner: with the
