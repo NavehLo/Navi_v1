@@ -85,9 +85,13 @@ export default function PlaceSearchBox({
   map,
   className = '',
   onPickTrail,
+  accessory,
 }: {
   map: mapboxgl.Map;
   className?: string;
+  // A button at the empty box's end (the history of trails looked at), where
+  // the clear button goes once something is typed.
+  accessory?: React.ReactNode;
   // Given only where trails are what is being looked for; without it the box
   // finds places alone.
   onPickTrail?: (trail: WorldTrailHit) => void;
@@ -293,6 +297,7 @@ export default function PlaceSearchBox({
             <X size={16} />
           </button>
         )}
+        {!searching && !selected && !query && accessory}
       </div>
 
       {failed && (

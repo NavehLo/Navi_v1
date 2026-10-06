@@ -63,9 +63,11 @@ function fmtKm(km: number): string {
 const EMPTY_PLAN: DrivePlan = { from: null, to: null, vias: [] };
 
 export default function DrivePlanner({
-  map, onRoute, onPreview, initial,
+  map, onRoute, onPreview, initial, onClose,
 }: {
   map: mapboxgl.Map;
+  // Back to the trails: the drive is a side trip, opened from the rail.
+  onClose?: () => void;
   onRoute: (req: DriveRequest) => void;
   // The places as they are picked, so the page can show markers.
   onPreview?: (plan: DrivePlan) => void;
@@ -343,6 +345,16 @@ export default function DrivePlanner({
         >
           {isExpanded ? <><ChevronDown className="w-4 h-4" /> צמצם</> : <><ChevronUp className="w-4 h-4" /> הרחב</>}
         </button>
+        {onClose && (
+          <button
+            onClick={onClose}
+            aria-label="סגור את הנסיעה בכביש וחזור למסלולים"
+            title="חזרה למסלולים"
+            className="shrink-0 flex items-center justify-center text-white bg-white/10 hover:bg-white/20 border border-white/15 p-2 rounded-xl transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
       </div>
       {!isExpanded && options && options.length > 1 && (
         <p className="text-xs text-white/85 mt-1.5">אפשר לבחור דרך אחרת בלחיצה על הקו שלה במפה.</p>

@@ -27,10 +27,11 @@ import Coachmark from "@/components/help/Coachmark";
 import HelpSection from "@/components/help/HelpSection";
 import { WELCOME_STEPS, TRAIL_STEPS, DRIVE_STEPS, trackingSteps } from "@/components/help/tours";
 import { hasSeen, markSeen, resetOnboarding, type HelpKey } from "@/lib/onboarding";
-import { Car, Footprints } from "lucide-react";
 import { driveRoute, thinCoords } from "@/lib/mapboxDirections";
 import { encodeDrive, decodeDrive, type DriveLink } from "@/lib/driveLink";
 import { rememberOpenTrail, recallOpenTrail, forgetOpenTrail } from "@/lib/openTrailMemory";
+import { rememberRecentTrail, rememberRecentWorldTrail, type RecentTrail } from "@/lib/recentTrails";
+import RecentTrailsButton from "@/components/RecentTrailsButton";
 import { useTrailData } from "@/hooks/useTrailData";
 import { useTour, tourSecondsLeft, formatTourTimeLeft } from "@/hooks/useTour";
 import { useAIGuide } from "@/hooks/useAIGuide";
@@ -925,6 +926,44 @@ export default function TrailApp() {
     if (kept.tracking) setIsTracking(true);
   }, [loadTrailFromCoords, setIsTracking]);
 
+  // The trails looked at lately, for the history button on the home screen:
+  // every trail opened on the map, and every world trail whose card was shown.
+  useEffect(() => {
+    if (trail && trailSource) rememberRecentTrail(trail, trailSource);
+  }, [trail, trailSource]);
+  const viewedWorldId = worldTrails.selection?.details ? worldTrails.selection.id : null;
+  const viewedWorldName = worldTrails.selection?.details?.name ?? worldTrails.selection?.summary?.name ?? null;
+  const viewedWorldSummary = worldTrails.selection?.summary ?? null;
+  useEffect(() => {
+    if (viewedWorldId == null) return;
+    rememberRecentWorldTrail(viewedWorldId, viewedWorldName ?? `מסלול ${viewedWorldId}`, viewedWorldSummary);
+    // Once per trail shown, not again as its elevation comes in.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewedWorldId]);
+  const openRecent = useCallback((item: RecentTrail) => {
+    if (item.type === 'world') {
+      setCardFromList(false);
+      enableWorldTrails();
+      selectWorldTrail(item.id, item.summary, { fit: true });
+      return;
+    }
+    const { source } = item;
+    const src: TrailSource = source.kind === 'file'
+      ? { kind: 'file', content: coordsToGpx(item.coords, item.name) }
+      : source;
+    const fromKept = () => loadTrailFromCoords(item.coords, item.name, src, { kind: item.kind });
+    // A long trail was kept thinned: with reception it is fetched whole again.
+    if (item.thinned && online) {
+      if (source.kind === 'url') { loadTrailFromUrl(source.url, item.name); return; }
+      if (source.kind === 'wmt') {
+        enableWorldTrails();
+        void loadWorldTrailById(source.id, source.parent).then((ok) => { if (!ok) fromKept(); });
+        return;
+      }
+    }
+    fromKept();
+  }, [enableWorldTrails, selectWorldTrail, online, loadTrailFromUrl, loadWorldTrailById, loadTrailFromCoords]);
+
   // A copy of the personal area on the device, refreshed whenever there is a
   // live sign-in and reception — so the saved trails are there in the field
   // even if the personal area was never opened since they were saved. Their
@@ -1355,32 +1394,6 @@ export default function TrailApp() {
       {/* Map Engine Layer */}
       <MemoizedMapComponent onMapLoad={handleMapLoad} />
 
-      {/* Home screen: hiking trails, or a drive between two places */}
-      {map && !trail && !uiHidden && (
-        <div data-tour="mode-toggle" className="absolute top-3 left-1/2 -translate-x-1/2 z-[44] flex bg-zinc-900/90 rounded-full border border-white/10 backdrop-blur-md shadow-xl p-1" dir="rtl" role="tablist">
-          <button
-            role="tab"
-            aria-selected={appMode === 'trails'}
-            aria-label="מסלולי טיול"
-            title="מסלולי טיול"
-            onClick={() => switchAppMode('trails')}
-            className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full transition-colors ${appMode === 'trails' ? 'bg-orange-500 text-white' : 'text-zinc-300 hover:bg-white/10'}`}
-          >
-            <Footprints className="w-4 h-4 sm:w-3.5 sm:h-3.5" /><span className="hidden sm:inline whitespace-nowrap">מסלולי טיול</span>
-          </button>
-          <button
-            role="tab"
-            aria-selected={appMode === 'drive'}
-            aria-label="נסיעה בכביש"
-            title="נסיעה בכביש"
-            onClick={() => switchAppMode('drive')}
-            className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full transition-colors ${appMode === 'drive' ? 'bg-orange-500 text-white' : 'text-zinc-300 hover:bg-white/10'}`}
-          >
-            <Car className="w-4 h-4 sm:w-3.5 sm:h-3.5" /><span className="hidden sm:inline whitespace-nowrap">נסיעה בכביש</span>
-          </button>
-        </div>
-      )}
-
       {/* Where in the world to look — on both home screens, and over an open
           trail too: a village named in "על המסלול", the way to the start.
           A place picked there only moves the map and gets a pin; the trail
@@ -1393,7 +1406,7 @@ export default function TrailApp() {
           map={map}
           // Clear of the left rail, which is at its widest with the button
           // labels showing, and of the trail panel on a wide screen.
-          className="top-[60px] left-[124px] right-4 md:top-[68px] md:left-20 md:right-[412px]"
+          className="top-3 left-[124px] right-4 md:left-20 md:right-[412px]"
           // Trails are found by name only where trails are being looked for.
           // A route picked from the list should be visible on the map, so the
           // world trails layer is switched on with it.
@@ -1402,6 +1415,9 @@ export default function TrailApp() {
             worldTrails.enable();
             worldTrails.select(t.id, t, { fit: true });
           } : undefined}
+          accessory={appMode === 'trails' && !trail
+            ? <RecentTrailsButton onPick={openRecent} />
+            : undefined}
         />
       )}
 
@@ -1429,7 +1445,7 @@ export default function TrailApp() {
       )}
       {map && !trail && appMode === 'drive' && !isMeasuring && (
         <div className={uiHidden || worldTrails.selection ? 'hidden' : 'contents'}>
-          <DrivePlanner map={map} onRoute={openDrive} onPreview={handleDrivePreview} initial={lastDrivePlan} />
+          <DrivePlanner map={map} onRoute={openDrive} onPreview={handleDrivePreview} initial={lastDrivePlan} onClose={() => switchAppMode('trails')} />
         </div>
       )}
 
@@ -1544,6 +1560,8 @@ export default function TrailApp() {
         isMeasuring={isMeasuring}
         onRecord={handleRecord}
         recStatus={recStatus}
+        onDrive={trail ? undefined : () => switchAppMode(appMode === 'drive' ? 'trails' : 'drive')}
+        isDriving={appMode === 'drive'}
         map={map}
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
@@ -1616,7 +1634,7 @@ export default function TrailApp() {
       {/* The trail just closed, one tap from coming back — below the place
           search, where a closed trail's reader is likely looking. */}
       {lastClosed && !trail && !uiHidden && !isMeasuring && !worldTrails.selection && !recActive && (
-        <div className="absolute top-[112px] right-4 md:top-[120px] md:right-[412px] z-40 flex items-center gap-1 bg-zinc-900/90 border border-white/15 rounded-full shadow-xl backdrop-blur-md max-w-[calc(100%-140px)] md:max-w-sm" dir="rtl">
+        <div className="absolute top-[112px] right-4 md:top-[68px] md:right-[412px] z-40 flex items-center gap-1 bg-zinc-900/90 border border-white/15 rounded-full shadow-xl backdrop-blur-md max-w-[calc(100%-140px)] md:max-w-sm" dir="rtl">
           <button
             onClick={reopenLastTrail}
             className="flex items-center gap-1.5 min-w-0 pr-3 pl-1 py-2 text-sm font-bold text-white"
@@ -1631,7 +1649,7 @@ export default function TrailApp() {
       )}
       {worldTrails.hint && (
         // Below the place search, which used to be hidden under it.
-        <div className="absolute top-[112px] md:top-[120px] left-1/2 -translate-x-1/2 z-50 bg-zinc-900/90 text-white text-xs font-bold px-4 py-2 rounded-full border border-white/10 backdrop-blur-md shadow-xl pointer-events-none" dir="rtl">
+        <div className="absolute top-[112px] md:top-[68px] left-1/2 -translate-x-1/2 z-50 bg-zinc-900/90 text-white text-xs font-bold px-4 py-2 rounded-full border border-white/10 backdrop-blur-md shadow-xl pointer-events-none" dir="rtl">
           {worldTrails.hint}
         </div>
       )}

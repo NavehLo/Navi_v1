@@ -6,7 +6,7 @@ import type { TrailKind } from "../hooks/useTrailData";
 import { tourSpeedsFor } from "../hooks/useTour";
 import {
   Home, Settings, Headphones, HeadphoneOff,
-  ListMusic, Layers, Maximize2, LocateFixed, Play, Square, Eye, Tag, Route, Circle, Pause,
+  ListMusic, Layers, Maximize2, LocateFixed, Play, Square, Eye, Tag, Route, Circle, Pause, Car,
 } from "lucide-react";
 
 interface ControlsProps {
@@ -25,6 +25,10 @@ interface ControlsProps {
   // Recording a walk: the button starts one, or opens the one under way.
   onRecord?: () => void;
   recStatus?: 'idle' | 'recording' | 'paused' | 'review';
+  // A drive between two places, on the home screen: the button switches
+  // the home screen to the drive planner and back.
+  onDrive?: () => void;
+  isDriving?: boolean;
   map?: mapboxgl.Map | null;
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -119,7 +123,7 @@ export default function Controls(props: ControlsProps) {
     onLocateUser, onZoomIn, onZoomOut, onCompass, mapBearing,
     onFitToTrail, hasTrail, onHome, onOpenSettings, isGuideEnabled, onToggleGuide,
     onOpenGuidePoints, guidePointCount, onHideUI, showWorldTrails, onToggleWorldTrails,
-    offlineStyleKey, isTracking, onMeasure, isMeasuring, onRecord, recStatus = 'idle', map,
+    offlineStyleKey, isTracking, onMeasure, isMeasuring, onRecord, recStatus = 'idle', onDrive, isDriving, map,
   } = props;
 
   const [showLayers, setShowLayers] = useState(false);
@@ -160,8 +164,9 @@ export default function Controls(props: ControlsProps) {
 
   return (
     <>
-      {/* Top-right: home + hide-everything */}
-      <div className="absolute top-3 right-3 z-[42] flex flex-col items-end gap-2 select-none" dir="rtl">
+      {/* Top-right: home + hide-everything. On a phone the place search
+          takes the top row, so these sit just under it. */}
+      <div className="absolute top-[62px] md:top-3 right-3 z-[42] flex flex-col items-end gap-2 select-none" dir="rtl">
         <div className={PILL}>
           {hasTrail && onHome && (
             <RailBtn label="בית" labelsOn={labelsOn} onClick={onHome} title="מסך הבית — יציאה מהמסלול">
@@ -249,6 +254,19 @@ export default function Controls(props: ControlsProps) {
               {recStatus === 'paused'
                 ? <Pause className="w-[18px] h-[18px]" />
                 : <Circle className={`w-[18px] h-[18px] fill-current ${recStatus === 'recording' ? 'animate-pulse' : ''}`} />}
+            </RailBtn>
+          )}
+          {onDrive && (
+            <RailBtn
+              label="נסיעה ברכב"
+              labelsOn={labelsOn}
+              onClick={onDrive}
+              className={`border-t border-white/10 ${isDriving ? 'bg-orange-500 text-white' : 'text-white'}`}
+              dataTour="drive"
+              title={isDriving ? 'חזרה למסלולים' : 'נסיעה בכביש — מוצא, יעד ועצירות בדרך'}
+              ariaPressed={!!isDriving}
+            >
+              <Car className="w-[18px] h-[18px]" />
             </RailBtn>
           )}
         </div>

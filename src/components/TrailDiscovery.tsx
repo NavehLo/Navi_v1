@@ -355,9 +355,9 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
         className="flex justify-between items-center cursor-pointer md:cursor-default" 
         onClick={() => setIsExpanded(!isExpanded)}
       >
-        <h2 className={`font-extrabold text-white flex items-center gap-2 tracking-tight transition-all ${isExpanded ? 'text-xl mb-2 md:mb-5' : 'text-lg md:text-xl md:mb-5'}`}>
-          <MapPin className="text-orange-500 fill-orange-500/20" size={24} /> 
-          חפש/העלה מסלולים
+        <h2 className={`font-extrabold text-white flex items-center gap-2 tracking-tight leading-snug transition-all ${isExpanded ? 'text-lg md:text-xl mb-2 md:mb-5' : 'text-base md:text-xl md:mb-5'}`}>
+          <MapPin className="text-orange-500 fill-orange-500/20 shrink-0" size={24} />
+          מסלולים לפי מדינות, עונות ומאפיינים נוספים
         </h2>
         <button aria-label={isExpanded ? 'צמצם' : 'הרחב'} className="md:hidden text-white p-1 flex items-center justify-center bg-white/5 rounded-full hover:bg-white/10 transition-colors">
           {isExpanded ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
