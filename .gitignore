@@ -41,3 +41,6 @@ yarn-error.log*
 next-env.d.ts
 !.env.local.example
 scripts/.summer-cache.json
+
+# Which writeCountryGuide.mjs run is writing which country (transient)
+docs/country-guides/.claims/

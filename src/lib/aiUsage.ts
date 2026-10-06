@@ -24,6 +24,7 @@ export type AiArea =
   | 'trail_translate'// English names for world trails
   | 'trip_advice'    // the weather explanation for the trip day
   | 'trail_crowd'    // "מה אומרים מטיילים": ratings read off review sites
+  | 'country_guide'  // "אזורי טיול": a country's hiking regions, written by the admin
   | 'other';
 
 // What the call did.

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, ChevronLeft, Footprints, Loader2, RefreshCw, Search, Star, Trophy, X } from 'lucide-react';
+import { ArrowRight, BookOpen, ChevronLeft, Footprints, Loader2, RefreshCw, Search, Star, Trophy, X } from 'lucide-react';
 import InfoButton from './help/InfoButton';
 import Collapsible from './Collapsible';
 import { RATING_DOT, RATING_TEXT } from './BestMonthsSection';
@@ -20,6 +20,10 @@ import {
 } from '../lib/landscape';
 import { LandscapeFilterPanel, LandscapeLine } from './LandscapeFilters';
 import { CONTINENTS, inContinent, type Continent } from '../lib/continents';
+import CountryGuide from './CountryGuide';
+import { guideCountries, loadGuide } from '../lib/countryGuide/client';
+import type { CountryGuide as Guide } from '../lib/countryGuide/types';
+import type { GuideMapView } from '../hooks/useCountryGuideMap';
 
 // "בעולם לפי חודש": marked trails abroad, chosen by when they are in season.
 //
@@ -110,6 +114,7 @@ const kept: {
   mode?: Mode; month?: number; rating?: MonthRating; country?: string | null;
   region?: string | null; crowdFilter?: CrowdFilter; landscapeFilter?: LandscapeFilter;
   landscapeSort?: LandscapeSort; continent?: Continent | null; scroll?: number;
+  guideOpen?: boolean;
 } = {};
 
 function keepScroll(top: number) {
@@ -122,7 +127,12 @@ function defaultMonth(): number {
   return Number.isInteger(m) && m >= 0 && m < 12 ? m : new Date().getMonth();
 }
 
-export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: WmtRouteSummary) => void }) {
+export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = null }: {
+  onPickTrail: (summary: WmtRouteSummary) => void;
+  // "אזורי טיול" on the map: a region (or all), or nothing.
+  onGuideMap?: (view: GuideMapView | null) => void;
+  guideShown?: number | null;
+}) {
   const [mode, setMode] = useState<Mode>(kept.mode ?? 'month');
   const [month, setMonth] = useState(() => kept.month ?? defaultMonth());
   const [rating, setRating] = useState<MonthRating>(kept.rating ?? 'good');
@@ -138,6 +148,28 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
   useEffect(() => {
     Object.assign(kept, { mode, month, rating, country, region, crowdFilter, landscapeFilter, landscapeSort, continent });
   }, [mode, month, rating, country, region, crowdFilter, landscapeFilter, landscapeSort, continent]);
+
+  // "אזורי טיול": the countries that have one, and the open country's.
+  const [guideSet, setGuideSet] = useState<Set<string> | null>(null);
+  useEffect(() => { guideCountries().then(setGuideSet); }, []);
+  const [guideOpen, setGuideOpen] = useState(kept.guideOpen ?? false);
+  const [loadedGuide, setLoadedGuide] = useState<Guide | null>(null);
+  const guide = loadedGuide && loadedGuide.country === country ? loadedGuide : null;
+  useEffect(() => { kept.guideOpen = guideOpen; }, [guideOpen]);
+  useEffect(() => {
+    if (!country || !guideSet?.has(country)) return;
+    let cancelled = false;
+    loadGuide(country).then((g) => { if (!cancelled) setLoadedGuide(g); });
+    return () => { cancelled = true; };
+  }, [country, guideSet]);
+  const onGuideMapRef = useRef(onGuideMap);
+  useEffect(() => { onGuideMapRef.current = onGuideMap; });
+  // Another country (or none) takes the last one's regions off the map.
+  useEffect(() => { onGuideMapRef.current?.(null); }, [country]);
+  const closeGuide = () => {
+    setGuideOpen(false);
+    onGuideMap?.(null);
+  };
   // Another country or area is another list: from its top.
   const shownList = useRef(`${country}|${region}`);
   useEffect(() => {
@@ -379,6 +411,7 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
 
   const openCountry = (code: string) => {
     setCountry(code);
+    setGuideOpen(false);
     setRegion(null);
     setQuery('');
     setCrowdFilter(NO_CROWD_FILTER);
@@ -386,6 +419,10 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
   };
 
   const back = () => {
+    if (guideOpen) {
+      closeGuide();
+      return;
+    }
     if (region != null && hasRegionStep) {
       setRegion(null);
       return;
@@ -393,6 +430,7 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
     setCountry(null);
     setRegion(null);
     setTrails(null);
+    setGuideOpen(false);
   };
 
   const regionLabel = (id: string) => {
@@ -535,6 +573,18 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
     </div>
   );
 
+  // ── A country's hiking regions ("אזורי טיול") ──────────────────────────
+  if (country && guideOpen && guide) {
+    return (
+      <CountryGuide
+        guide={guide}
+        onBack={closeGuide}
+        shown={guideShown}
+        onShow={(index) => onGuideMap?.({ guide, index })}
+      />
+    );
+  }
+
   // ── A country's trails ──────────────────────────────────────────────────
   if (country) {
     return (
@@ -550,6 +600,19 @@ export default function WorldByMonth({ onPickTrail }: { onPickTrail: (summary: W
             )}
           </span>
         </div>
+        {guide && (
+          <button
+            onClick={() => setGuideOpen(true)}
+            className="shrink-0 flex items-center gap-2 rounded-xl bg-sky-600/25 border border-sky-400/40 hover:bg-sky-600/40 px-3 py-2 text-right transition-colors"
+          >
+            <BookOpen className="w-4 h-4 text-sky-200 shrink-0" />
+            <span className="min-w-0 flex flex-col">
+              <span className="text-sm font-bold text-white">אזורי הטיול ב{countryName(country)}</span>
+              <span className="text-xs text-white truncate">{guide.regions.map((r) => r.name).join(' · ')}</span>
+            </span>
+            <ChevronLeft className="w-4 h-4 text-white shrink-0 mr-auto" />
+          </button>
+        )}
         {shownLandscape && countryLandscape && (
           <div className="flex flex-col gap-0.5 shrink-0">
             <LandscapeLine s={shownLandscape} bins={countryLandscape.reliefBins} />

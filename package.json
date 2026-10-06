@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "@capacitor/core": "^8.5.2",
     "@rapideditor/country-coder": "^5.6.1",
     "@supabase/supabase-js": "^2.109.0",

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import type { MapPack } from '../lib/offlineMap';
-import { MapPin, Loader2, ChevronUp, ChevronDown, Search, X, Droplets, Trees, WifiOff } from 'lucide-react';
+import { MapPin, Loader2, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Search, X, Droplets, Trees, WifiOff, BookOpen } from 'lucide-react';
 import {
   matchesShade, matchesWater, SHADE_FILTER_LABELS, WATER_FILTER_LABELS,
   type ShadeFilter, type WaterFilter, type TrailSummer,
@@ -11,6 +11,7 @@ import WorldByMonth from './WorldByMonth';
 import type { WmtRouteSummary } from '../lib/waymarked';
 import InfoButton from './help/InfoButton';
 import { useOutsideTap } from '../hooks/useOutsideTap';
+import { useCountryGuideMap, type GuideMapView } from '../hooks/useCountryGuideMap';
 
 export interface TrailInfo {
   id: string;
@@ -93,6 +94,21 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
   // anywhere else folds it back to its title bar.
   const panelRef = useRef<HTMLDivElement>(null);
   useOutsideTap(panelRef, isExpanded && !showUploader, () => setIsExpanded(false));
+
+  // "אזורי טיול" (from "בעולם לפי חודש"): the region shown on the map. On a
+  // phone the panel folds to its title so the map can be seen, with a line
+  // under the title to step between regions or go back to reading.
+  const [guideView, setGuideView] = useState<GuideMapView | null>(null);
+  useCountryGuideMap(map, styleRev ?? 0, scope === 'world' ? guideView : null);
+  const showGuideRegion = (view: GuideMapView | null) => {
+    setGuideView(view);
+    if (view && window.innerWidth < 768) setIsExpanded(false);
+  };
+  const stepGuide = (by: number) => {
+    if (!guideView) return;
+    const n = guideView.guide.regions.length;
+    setGuideView({ guide: guideView.guide, index: guideView.index < 0 ? (by > 0 ? 0 : n - 1) : (guideView.index + by + n) % n });
+  };
 
   const onSelectTrailRef = useRef(onSelectTrail);
   useEffect(() => {
@@ -348,6 +364,27 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
         </button>
       </div>
       
+      {!isExpanded && scope === 'world' && guideView && (
+        <div className="md:hidden flex items-center gap-2 mt-2 pt-2 border-t border-white/10">
+          <button onClick={() => stepGuide(-1)} className="p-1.5 bg-white/10 hover:bg-white/20 rounded-full" aria-label="האזור הקודם">
+            <ChevronRight className="w-4 h-4 text-white" />
+          </button>
+          <span className="flex-1 min-w-0 text-sm font-bold text-white truncate text-center">
+            {guideView.index < 0 ? 'כל האזורים' : `${guideView.index + 1}. ${guideView.guide.regions[guideView.index]?.name ?? ''}`}
+          </span>
+          <button onClick={() => stepGuide(1)} className="p-1.5 bg-white/10 hover:bg-white/20 rounded-full" aria-label="האזור הבא">
+            <ChevronLeft className="w-4 h-4 text-white" />
+          </button>
+          <button
+            onClick={() => setIsExpanded(true)}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-sky-600 hover:bg-sky-500 text-xs font-bold text-white"
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            לסקירה
+          </button>
+        </div>
+      )}
+
       <div className={`flex-col gap-4 md:flex overflow-hidden ${isExpanded ? 'flex flex-1 mt-2 md:mt-0' : 'hidden'}`}>
         {onPickWorldTrail && (
           <div className="flex rounded-xl bg-white/5 border border-white/10 p-0.5 shrink-0" role="tablist">
@@ -366,7 +403,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
         )}
 
         {scope === 'world' && onPickWorldTrail ? (
-          <WorldByMonth onPickTrail={onPickWorldTrail} />
+          <WorldByMonth onPickTrail={onPickWorldTrail} onGuideMap={showGuideRegion} guideShown={guideView?.index ?? null} />
         ) : (<>
         <div className="relative shrink-0">
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-300" size={16} />

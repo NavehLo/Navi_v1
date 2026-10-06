@@ -78,3 +78,26 @@ export function regionInfo(country: string, ids: Iterable<string>): RegionInfo[]
   const want = new Set(ids);
   return units.filter((u) => want.has(u.id)).map(({ id, name, latin, dir }) => ({ id, name, latin, dir }));
 }
+
+// Every area of a country, for a model choosing among them by id.
+export function countryUnits(country: string): RegionInfo[] {
+  return (load()?.[country]?.units ?? []).map(({ id, name, latin, dir }) => ({ id, name, latin, dir }));
+}
+
+// The outlines of some of a country's areas, as rings of [lon, lat] — to draw
+// a region of "אזורי טיול" that is whole provinces.
+export function unitOutlines(country: string, ids: Iterable<string>): { rings: Array<Array<[number, number]>>; bbox: [number, number, number, number] } | null {
+  const want = new Set(ids);
+  const units = (load()?.[country]?.units ?? []).filter((u) => want.has(u.id));
+  if (!units.length) return null;
+  const rings = units.flatMap((u) => u.polys.map((r) => {
+    const ring: Array<[number, number]> = [];
+    for (let i = 0; i < r.length; i += 2) ring.push([r[i], r[i + 1]]);
+    return ring;
+  }));
+  const bbox: [number, number, number, number] = [
+    Math.min(...units.map((u) => u.bbox[0])), Math.min(...units.map((u) => u.bbox[1])),
+    Math.max(...units.map((u) => u.bbox[2])), Math.max(...units.map((u) => u.bbox[3])),
+  ];
+  return { rings, bbox };
+}

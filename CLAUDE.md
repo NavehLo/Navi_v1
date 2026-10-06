@@ -122,8 +122,8 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   `~/.cache/navi-landscape`; they share the country shape (shares of the
   trail's length, `kind: 'trail'`), so pass `'trail'` to the water, filter and
   sort functions. After rebuilding the layers, re-collect every country. The
-  countries collected are the owner's list (`GROUPS` in the script, by
-  priority); a new one goes into its group there, not only on the command line.
+  countries collected are the owner's list (`GROUPS` in
+  `scripts/countryGroups.mjs`, by priority); a new one goes into its group there, not only on the command line.
 - **A country's list covers its home land only.** `tilesFor` squares only the
   cells whose territory-level code is the country's (`homeLand`), so overseas
   territories (the Falklands, Svalbard, Greenland) never stretch the squares
@@ -149,6 +149,15 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   Others read one only through `/api/walk` (service role, `shared = true`,
   by id) — never grant `anon` on `recordings` or add a public policy, or the
   shared ones could be listed.
+- **"אזורי טיול" is written by the admin, never by a visitor.** A country's
+  guide is a static file (`public/country-guides/<CC>.json`, listed in
+  `index.json`) written by `scripts/writeCountryGuide.mjs`, through the owner's
+  subscriptions (Claude Code, Codex) by default — not the paid API. A source
+  stays only if the search returned it (or, from Codex, the page exists) and
+  the page mentions what it is cited for; never relax that to keep more links.
+  Bump `GUIDE_VERSION` (`countryGuide/types.ts`) only when the stored shape
+  changes — every guide must then be rewritten. The country order is
+  `scripts/countryGroups.mjs`, shared with the landscape collection.
 - **Israel-only data stays in Israel.** The summer water/shade section and the
   רט״ג reminder are shown only when `isTrailInIsrael` (`src/lib/inIsrael.ts`)
   says so; anything new that relies on Israeli data (the canopy grid, the

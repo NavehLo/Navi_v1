@@ -20,6 +20,7 @@ const FEATURE_LABELS: Record<string, string> = {
   "trip_advice:text": "הסבר על מזג האוויר ביום הטיול",
   "trail_crowd:search": "מדדי מטיילים — חיפוש באתרי ביקורות",
   "trail_crowd:text": "מדדי מטיילים — קריאת הציונים מהעמודים",
+  "country_guide:text": "אזורי טיול — סקירת מדינה עם חיפוש ברשת",
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
