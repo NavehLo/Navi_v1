@@ -112,6 +112,16 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   against fixed ceilings — never the largest value seen, or a trail's score
   would move when a country is collected or a filter changes. Run
   `checkCrowd.mjs` after changing a weight or a ceiling.
+- **"רמת קושי" is decided in one place.** The three levels come only from
+  `src/lib/difficulty.ts` — Komoot's grade where it covers the trail
+  (`gradeCovers`, `match.ts`), else length and climb through `hikeEffort.ts`
+  — and every list, filter and card calls it (the Israeli list via
+  `difficulty` in `trails.json`, rebuilt with `scripts/buildDifficultyIndex.mjs`
+  after `generateTrailIndex.js` or a change to the formula). A trail with no
+  level is left out by a difficulty filter unless the reader keeps it. The
+  grade lives inside `trail_crowd.sources` — an optional field, so adding it
+  did not bump `CROWD_VERSION`; countries collected before it are filled with
+  `scripts/fillKomootGrades.mjs` (free, re-reads Komoot's pages).
 - **"הרים, יער ונהרות" is derived in one place.** The words, levels and filters
   for mountains, forest and rivers come only from `src/lib/landscape.ts`; the
   build (`scripts/buildLandscape.mjs`) stores only numbers (a relief histogram,

@@ -1,7 +1,7 @@
 import { TrailData } from "../hooks/useTrailData";
 import { SUN_MAX, SHADE_MIN, BAR_COLUMNS, type ShadeResult, type WaterResult } from "../lib/summerConditions";
 import type { WaterStatus } from "../hooks/useSummerConditions";
-import { ArrowRight, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Navigation, BookOpenText, Clock, Gauge } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Navigation, BookOpenText, Clock } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { computeElevationGain, sliceTrail } from "../utils/trailUtils";
 import { formatDuration } from "./DrivePlanner";
@@ -16,7 +16,9 @@ import TrailStagesSection, { ParentTrailButton, StageNav } from "./TrailStagesSe
 import type { WmtStage } from "../lib/waymarked";
 import type { WmtParent } from "../hooks/useTrailData";
 import { formatHours } from "../lib/hikeEffort";
-import TrailCrowdSection from "./TrailCrowdSection";
+import TrailCrowdSection, { useTrailCrowd } from "./TrailCrowdSection";
+import { trailDifficulty } from "../lib/difficulty";
+import { DifficultyLine } from "./DifficultyFilter";
 import TrailLandscapeSection from "./TrailLandscapeSection";
 
 // A world trail's place among long trails (see useWmtStages): the stages it is
@@ -80,6 +82,14 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
   const climb = useMemo(
     () => (trail.maxEle > trail.minEle ? computeElevationGain(trail.elevations) : null),
     [trail]
+  );
+
+  // "רמת קושי": Komoot's grade for a world trail it knows, else from the
+  // length and climb — the same figures as the walking time (lib/difficulty.ts).
+  const crowd = useTrailCrowd(worldId);
+  const difficulty = useMemo(
+    () => trailDifficulty(crowd?.difficulty, { km: trail.totalDistance, gain: climb?.gain ?? 0, loss: climb?.loss ?? 0 }),
+    [crowd?.difficulty, trail.totalDistance, climb]
   );
 
   const onTrail = !!userPos && userPos.offTrailM <= ON_TRAIL_MAX_M;
@@ -360,13 +370,16 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
             <Clock className="w-4 h-4 text-yellow-300" />
             הליכה משוערת <b className="text-yellow-300">{formatHours(weather.hours)}</b>
           </span>
-          <span className="flex items-center gap-1.5">
-            <Gauge className="w-4 h-4 text-yellow-300" />
-            מאמץ <b className="text-yellow-300">{weather.effort.levelLabel}</b>
-          </span>
+          <DifficultyLine d={difficulty} />
         </div>
       )}
-      {weather?.effort && <div className="text-xs text-white text-center mt-1">כולל הפסקות, לפי האורך והעליות</div>}
+      {weather?.effort && (
+        <div className="text-xs text-white text-center mt-1">
+          {difficulty?.source === 'komoot'
+            ? 'הזמן כולל הפסקות, לפי האורך והעליות · רמת הקושי לפי Komoot'
+            : 'כולל הפסקות, לפי האורך והעליות'}
+        </div>
+      )}
       <div className="mt-3 border-t border-white/10 pt-3 relative" dir="ltr">
         <div className="text-xs text-white mb-2 font-bold flex items-center gap-1" dir="rtl">
           פרופיל גובה

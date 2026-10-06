@@ -25,6 +25,8 @@ import { guideCountries, loadGuide } from '../lib/countryGuide/client';
 import type { CountryGuide as Guide } from '../lib/countryGuide/types';
 import type { GuideMapView } from '../hooks/useCountryGuideMap';
 import WorldRanking from './WorldRanking';
+import { NO_DIFFICULTY_FILTER, passesDifficulty, type DifficultyFilter } from '../lib/difficulty';
+import { DifficultyBadge, DifficultyFilterPanel } from './DifficultyFilter';
 
 // "מסלולים בעולם": marked trails abroad, chosen by when they are in season,
 // or by how popular they are.
@@ -49,6 +51,9 @@ import WorldRanking from './WorldRanking';
 //
 // Every country and every area also says what it looks like — mountains,
 // forest, rivers (lib/landscape.ts) — and both lists can be filtered by it.
+//
+// A trail Komoot grades shows its "רמת קושי" (lib/difficulty.ts), and a
+// collected country's list can be filtered by it.
 //
 // Read outdoors on a phone — white text, nothing under text-xs (CLAUDE.md).
 
@@ -118,7 +123,7 @@ const kept: {
   mode?: Mode; month?: number; rating?: MonthRating; country?: string | null;
   region?: string | null; crowdFilter?: CrowdFilter; landscapeFilter?: LandscapeFilter;
   landscapeSort?: LandscapeSort; continent?: Continent | null; scroll?: number;
-  guideOpen?: boolean;
+  guideOpen?: boolean; difficulty?: DifficultyFilter;
 } = {};
 
 function keepScroll(top: number) {
@@ -145,13 +150,14 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
   const [region, setRegion] = useState<string | null>(kept.region ?? null);
   const [query, setQuery] = useState('');
   const [crowdFilter, setCrowdFilter] = useState<CrowdFilter>(kept.crowdFilter ?? NO_CROWD_FILTER);
+  const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>(kept.difficulty ?? NO_DIFFICULTY_FILTER);
   const [landscapeFilter, setLandscapeFilter] = useState<LandscapeFilter>(kept.landscapeFilter ?? NO_LANDSCAPE_FILTER);
   const [landscapeSort, setLandscapeSort] = useState<LandscapeSort>(kept.landscapeSort ?? 'default');
   // One continent, or null for the whole world: both lists of countries.
   const [continent, setContinent] = useState<Continent | null>(kept.continent ?? null);
   useEffect(() => {
-    Object.assign(kept, { mode, month, rating, country, region, crowdFilter, landscapeFilter, landscapeSort, continent });
-  }, [mode, month, rating, country, region, crowdFilter, landscapeFilter, landscapeSort, continent]);
+    Object.assign(kept, { mode, month, rating, country, region, crowdFilter, landscapeFilter, landscapeSort, continent, difficulty: difficultyFilter });
+  }, [mode, month, rating, country, region, crowdFilter, landscapeFilter, landscapeSort, continent, difficultyFilter]);
 
   // "אזורי טיול": the countries that have one, and the open country's.
   const [guideSet, setGuideSet] = useState<Set<string> | null>(null);
@@ -288,11 +294,13 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
   const countryList = countryData?.trails ?? null;
   const hasCrowd = !!countryData?.hasCrowd;
   const crowdF = hasCrowd ? crowdFilter : NO_CROWD_FILTER;
+  // Komoot's grade comes with the hikers' numbers: no numbers, no filter.
+  const difficultyF = hasCrowd ? difficultyFilter : NO_DIFFICULTY_FILTER;
   // The month, the rating for it, and the hikers' filters: what every count
   // and list below is made of.
   const trailLand = countryData?.landscape ?? null;
   const matchesFilters = (t: ListTrail) =>
-    t.months[month] === rating && passesCrowd(t, crowdF) &&
+    t.months[month] === rating && passesCrowd(t, crowdF) && passesDifficulty(t.crowd?.difficulty, difficultyF) &&
     (!trailLand || passesLandscape(t.landscape, trailLand.reliefBins, landscapeFilter, 'trail'));
   const regionNames = useMemo(() => new Map((countryData?.regions ?? []).map((r) => [r.id, r])), [countryData]);
   // One area or none: straight to the trails.
@@ -329,7 +337,7 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
         }
         return Number(a.multiDay) - Number(b.multiDay);
       }),
-    [countryList, month, rating, region, crowdF, landscapeFilter, landscapeSort], // eslint-disable-line react-hooks/exhaustive-deps
+    [countryList, month, rating, region, crowdF, difficultyF, landscapeFilter, landscapeSort], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // The leading trails of what is being looked at — the country, or the area
@@ -362,11 +370,11 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
         }
         return b.count - a.count || a.name.localeCompare(b.name, 'he');
       });
-  }, [countryData, month, rating, crowdF, countryLandscape, landscapeFilter, landscapeSort]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [countryData, month, rating, crowdF, difficultyF, countryLandscape, landscapeFilter, landscapeSort]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const matchingInCountry = useMemo(
     () => (countryList ?? []).filter(matchesFilters).length,
-    [countryList, month, rating, crowdF, landscapeFilter], // eslint-disable-line react-hooks/exhaustive-deps
+    [countryList, month, rating, crowdF, difficultyF, landscapeFilter], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const q = query.trim();
@@ -548,6 +556,18 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
     </Collapsible>
   );
 
+  // Komoot grades only the trails it lists, so most of a country's have no
+  // level; how many, of the ones in view, the checkbox says.
+  const ungraded = (countryList ?? []).filter((t) => !t.crowd?.difficulty && (!region || region === 'all' || t.regions.includes(region))).length;
+  const difficultyPanel = (
+    <DifficultyFilterPanel
+      filter={difficultyFilter}
+      onChange={setDifficultyFilter}
+      unknown={ungraded}
+      explanation={<>לפי הדירוג של Komoot (כושר ושטח יחד), למסלולים ש-Komoot מכיר מבין הנפוצים באזור. לשאר המסלולים אין רמת קושי, עד שפותחים אותם — אז היא מחושבת בכרטיס לפי האורך והעליות.</>}
+    />
+  );
+
   const landscapeFilters = (what: string, kind: 'area' | 'trail' = 'area') => (
     <LandscapeFilterPanel
       filter={landscapeFilter}
@@ -661,6 +681,7 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
           {choosingRegion && countryLandscape && landscapeFilters('אזורים')}
           {!choosingRegion && trailLand && landscapeFilters('מסלולים', 'trail')}
           {hasCrowd && crowdFilters}
+          {hasCrowd && difficultyPanel}
           {countryStatus === 'loading' && (
             <div className="flex items-center gap-2 text-sm text-white py-4">
               <Loader2 className="w-4 h-4 animate-spin text-orange-400 shrink-0" />
@@ -722,7 +743,7 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
             <div className="text-sm text-white py-3">
               {countryList.length === 0
                 ? 'לא נמצאו מסלולים מסומנים במדינה הזו.'
-                : activeCrowd || (trailLand && activeLandscape)
+                : activeCrowd || difficultyF.levels.length || (trailLand && activeLandscape)
                   ? `אין מסלולים ב"${RATING_LABELS[rating]}" ב${MONTH_NAMES[month]} שעונים על הסינון. נסו לרכך אותו.`
                   : `אין מסלולים ב"${RATING_LABELS[rating]}" ב${MONTH_NAMES[month]} מבין אלה שנמצאו. נסו חודש או דרגה אחרים.`}
             </div>
@@ -919,7 +940,12 @@ function CrowdLine({ crowd }: { crowd?: CrowdSummary }) {
   const traffic = crowd && crowd.traffic !== 'unknown' ? crowd.traffic : null;
   const rating = crowd?.rating ?? null;
   if (!traffic && rating == null) {
-    return <span className="text-xs text-white flex items-center gap-1"><Footprints className="w-3.5 h-3.5 shrink-0" /> מטיילים: {NO_CROWD_INFO}</span>;
+    return (
+      <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+        <span className="text-white flex items-center gap-1"><Footprints className="w-3.5 h-3.5 shrink-0" /> מטיילים: {NO_CROWD_INFO}</span>
+        <DifficultyBadge d={crowd?.difficulty} />
+      </span>
+    );
   }
   return (
     <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold">
@@ -933,6 +959,7 @@ function CrowdLine({ crowd }: { crowd?: CrowdSummary }) {
           ? <>{rating.toFixed(1)} <span className="font-semibold text-white">({crowd!.ratingCount.toLocaleString('he-IL')} דירוגים)</span></>
           : <span className="font-semibold text-white">ציון: {NO_CROWD_INFO}</span>}
       </span>
+      <DifficultyBadge d={crowd?.difficulty} />
     </span>
   );
 }

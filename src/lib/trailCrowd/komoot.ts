@@ -19,6 +19,7 @@
 // trails, most of which no site has heard of.
 
 import { tavilySearch } from '../trailInfo/sources';
+import { isKomootGrade, type KomootGrade } from '../difficulty';
 
 export interface KomootRoute {
   guide: string;            // the page it was listed on
@@ -28,6 +29,9 @@ export interface KomootRoute {
   ratings: number;
   hikers: number;
   km: number | null;
+  // Komoot's difficulty for the route — its fitness and terrain together
+  // (lib/difficulty.ts). Absent on pages read before it was kept.
+  grade?: KomootGrade | null;
   points: Array<[number, number]>; // [lat, lon]
 }
 
@@ -93,7 +97,8 @@ export function decodeLine(s: string): Array<[number, number]> {
 const USER_AGENT = 'Mozilla/5.0 (compatible; Navi-Trail-App/1.0; naveh@hamarag.com)';
 
 // The routes of one page, from the data it carries for its list
-// ("discoverTours": id, name, distance, map picture, visitors, ratings).
+// ("discoverTours": id, name, distance, map picture, visitors, ratings,
+// difficulty).
 export function parseGuide(url: string, html: string): KomootRoute[] {
   const text = html.replace(/\\"/g, '"');
   const start = text.indexOf('"discoverTours":{"items":[');
@@ -119,6 +124,7 @@ export function parseGuide(url: string, html: string): KomootRoute[] {
     const count = Number(/"ratingCount":(\d+)/.exec(item)?.[1] ?? 0);
     const score = Number(/"ratingScore":([\d.]+)/.exec(item)?.[1] ?? NaN);
     const distance = Number(/"distance":([\d.]+)/.exec(item)?.[1] ?? NaN);
+    const grade = /"difficulty":\{[^}]*"grade":"(\w+)"/.exec(item)?.[1];
     routes.push({
       guide: url,
       rank: routes.length + 1,
@@ -127,6 +133,7 @@ export function parseGuide(url: string, html: string): KomootRoute[] {
       ratings: count,
       hikers: Number(visitors),
       km: Number.isFinite(distance) ? Math.round(distance / 100) / 10 : null,
+      grade: isKomootGrade(grade) ? grade : null,
       points,
     });
   }

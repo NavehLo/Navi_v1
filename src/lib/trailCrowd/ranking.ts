@@ -7,12 +7,14 @@ import type { CountryTrail } from '../countryTrails';
 import type { LandscapeSummary } from '../landscape';
 import { trailLandscapeOfCountry } from '../landscapeData';
 import { byRank, komootOf, popularityScore, type KomootNumbers } from './score';
+import { komootDifficulty, type Difficulty } from '../difficulty';
 import { collectedCountryLists } from './leaders';
 
 export type RankedTrail = Pick<CountryTrail, 'id' | 'name' | 'name_en' | 'group' | 'linear' | 'multiDay' | 'km' | 'months'> & {
   country: string;
   komoot: KomootNumbers;
   score: number;
+  difficulty: Difficulty | null;
   landscape?: LandscapeSummary;
 };
 
@@ -39,7 +41,7 @@ export async function allRanked(): Promise<Ranking> {
       const ranked = {
         id: t.id, name: t.name, name_en: t.name_en, group: t.group, linear: t.linear,
         multiDay: t.multiDay, km: t.km, months: t.months, country,
-        komoot, score: popularityScore(komoot),
+        komoot, score: popularityScore(komoot), difficulty: komootDifficulty(t.row!.sources),
         ...(land?.trails[t.id] ? { landscape: land.trails[t.id] } : {}),
         routes: t.row!.sources.filter((s) => s.site === 'Komoot').map((s) => `${s.route ?? s.url}|${s.hikers ?? 0}|${s.count}`).sort().join('#'),
       };

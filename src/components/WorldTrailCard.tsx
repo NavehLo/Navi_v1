@@ -7,7 +7,9 @@ import { englishFromTags, needsEnglish, usefulEnglish } from '../lib/trailNames'
 import { knownEnglish, translateWorldTrails } from '../lib/worldTrailSearch';
 import type { WmtStage } from '../lib/waymarked';
 import TrailStagesSection, { ParentTrailButton, StageNav } from './TrailStagesSection';
-import TrailCrowdSection from './TrailCrowdSection';
+import TrailCrowdSection, { useTrailCrowd } from './TrailCrowdSection';
+import { trailDifficulty } from '../lib/difficulty';
+import { DifficultyLine } from './DifficultyFilter';
 import TrailLandscapeSection from './TrailLandscapeSection';
 
 // The trail's English name, when its own is in a script the reader may not
@@ -64,6 +66,12 @@ export default function WorldTrailCard({
   const canLoad = selection.status === 'ok' && selection.coords.length >= 2;
   const elevationPending = selection.status === 'ok' && selection.elevationStatus === 'loading';
   const hasElevation = selection.elevationStatus === 'ok' && selection.gain != null;
+  // "רמת קושי" (lib/difficulty.ts): Komoot's grade, else from length and climb.
+  const crowd = useTrailCrowd(selection.id);
+  const difficulty = trailDifficulty(
+    crowd?.difficulty,
+    hasElevation && selection.lengthKm != null ? { km: selection.lengthKm, gain: selection.gain ?? 0, loss: selection.loss ?? 0 } : null,
+  );
   const [collapsed, setCollapsed] = useState(false);
   // A tap on the map folds the card down, so the route can be seen whole.
   const cardRef = useRef<HTMLDivElement>(null);
@@ -212,7 +220,12 @@ export default function WorldTrailCard({
             </div>
           )}
           {selection.elevationStatus !== 'ok' && selection.elevationStatus !== 'loading' && (
-            <div className="text-xs text-zinc-200 text-center -mt-1">נתוני גובה לא זמינים למסלול הזה</div>
+            <div className="text-xs text-white text-center -mt-1">נתוני גובה לא זמינים למסלול הזה</div>
+          )}
+          {difficulty && (
+            <div className="flex justify-center text-sm text-white">
+              <DifficultyLine d={difficulty} withSource />
+            </div>
           )}
 
           {selection.partial && (

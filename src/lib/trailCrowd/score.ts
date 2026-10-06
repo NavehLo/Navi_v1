@@ -10,6 +10,8 @@
 // numbers change (what is collected or how it is extracted). The tiers are
 // computed on read, so a change to them takes effect without re-collecting.
 
+import { komootDifficulty, type Difficulty, type KomootGrade } from '../difficulty';
+
 export const CROWD_VERSION = 1;
 
 // One site's numbers for the trail. So far only Komoot: its "best hikes in
@@ -22,6 +24,10 @@ export interface CrowdSource {
   count: number;           // ratings behind `rating`
   hikers?: number;         // people who walked it, where the site says
   route?: string;          // the site's name for the route that matched
+  // Komoot's difficulty for that route, kept only when the route covers most
+  // of the trail (match.ts; read through lib/difficulty.ts). Added 2026-10:
+  // older rows get it from scripts/fillKomootGrades.mjs, not a new collection.
+  grade?: KomootGrade;
 }
 
 // What is stored for one trail.
@@ -45,6 +51,8 @@ export interface CrowdSummary {
   hikers: number | null;
   rating: number | null;   // null: fewer than MIN_REVIEWS reviews with a score
   ratingCount: number;
+  // Komoot's difficulty grade, as a level (lib/difficulty.ts); null when unknown.
+  difficulty: Difficulty | null;
 }
 
 // Below this many scored reviews an average says little.
@@ -155,6 +163,7 @@ export function crowdSummaries(rows: CrowdData[]): Map<number, CrowdSummary> {
     out.set(r.id, {
       traffic, score: traffic === 'unknown' ? null : scores.get(r.id) ?? null,
       hikers: hikers > 0 ? hikers : null, rating, ratingCount: count,
+      difficulty: komootDifficulty(r.sources),
     });
   }
   return out;

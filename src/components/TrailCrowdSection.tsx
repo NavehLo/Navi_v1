@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { ExternalLink, Footprints, Star } from 'lucide-react';
+import { ExternalLink, Footprints, Gauge, Star } from 'lucide-react';
 import Collapsible from './Collapsible';
 import { countryName } from '../lib/worldTrailSearch';
 import { NO_CROWD_INFO, TRAFFIC_LABELS, type CrowdSource, type CrowdSummary } from '../lib/trailCrowd/score';
+import { DIFFICULTY_LABELS, DIFFICULTY_TEXT } from '../lib/difficulty';
 
 // "מה אומרים מטיילים" on a world trail's card: how busy it is compared with
 // its country's other trails, its rating, and where the numbers come from —
@@ -17,25 +18,43 @@ interface CrowdDetails extends CrowdSummary {
 }
 
 const memo = new Map<number, CrowdDetails | null>();
+const inFlight = new Map<number, Promise<{ ok: boolean; d: CrowdDetails | null }>>();
 
-export default function TrailCrowdSection({ id }: { id: number }) {
-  const [data, setData] = useState<{ id: number; d: CrowdDetails | null } | null>(null);
-
-  useEffect(() => {
-    if (memo.has(id)) return;
-    let live = true;
-    fetch(`/api/world-trails/crowd?id=${id}`)
+function load(id: number): Promise<{ ok: boolean; d: CrowdDetails | null }> {
+  let p = inFlight.get(id);
+  if (!p) {
+    p = fetch(`/api/world-trails/crowd?id=${id}`)
       .then((r) => r.json())
       .then((j) => {
         const d = j.status === 'ok' ? (j as CrowdDetails) : null;
         if (j.status === 'ok' || j.status === 'none') memo.set(id, d);
-        if (live) setData({ id, d });
+        return { ok: true, d };
       })
-      .catch(() => { if (live) setData({ id, d: null }); });
+      .catch(() => ({ ok: false, d: null }))
+      .finally(() => inFlight.delete(id));
+    inFlight.set(id, p);
+  }
+  return p;
+}
+
+// The trail's collected numbers, once per trail per session — shared by this
+// section and the card's "רמת קושי" line (Komoot's grade), so they ask once.
+export function useTrailCrowd(id: number | null): CrowdDetails | null {
+  const [data, setData] = useState<{ id: number; d: CrowdDetails | null } | null>(null);
+
+  useEffect(() => {
+    if (id == null || memo.has(id)) return;
+    let live = true;
+    load(id).then(({ d }) => { if (live) setData({ id, d }); });
     return () => { live = false; };
   }, [id]);
 
-  const d = memo.has(id) ? memo.get(id)! : data?.id === id ? data.d : null;
+  if (id == null) return null;
+  return memo.has(id) ? memo.get(id)! : data?.id === id ? data.d : null;
+}
+
+export default function TrailCrowdSection({ id }: { id: number }) {
+  const d = useTrailCrowd(id);
   if (!d) return null;
 
   const traffic = d.traffic !== 'unknown' ? TRAFFIC_LABELS[d.traffic] : null;
@@ -74,6 +93,15 @@ export default function TrailCrowdSection({ id }: { id: number }) {
             <div className="text-xs mt-0.5">פחות מ-5 דירוגים — מעט מדי לממוצע.</div>
           )}
         </div>
+
+        {d.difficulty && (
+          <div>
+            <div className={`flex items-center gap-1.5 font-bold ${DIFFICULTY_TEXT[d.difficulty]}`}>
+              <Gauge className="w-4 h-4" /> רמת קושי ב-Komoot: {DIFFICULTY_LABELS[d.difficulty]}
+            </div>
+            <div className="text-xs mt-0.5">כושר ושטח יחד, כפי ש-Komoot מדרג את הדרך שעוברת לאורך המסלול.</div>
+          </div>
+        )}
 
         {d.sources.length > 0 && (
           <div className="flex flex-col gap-1">

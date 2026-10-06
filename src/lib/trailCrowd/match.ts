@@ -25,6 +25,15 @@ const NEAR_M = 150;
 const MIN_SHARE = 0.6;
 // A trail is credited only up to this many times the route's length.
 const LONGER_FACTOR = 5;
+// Komoot's difficulty grade is the trail's only when the route is at least
+// this share of the trail: a stage of a long trail, or a loop on one end of
+// it, is graded for itself (lib/difficulty.ts).
+export const GRADE_MIN_COVER = 0.5;
+
+// Whether a route of `routeKm` speaks for the difficulty of a trail of `trailKm`.
+export function gradeCovers(routeKm: number, trailKm: number): boolean {
+  return routeKm >= trailKm * GRADE_MIN_COVER;
+}
 
 type LonLat = [number, number];
 export interface TrailLines {
@@ -156,14 +165,20 @@ export function trailsOf(r: KomootRoute, trails: TrailLines[]): number[] {
 export function matchRoutes(routes: KomootRoute[], trails: TrailLines[]): Map<number, CrowdSource> {
   const out = new Map<number, CrowdSource>();
   const seen = new Set<string>();
+  const trailKm = new Map(trails.map((t) => [t.id, t.km]));
   for (const r of routes) {
     const key = r.points.map((p) => p.join(',')).join(';');
     if (seen.has(key)) continue;
     seen.add(key);
+    const length = routeKm(r);
     for (const id of trailsOf(r, trails)) {
       const prev = out.get(id);
       if (prev && (prev.hikers ?? 0) >= r.hikers) continue;
-      out.set(id, { site: 'Komoot', url: r.guide, rating: r.rating, count: r.ratings, hikers: r.hikers, route: r.name });
+      const grade = r.grade && gradeCovers(length, trailKm.get(id) ?? Infinity) ? r.grade : undefined;
+      out.set(id, {
+        site: 'Komoot', url: r.guide, rating: r.rating, count: r.ratings, hikers: r.hikers, route: r.name,
+        ...(grade ? { grade } : {}),
+      });
     }
   }
   return out;

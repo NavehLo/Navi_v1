@@ -8,12 +8,15 @@ import { groupLabel, type WmtRouteSummary } from '../lib/waymarked';
 import { CONTINENTS, inContinent, type Continent } from '../lib/continents';
 import { NO_CROWD_INFO, RANK_SORTS, byRank, type RankSort } from '../lib/trailCrowd/score';
 import type { RankedTrail, Ranking } from '../lib/trailCrowd/ranking';
+import { NO_DIFFICULTY_FILTER, passesDifficulty, type DifficultyFilter } from '../lib/difficulty';
+import { DifficultyBadge, DifficultyFilterPanel } from './DifficultyFilter';
 
 // "לפי דירוג" in "מסלולים בעולם": every world trail Komoot has numbers
 // for, across all the countries collected, by how popular it is — the
 // weighted score of its hikers, its number of ratings and its rating
 // (popularityScore in lib/trailCrowd/score.ts). Filtered by continent,
-// country and month, and ordered by the score or by any one of the three.
+// country, month and Komoot's difficulty grade (lib/difficulty.ts), and
+// ordered by the score or by any one of the three.
 //
 // Read outdoors on a phone — white text, nothing under text-xs (CLAUDE.md).
 
@@ -28,7 +31,7 @@ const PAGE = 100;
 // back must find the same filters, order and place in the list.
 const kept: {
   continent?: Continent | null; country?: string | null; month?: number | null;
-  sort?: RankSort; shown?: number; scroll?: number;
+  sort?: RankSort; shown?: number; scroll?: number; difficulty?: DifficultyFilter;
 } = {};
 
 export default function WorldRanking({ onPickTrail }: { onPickTrail: (summary: WmtRouteSummary) => void }) {
@@ -41,9 +44,10 @@ export default function WorldRanking({ onPickTrail }: { onPickTrail: (summary: W
   const [month, setMonth] = useState<number | null>(kept.month ?? null);
   const [sort, setSort] = useState<RankSort>(kept.sort ?? 'score');
   const [shown, setShown] = useState(kept.shown ?? PAGE);
+  const [difficulty, setDifficulty] = useState<DifficultyFilter>(kept.difficulty ?? NO_DIFFICULTY_FILTER);
   useEffect(() => {
-    Object.assign(kept, { continent, country, month, sort, shown });
-  }, [continent, country, month, sort, shown]);
+    Object.assign(kept, { continent, country, month, sort, shown, difficulty });
+  }, [continent, country, month, sort, shown, difficulty]);
 
   useEffect(() => {
     if (rankingMemo) return;
@@ -92,12 +96,17 @@ export default function WorldRanking({ onPickTrail }: { onPickTrail: (summary: W
     return [...counts].sort((a, b) => countryName(a[0]).localeCompare(countryName(b[0]), 'he'));
   }, [trails, continent]);
 
-  const list = useMemo(
+  // Continent, country and month: what the difficulty filter counts its
+  // ungraded trails in.
+  const placed = useMemo(
     () => trails
       .filter((t) => (country ? t.country === country : inContinent(t.country, continent)))
-      .filter((t) => month == null || t.months[month] === 'good')
-      .sort(byRank(sort)),
-    [trails, continent, country, month, sort],
+      .filter((t) => month == null || t.months[month] === 'good'),
+    [trails, continent, country, month],
+  );
+  const list = useMemo(
+    () => placed.filter((t) => passesDifficulty(t.difficulty, difficulty)).sort(byRank(sort)),
+    [placed, difficulty, sort],
   );
 
   const select = 'w-full bg-zinc-900 text-white text-sm font-bold border border-white/20 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-500/60';
@@ -143,6 +152,12 @@ export default function WorldRanking({ onPickTrail }: { onPickTrail: (summary: W
           </select>
         ))}
       </div>
+      <DifficultyFilterPanel
+        filter={difficulty}
+        onChange={change(setDifficulty)}
+        unknown={placed.filter((t) => !t.difficulty).length}
+        explanation={<>לפי הדירוג של Komoot — כושר ושטח יחד. מסלול שהדרך ב-Komoot מכסה רק חלק קטן ממנו נשאר בלי רמת קושי.</>}
+      />
 
       <div
         ref={listRef}
@@ -173,11 +188,12 @@ export default function WorldRanking({ onPickTrail }: { onPickTrail: (summary: W
             {country ? ` ב${countryName(country)}` : continent ? ` ב${CONTINENTS.find((c) => c.id === continent)?.label}` : ''}
             {month != null && <> ב<span className={`font-bold ${RATING_TEXT.good}`}>עונה מומלצת</span> ב{MONTH_NAMES[month]}</>}
             {' '}עם נתוני Komoot
+            {difficulty.levels.length > 0 && ' ברמת הקושי שנבחרה'}
           </div>
         )}
         {ranking && list.length === 0 && (
           <div className="text-sm text-white py-3">
-            {trails.length === 0 ? 'עוד לא נאספו נתוני מטיילים לאף מדינה.' : 'אין מסלולים שעונים על הסינון. נסו חודש או מדינה אחרים.'}
+            {trails.length === 0 ? 'עוד לא נאספו נתוני מטיילים לאף מדינה.' : 'אין מסלולים שעונים על הסינון. נסו חודש, מדינה או רמת קושי אחרים.'}
           </div>
         )}
         {list.slice(0, shown).map((t, i) => (
@@ -241,6 +257,7 @@ function RankedRow({ t, rank, month, bins, onPick }: {
               ? <>{k.rating.toFixed(1)} <span className="font-semibold text-white">({k.ratings.toLocaleString('he-IL')} דירוגים)</span></>
               : <span className="font-semibold text-white">ציון: {NO_CROWD_INFO}{k.ratings > 0 ? ` (${k.ratings} דירוגים)` : ''}</span>}
           </span>
+          <DifficultyBadge d={t.difficulty} />
         </span>
         {t.landscape && bins && <LandscapeLine s={t.landscape} bins={bins} kind="trail" />}
         {/* The whole year, small: when it is in season. */}

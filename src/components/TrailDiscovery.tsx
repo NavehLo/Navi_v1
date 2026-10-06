@@ -1,11 +1,13 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import type { MapPack } from '../lib/offlineMap';
-import { MapPin, Loader2, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Search, X, Droplets, Trees, WifiOff, BookOpen } from 'lucide-react';
+import { MapPin, Loader2, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Search, X, Droplets, Trees, WifiOff, BookOpen, Gauge } from 'lucide-react';
 import {
   matchesShade, matchesWater, SHADE_FILTER_LABELS, WATER_FILTER_LABELS,
   type ShadeFilter, type WaterFilter, type TrailSummer,
 } from '../lib/summerFilters';
+import { NO_DIFFICULTY_FILTER, passesDifficulty, type Difficulty, type DifficultyFilter } from '../lib/difficulty';
+import { DifficultyBadge, DifficultyChips } from './DifficultyFilter';
 import GPXLoader from './GPXLoader';
 import WorldByMonth from './WorldByMonth';
 import type { WmtRouteSummary } from '../lib/waymarked';
@@ -24,6 +26,11 @@ export interface TrailInfo {
   // the script has not covered, which the filters treat as "unknown", never as
   // a match.
   summer?: TrailSummer;
+  // Burned in by scripts/buildDifficultyIndex.mjs, from the GPX's length and
+  // climb — the same figures the trail card shows (lib/difficulty.ts).
+  length?: number;
+  gain?: number;
+  difficulty?: Difficulty;
 }
 
 interface TrailDiscoveryProps {
@@ -51,7 +58,7 @@ interface TrailDiscoveryProps {
 // trail should find the same tab and filters (WorldByMonth keeps its own).
 const kept: {
   scope?: 'israel' | 'world'; region?: string | null; type?: string | null;
-  shade?: ShadeFilter | null; water?: WaterFilter | null;
+  shade?: ShadeFilter | null; water?: WaterFilter | null; difficulty?: DifficultyFilter;
 } = {};
 // The last open request acted on — one request opens the panel once, not on
 // every later remount.
@@ -74,11 +81,12 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [filterShade, setFilterShade] = useState<ShadeFilter | null>(kept.shade ?? null);
   const [filterWater, setFilterWater] = useState<WaterFilter | null>(kept.water ?? null);
+  const [filterDifficulty, setFilterDifficulty] = useState<DifficultyFilter>(kept.difficulty ?? NO_DIFFICULTY_FILTER);
   // The packaged Israeli trails, or marked trails abroad chosen by month.
   const [scope, setScope] = useState<'israel' | 'world'>(kept.scope ?? 'israel');
   useEffect(() => {
-    Object.assign(kept, { scope, region: filterRegion, type: filterType, shade: filterShade, water: filterWater });
-  }, [scope, filterRegion, filterType, filterShade, filterWater]);
+    Object.assign(kept, { scope, region: filterRegion, type: filterType, shade: filterShade, water: filterWater, difficulty: filterDifficulty });
+  }, [scope, filterRegion, filterType, filterShade, filterWater, filterDifficulty]);
   // Opened on request: on mounting with a new one (a trail just closed), or
   // when one comes while the panel is only hidden (a card just closed).
   const [seenSignal, setSeenSignal] = useState(openSignal);
@@ -129,15 +137,17 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
       if (filterType && t.type !== filterType) return false;
       if (filterShade && !matchesShade(t.summer, filterShade)) return false;
       if (filterWater && !matchesWater(t.summer, filterWater)) return false;
+      if (!passesDifficulty(t.difficulty, filterDifficulty)) return false;
       if (query && !t.name.toLowerCase().includes(query)) return false;
       return true;
     });
-  }, [trails, filterRegion, filterType, filterShade, filterWater, searchQuery]);
+  }, [trails, filterRegion, filterType, filterShade, filterWater, filterDifficulty, searchQuery]);
 
   // Whether the index has summer figures at all. Before the build script has
   // run there is nothing to filter on, and showing two chips that always return
   // an empty list would read as a bug rather than as missing data.
   const hasSummerData = useMemo(() => trails.some(t => t.summer?.shadePct != null), [trails]);
+  const hasDifficulty = useMemo(() => trails.some(t => t.difficulty), [trails]);
 
   const searchSuggestions = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -469,6 +479,21 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
           ))}
         </div>
 
+        {hasDifficulty && (
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <span className="flex items-center gap-1 text-xs font-bold text-white">
+              <Gauge className="w-3.5 h-3.5 text-yellow-300 shrink-0" />
+              רמת קושי
+            </span>
+            <DifficultyChips filter={filterDifficulty} onChange={setFilterDifficulty} />
+            <InfoButton label="רמת קושי">
+              לפי האורך והעליות של המסלול: כל 100 מ׳ עלייה נחשבים כמו קילומטר הליכה במישור. <b>קל</b> — עד 10 ק״מ כאלה,
+              <b> בינוני</b> — עד 18, <b>קשה</b> — יותר. אותה הערכה שמופיעה בכרטיס המסלול. מסלול של כמה ימים נחשב קשה
+              כמכלול. אפשר לבחור יותר מרמה אחת.
+            </InfoButton>
+          </div>
+        )}
+
         {/* Summer: shade and water, two steps each. The numbers behind them are
             estimates from maps, so the chips deliberately offer coarse steps
             rather than a threshold anyone could mistake for a measurement. */}
@@ -539,7 +564,13 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
                 <div className="flex flex-col gap-1.5">
                   <span className="text-white font-bold text-sm group-hover:text-orange-400 transition-colors">{t.name}</span>
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-xs font-bold text-zinc-100 bg-black/30 w-fit px-2 py-0.5 rounded-md">{t.type} • {t.region}</span>
+                    <span className="text-xs font-bold text-white bg-black/30 w-fit px-2 py-0.5 rounded-md">{t.type} • {t.region}</span>
+                    {t.length != null && (
+                      <span className="text-xs font-bold text-white">
+                        {t.length >= 10 ? Math.round(t.length) : t.length.toFixed(1)} ק״מ{t.gain ? ` · ↑${t.gain.toLocaleString('he-IL')} מ׳` : ''}
+                      </span>
+                    )}
+                    <DifficultyBadge d={t.difficulty} />
                     {t.summer?.shadePct != null && (
                       <span className="text-xs font-bold text-lime-400 bg-lime-500/10 px-2 py-0.5 rounded-md">{Math.round(t.summer.shadePct)}% צל</span>
                     )}
