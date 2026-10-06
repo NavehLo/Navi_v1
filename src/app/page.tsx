@@ -1634,7 +1634,7 @@ export default function TrailApp() {
       {/* The trail just closed, one tap from coming back — below the place
           search, where a closed trail's reader is likely looking. */}
       {lastClosed && !trail && !uiHidden && !isMeasuring && !worldTrails.selection && !recActive && (
-        <div className="absolute top-[112px] right-4 md:top-[68px] md:right-[412px] z-40 flex items-center gap-1 bg-zinc-900/90 border border-white/15 rounded-full shadow-xl backdrop-blur-md max-w-[calc(100%-140px)] md:max-w-sm" dir="rtl">
+        <div className="absolute top-[60px] right-4 md:top-[68px] md:right-[412px] z-40 flex items-center gap-1 bg-zinc-900/90 border border-white/15 rounded-full shadow-xl backdrop-blur-md max-w-[calc(100%-140px)] md:max-w-sm" dir="rtl">
           <button
             onClick={reopenLastTrail}
             className="flex items-center gap-1.5 min-w-0 pr-3 pl-1 py-2 text-sm font-bold text-white"
@@ -1649,7 +1649,7 @@ export default function TrailApp() {
       )}
       {worldTrails.hint && (
         // Below the place search, which used to be hidden under it.
-        <div className="absolute top-[112px] md:top-[68px] left-1/2 -translate-x-1/2 z-50 bg-zinc-900/90 text-white text-xs font-bold px-4 py-2 rounded-full border border-white/10 backdrop-blur-md shadow-xl pointer-events-none" dir="rtl">
+        <div className="absolute top-[60px] md:top-[68px] left-1/2 -translate-x-1/2 z-50 bg-zinc-900/90 text-white text-xs font-bold px-4 py-2 rounded-full border border-white/10 backdrop-blur-md shadow-xl pointer-events-none" dir="rtl">
           {worldTrails.hint}
         </div>
       )}

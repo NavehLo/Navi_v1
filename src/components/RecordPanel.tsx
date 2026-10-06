@@ -144,7 +144,7 @@ export default function RecordPanel({
           ref={panelRef}
           // Open on a phone it takes the full width and covers the rail, like
           // the other open panels; folded it sits beside the rail.
-          className={`${hidden ? "hidden" : ""} absolute top-[112px] ${expanded ? "left-3 right-3 z-[45]" : "left-[124px] right-4 z-[44]"} md:top-[68px] md:left-20 md:right-[412px] md:max-w-md bg-zinc-900/95 border border-white/15 rounded-2xl shadow-2xl backdrop-blur-md text-white`}
+          className={`${hidden ? "hidden" : ""} absolute top-[60px] ${expanded ? "left-3 right-3 z-[45]" : "left-[124px] right-4 z-[44]"} md:top-[68px] md:left-20 md:right-[412px] md:max-w-md bg-zinc-900/95 border border-white/15 rounded-2xl shadow-2xl backdrop-blur-md text-white`}
           dir="rtl"
         >
           <div className="flex items-center gap-2 px-3 py-2">

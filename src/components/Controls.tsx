@@ -164,34 +164,19 @@ export default function Controls(props: ControlsProps) {
 
   return (
     <>
-      {/* Top-right: home + hide-everything. On a phone the place search
-          takes the top row, so these sit just under it. */}
-      <div className="absolute top-[62px] md:top-3 right-3 z-[42] flex flex-col items-end gap-2 select-none" dir="rtl">
-        <div className={PILL}>
-          {hasTrail && onHome && (
-            <RailBtn label="בית" labelsOn={labelsOn} onClick={onHome} title="מסך הבית — יציאה מהמסלול">
-              <Home className="w-[18px] h-[18px]" />
-            </RailBtn>
-          )}
-          {onHideUI && (
-            <RailBtn
-              label="הסתר הכל"
-              labelsOn={labelsOn}
-              onClick={onHideUI}
-              className={`text-amber-400 ${hasTrail && onHome ? 'border-t border-white/10' : ''}`}
-              title="הסתר את כל הנתונים מהמפה"
-            >
-              <Eye className="w-[18px] h-[18px]" />
-            </RailBtn>
-          )}
-        </div>
-      </div>
-
       {/* Left rail — map actions, one tap each. items-end, because in RTL
           that is the left: with items-start the pills lined up on the right
           of the column, which is as wide as the scale bar under them, and so
           stood off the edge of the screen by however long the bar was. */}
       <div className="absolute top-3 left-3 z-[42] flex flex-col items-end gap-2 select-none" dir="rtl" data-tour="rail">
+        {/* Out of the open trail, first of all. */}
+        {hasTrail && onHome && (
+          <div className={PILL}>
+            <RailBtn label="בית" labelsOn={labelsOn} onClick={onHome} className="text-orange-400" title="מסך הבית — יציאה מהמסלול">
+              <Home className="w-[18px] h-[18px]" />
+            </RailBtn>
+          </div>
+        )}
         <div className={PILL}>
           <RailBtn
             btnRef={layersBtnRef}
@@ -315,6 +300,17 @@ export default function Controls(props: ControlsProps) {
           >
             <Settings className="w-[18px] h-[18px]" />
           </RailBtn>
+          {onHideUI && (
+            <RailBtn
+              label="הסתר הכל"
+              labelsOn={labelsOn}
+              onClick={onHideUI}
+              className="border-t border-white/10 text-amber-400"
+              title="הסתר את כל הנתונים מהמפה"
+            >
+              <Eye className="w-[18px] h-[18px]" />
+            </RailBtn>
+          )}
           <RailBtn
             label="הסתר שמות"
             labelsOn={labelsOn}
