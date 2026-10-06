@@ -4,8 +4,9 @@ import { regionBounds } from '../lib/countryGuide/client';
 import type { CountryGuide } from '../lib/countryGuide/types';
 
 // "אזורי טיול" on the map: the region being read about, outlined, with the
-// places that define it and where its trails start — or every region of the
-// country at once, numbered as in the text. The map is framed on it, leaving
+// places that define it, where its trails start and the real lines of those
+// that are marked routes — or every region of the country at once, numbered
+// as in the text, with their routes. The map is framed on it, leaving
 // room for the panel (beside it on a wide screen, folded below it on a phone).
 
 export interface GuideMapView {
@@ -18,6 +19,7 @@ const SOURCE = 'country-guide';
 const FILL = 'country-guide-fill';
 const LINE = 'country-guide-line';
 const DOTS = 'country-guide-dots';
+const ROUTES = 'country-guide-routes';
 const LABELS = 'country-guide-labels';
 
 function features(view: GuideMapView) {
@@ -31,6 +33,11 @@ function features(view: GuideMapView) {
         properties: { kind: 'area' },
         geometry: { type: 'MultiPolygon', coordinates: r.shape.polygons },
       });
+    }
+    for (const t of r.trails) {
+      if (t.line?.length) {
+        out.push({ type: 'Feature', properties: { kind: 'route', label: t.name }, geometry: { type: 'MultiLineString', coordinates: t.line } });
+      }
     }
     const box = regionBounds(r);
     if (box && all) {
@@ -69,7 +76,7 @@ export function useCountryGuideMap(map: mapboxgl.Map | null, styleRev: number, v
     const data: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: features(view) };
     const remove = () => {
       try {
-        for (const id of [LABELS, DOTS, LINE, FILL]) if (map.getLayer(id)) map.removeLayer(id);
+        for (const id of [LABELS, DOTS, ROUTES, LINE, FILL]) if (map.getLayer(id)) map.removeLayer(id);
         if (map.getSource(SOURCE)) map.removeSource(SOURCE);
       } catch {}
     };
@@ -86,6 +93,11 @@ export function useCountryGuideMap(map: mapboxgl.Map | null, styleRev: number, v
         id: LINE, type: 'line', source: SOURCE, filter: ['==', ['get', 'kind'], 'area'],
         layout: { 'line-join': 'round' },
         paint: { 'line-color': '#7dd3fc', 'line-width': 2.5, 'line-dasharray': [2, 1.5] },
+      }, beforeId);
+      map.addLayer({
+        id: ROUTES, type: 'line', source: SOURCE, filter: ['==', ['get', 'kind'], 'route'],
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#f97316', 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 2, 11, 4], 'line-opacity': 0.9 },
       }, beforeId);
       map.addLayer({
         id: DOTS, type: 'circle', source: SOURCE, filter: ['in', ['get', 'kind'], ['literal', ['place', 'trail']]],

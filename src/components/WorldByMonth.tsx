@@ -581,6 +581,7 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
         onBack={closeGuide}
         shown={guideShown}
         onShow={(index) => onGuideMap?.({ guide, index })}
+        onOpenTrail={onPickTrail}
       />
     );
   }

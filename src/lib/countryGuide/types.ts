@@ -4,6 +4,8 @@
 // writes them from this Mac (scripts/writeCountryGuide.mjs); visitors only
 // read.
 
+import type { WmtRouteSummary } from '../waymarked';
+
 // Bump when what is stored changes shape; the reader ignores other versions.
 export const GUIDE_VERSION = 1;
 
@@ -20,6 +22,12 @@ export interface GuideTrail {
   sources: number[];
   // Where it starts (a village, a lake), placed on the map when found.
   start?: [number, number] | null;
+  // Its other Latin names, for finding it among the marked routes again.
+  aliases?: string[];
+  // The marked route it is (link.ts), which the app can open, and its line,
+  // simplified, as [lon, lat] runs. Absent when none was found.
+  wmt?: WmtRouteSummary | null;
+  line?: number[][][] | null;
 }
 
 // How the region is drawn on the map. 'units': the outlines of whole provinces

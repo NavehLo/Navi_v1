@@ -155,6 +155,9 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   subscriptions (Claude Code, Codex) by default — not the paid API. A source
   stays only if the search returned it (or, from Codex, the page exists) and
   the page mentions what it is cited for; never relax that to keep more links.
+  Likewise a trail is tied to a marked route ("פתח מסלול", `link.ts`) only when
+  the route's name holds most of its words and the same numbers, and it lies
+  in the region — a wrong route opened is worse than no button.
   Bump `GUIDE_VERSION` (`countryGuide/types.ts`) only when the stored shape
   changes — every guide must then be rewritten. The country order is
   `scripts/countryGroups.mjs`, shared with the landscape collection.

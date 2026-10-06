@@ -7,7 +7,8 @@ import { writeOverview, type WriterOptions } from './write';
 import { writeWithClaudeCode, writeWithCodex, type Via } from './subscription';
 import { toDraft, checkSources, type SourceReport } from './sources';
 import { placeRegion } from './place';
-import { GUIDE_VERSION, type CountryGuide } from './types';
+import { linkTrail } from './link';
+import { GUIDE_VERSION, type CountryGuide, type GuideRegion } from './types';
 import { estimateCost } from '../aiPricing';
 
 export interface BuildOptions extends WriterOptions {
@@ -22,6 +23,7 @@ export interface BuildReport {
   };
   sources: SourceReport;
   map: { region: string; shape: string; missing: string[]; strays: string[] }[];
+  links: { trail: string; route: string | null }[];
   words: number;
 }
 
@@ -37,6 +39,20 @@ async function write(system: string, user: string, opts: BuildOptions) {
   return { ...w, costUsd: estimateCost(w.provider, w.model, w), apiEquivalentUsd: null };
 }
 
+// Every trail of the guide to its marked route, where one is found.
+export async function linkRegions(regions: GuideRegion[]): Promise<BuildReport['links']> {
+  const out: BuildReport['links'] = [];
+  for (const r of regions) {
+    for (const t of r.trails) {
+      const { wmt, line } = await linkTrail(t, t.aliases ?? [], r);
+      t.wmt = wmt;
+      t.line = line;
+      out.push({ trail: `${r.name} › ${t.name}`, route: wmt ? `${wmt.name} (${wmt.id})` : null });
+    }
+  }
+  return out;
+}
+
 export async function buildCountryGuide(country: string, opts: BuildOptions): Promise<{ guide: CountryGuide; report: BuildReport; raw: string }> {
   const units = countryUnits(country).map((u) => ({ id: u.id, name: u.latin ? `${u.name} (${u.latin})` : u.name }));
   const written = await write(SYSTEM_PROMPT, userPrompt(names(country, 'he'), names(country, 'en'), units), opts);
@@ -46,17 +62,20 @@ export async function buildCountryGuide(country: string, opts: BuildOptions): Pr
   const { draft, report: sources } = await checkSources(parsed, written.searchedUrls);
   const known = new Set(units.map((u) => u.id));
   const map: BuildReport['map'] = [];
-  const regions = [];
+  const regions: GuideRegion[] = [];
   for (const r of draft.regions) {
     const placed = await placeRegion(country, { ...r, provinces: r.provinces.filter((p) => known.has(p)) });
     map.push({ region: r.name, shape: placed.shape?.kind ?? 'none', missing: placed.missing, strays: placed.strays });
     regions.push({
       name: r.name, nameLatin: r.nameLatin, where: r.where, body: r.body, sources: r.sources,
-      trails: r.trails.map((t, i) => ({ name: t.name, nameLatin: t.nameLatin, body: t.body, sources: t.sources, start: placed.trailStarts[i] })),
+      trails: r.trails.map((t, i) => ({
+        name: t.name, nameLatin: t.nameLatin, aliases: t.aliases, body: t.body, sources: t.sources, start: placed.trailStarts[i],
+      })),
       shape: placed.shape,
       places: placed.places,
     });
   }
+  const links = await linkRegions(regions);
 
   const guide: CountryGuide = {
     version: GUIDE_VERSION,
@@ -78,7 +97,7 @@ export async function buildCountryGuide(country: string, opts: BuildOptions): Pr
         via: opts.via, model: w.model, inputTokens: w.inputTokens, outputTokens: w.outputTokens, searches: w.searches,
         seconds: w.seconds, searchedUrls: w.searchedUrls?.length ?? null, costUsd: w.costUsd, apiEquivalentUsd: w.apiEquivalentUsd,
       },
-      sources, map, words: text.split(/\s+/).filter(Boolean).length,
+      sources, map, links, words: text.split(/\s+/).filter(Boolean).length,
     },
   };
 }

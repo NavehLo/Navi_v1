@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react';
-import { ArrowRight, Footprints, Map as MapIcon, MapPin } from 'lucide-react';
+import { ArrowRight, Footprints, Map as MapIcon, MapPin, Route } from 'lucide-react';
 import { countryName } from '../lib/worldTrailSearch';
 import { hostOf } from '../lib/countryGuide/client';
 import type { CountryGuide as Guide, GuideSource } from '../lib/countryGuide/types';
+import type { WmtRouteSummary } from '../lib/waymarked';
 
 // "אזורי טיול": a country's main hiking regions, each followed by its
 // best-known trails, with the pages every paragraph came from. Opened from a
@@ -38,10 +39,12 @@ function Sources({ ids, byId }: { ids: number[]; byId: Map<number, GuideSource> 
 }
 
 export default function CountryGuide({
-  guide, onBack, onShow, shown,
+  guide, onBack, onShow, shown, onOpenTrail,
 }: {
   guide: Guide;
   onBack: () => void;
+  // A trail that is a marked route the app knows opens its card.
+  onOpenTrail: (route: WmtRouteSummary) => void;
   // A region's index, or -1 for all of them.
   onShow: (index: number) => void;
   shown: number | null;
@@ -141,6 +144,15 @@ export default function CountryGuide({
                     {t.nameLatin && t.nameLatin !== t.name && <span className="text-xs font-bold text-white mx-1" dir="ltr">({t.nameLatin})</span>}
                     {': '}
                     {t.body} <Sources ids={t.sources} byId={byId} />
+                    {t.wmt && (
+                      <button
+                        onClick={() => onOpenTrail(t.wmt!)}
+                        className="mt-1 flex items-center gap-1 px-2.5 py-1 rounded-full bg-orange-500 hover:bg-orange-400 text-xs font-bold text-white"
+                      >
+                        <Route className="w-3.5 h-3.5" />
+                        פתח מסלול
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>

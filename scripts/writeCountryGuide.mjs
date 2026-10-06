@@ -16,6 +16,8 @@
 //
 // After a change to how regions are drawn (place.ts) or the text is cleaned,
 // without asking a model again:  node scripts/writeCountryGuide.mjs --reshape
+// Each trail is tied to its marked route as the guide is written; to tie the
+// trails of guides already written again (link.ts):  … --link [<CC>…]
 //
 // Or through the paid APIs (--via api --model claude-opus-5-5 | gpt-5.6-sol…),
 // about $0.5–1 a country, logged in ai_usage under "אזורי טיול".
@@ -44,8 +46,9 @@ const effort = flag('--effort') ?? 'medium';
 const tryOnly = args.includes('--try');
 const queue = args.includes('--queue');
 const reshape = args.includes('--reshape');
+const relink = args.includes('--link');
 const named = args.filter((a) => !a.startsWith('--')).map((a) => a.toUpperCase());
-if (!MODELS[via] || (!queue && !reshape && !named.length) || named.some((c) => !/^[A-Z]{2}$/.test(c))) {
+if (!MODELS[via] || (!queue && !reshape && !relink && !named.length) || named.some((c) => !/^[A-Z]{2}$/.test(c))) {
   console.error('usage: node scripts/writeCountryGuide.mjs <CC>… | --queue  [--via claude-code|codex|api] [--model <id>] [--effort low|medium|high] [--try]');
   process.exit(1);
 }
@@ -55,6 +58,19 @@ const { buildCountryGuide } = await import('../src/lib/countryGuide/build.ts');
 const { GUIDE_VERSION } = await import('../src/lib/countryGuide/types.ts');
 
 const APP_DIR = 'public/country-guides';
+
+if (relink) {
+  const { linkRegions } = await import('../src/lib/countryGuide/build.ts');
+  const { countries } = JSON.parse(readFileSync(`${APP_DIR}/index.json`, 'utf8'));
+  for (const c of named.length ? named : countries) {
+    const file = `${APP_DIR}/${c}.json`;
+    const guide = JSON.parse(readFileSync(file, 'utf8'));
+    const links = await linkRegions(guide.regions);
+    for (const l of links) console.log(`${c} ${l.trail} → ${l.route ?? '—'}`);
+    writeFileSync(file, JSON.stringify(guide));
+  }
+  process.exit(0);
+}
 
 if (reshape) {
   const { chooseShape } = await import('../src/lib/countryGuide/place.ts');
@@ -145,6 +161,7 @@ async function one(country) {
       (s.notSearched.length ? `, ${s.notSearched.length} not from the search` : '') +
       (s.dead.length ? `, ${s.dead.length} dead` : '') +
       (s.mismatched.length ? `, ${s.mismatched.length} about something else` : ''),
+    `linked to a marked route: ${report.links.filter((l) => l.route).length} of ${report.links.length} trails`,
     ...report.map.filter((m) => m.shape === 'none' || m.missing.length || m.strays.length).map((m) =>
       `map ${m.region}: ${m.shape}${m.missing.length ? `, not found: ${m.missing.join(', ')}` : ''}${m.strays.length ? `, too far: ${m.strays.join(', ')}` : ''}`),
     `→ ${save(country, guide, report, raw)}`,
