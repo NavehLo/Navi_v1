@@ -42,8 +42,8 @@ import { DifficultyBadge, DifficultyFilterPanel } from './DifficultyFilter';
 // trails match, then the trails of the area chosen. Hundreds of names mean
 // little until one knows which part of the country they are in.
 //
-// Where the admin has collected "מה אומרים מטיילים" for a country (so far
-// Spain, Greece and Malta), each trail also shows how busy it is compared with the
+// Where the admin has collected "מה אומרים מטיילים" for a country (16 so
+// far, in the order of scripts/countryGroups.mjs), each trail also shows how busy it is compared with the
 // country's other trails and how hikers rated it; the list opens busiest
 // first and can be filtered by both; "המסלולים המובילים" heads it (of the
 // country, or of the area chosen); and in the country picker such a country

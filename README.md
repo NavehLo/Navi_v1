@@ -20,7 +20,7 @@
 | אזורי טיול | ב"מסלולים בעולם", בתוך מדינה: כפתור "אזורי הטיול ב…" שפותח סקירה של 5–10 האזורים העיקריים להליכה, וכל אזור עם הטרקים והמסלולים המוכרים בו, עם קישור למקור בסוף כל פסקה. טרק שהוא מסלול מסומן שהאפליקציה מכירה מקבל כפתור "פתח מסלול". "הצג על המפה" מסמן את האזור (קו מתאר, המקומות שמגדירים אותו, נקודות ההתחלה של הטרקים והקו האמיתי של המסלולים המסומנים), ו"כולם על המפה" את כל האזורים ממוספרים. נכתב מראש לכל מדינה, דרך המנויים של Claude ו-ChatGPT | `src/components/CountryGuide.tsx`, `src/lib/countryGuide/`, `src/hooks/useCountryGuideMap.ts`, `scripts/writeCountryGuide.mjs`, `public/country-guides/` |
 | הרים, יער ונהרות | ב"מסלולים בעולם": ליד כל מדינה, אזור ומסלול שורה אחת — כמה הררי ודרמטי, כמה יער ומאיזה סוג, ונחלים שזורמים כל השנה או בעונה — והרכסים העיקריים; סינון וסידור לפי כל אלה; בכרטיס המסלול "נוף ושטח" | `src/lib/landscape.ts`, `src/components/LandscapeFilters.tsx`, `TrailLandscapeSection.tsx`, `scripts/buildLandscape.mjs`, `scripts/collectLandscape.mjs` |
 | רמת קושי | קל / בינוני / קשה: בכל שורה ברשימת המסלולים בישראל, ברשימות "מסלולים בעולם" (לפי מדינה, המובילים ולפי דירוג) ובכרטיס המסלול; סינון לפי רמה בכל הרשימות האלה. בעולם — הדירוג של Komoot למסלולים שהוא מכיר; בישראל ובכל מסלול פתוח — לפי האורך והעליות. ראו "רמת קושי" למטה | `src/lib/difficulty.ts`, `src/components/DifficultyFilter.tsx`, `scripts/buildDifficultyIndex.mjs`, `scripts/fillKomootGrades.mjs` |
-| מה אומרים מטיילים | במסלולי עולם (כרגע ספרד, יוון ומלטה): כמה מטיילים יש במסלול ביחס לשאר המסלולים במדינה ("הרבה מאוד" עד "מעט מאוד") וציון מטיילים מ-Komoot, בכל שורה ברשימה ובכרטיס המסלול; סינון ומיון לפי שניהם (ברירת המחדל: הכי הרבה מטיילים). כשאין מספיק מידע — כתוב כך | `src/lib/trailCrowd/`, `src/components/TrailCrowdSection.tsx`, `WorldByMonth.tsx`, `src/app/api/admin/trail-crowd` |
+| מה אומרים מטיילים | במסלולי עולם (16 מדינות עד כה — ראו "מה אומרים מטיילים" למטה): כמה מטיילים יש במסלול ביחס לשאר המסלולים במדינה ("הרבה מאוד" עד "מעט מאוד") וציון מטיילים מ-Komoot, בכל שורה ברשימה ובכרטיס המסלול; סינון ומיון לפי שניהם (ברירת המחדל: הכי הרבה מטיילים). כשאין מספיק מידע — כתוב כך | `src/lib/trailCrowd/`, `src/components/TrailCrowdSection.tsx`, `WorldByMonth.tsx`, `src/app/api/admin/trail-crowd` |
 | דירוג מסלולים בעולם | ב"מסלולים בעולם", "לפי דירוג": כל המסלולים שיש עליהם נתוני Komoot, מכל המדינות שנאספו, ברשימה אחת לפי ציון משוקלל של כמות המטיילים, מספר הדירוגים והציון — מהפופולרי ביותר. סינון לפי יבשת, מדינה וחודש (תפריטים נפתחים), וסדר לפי הציון המשוקלל או כל אחד מהשלושה | `popularityScore` ב-`src/lib/trailCrowd/score.ts`, `src/lib/trailCrowd/ranking.ts`, `src/app/api/world-trails/ranking`, `src/components/WorldRanking.tsx` |
 | המסלולים המובילים | במדינה שנאספה: שורה "המסלולים המובילים" בראש רשימת המדינה (או האזור), השמות שלהם ברשימת המדינות, וכוכבים זהובים על המפה כששכבת מסלולי העולם פתוחה | `leadersOf` ב-`src/lib/trailCrowd/score.ts`, `src/lib/trailCrowd/leaders.ts`, `src/hooks/useTrailLeaders.ts`, `WorldByMonth.tsx` |
 | מיקום חי והתראת סטייה | מעקב על המפה, התראה קולית בסטייה מהמסלול, צליל ועוצמה לבחירה | `src/lib/offRouteAlert.ts`, `src/components/OffRouteSetting.tsx` |
@@ -584,6 +584,19 @@ node scripts/writeCountryGuide.mjs --queue --via codex     # במקביל, דר�
 | יוון | 81 | 503 | 39 | 71 מתוך 639 | 42 | ערוץ סמאריה (9,695 מטיילים, 4.9), קריצה, פירה–אויה בסנטוריני, ריכטיס, ויקוס |
 | מלטה | 29 | 177 | 0 | 14 מתוך 37 | 12 | Valletta Commonwealth Walkway, Mdina, Comino |
 | ספרד | 153 | 968 | 192 | 298 מתוך 638 | 167 | Caminito del Rey (13,587), Cala Bóquer, Talaia d'Alcúdia, Caldera Blanca, מונסראט |
+| איטליה | — | — | — | 320 מתוך 737 | 219 | 105 (27,845 מטיילים), Seeweg |
+| פורטוגל | — | — | — | 180 מתוך 666 | 131 | PR 8 Ponta de São Lourenço (45,746), Levada das 25 Fontes, Levada do Risco |
+| שווייץ | 204 | — | 37 | 298 מתוך 623 | 223 | 5-Seen-Wanderung (6,650), Alpstein, Gratweg Stoos |
+| אוסטריה | 61 | — | 5 | 158 מתוך 371 | 119 | Fuschlseerundweg (10,119), Große Klammgeisrunde |
+| צרפת | 123 | — | 0 | 230 מתוך 351 | 140 | Circuit des 25 bosses (4,639), Sentier Blanc-Martel |
+| סלובניה | 76 | — | 0 | 100 מתוך 316 | 68 | בלד (7,333), ערוץ Vintgar |
+| נורווגיה | 140 | — | 0 | 121 מתוך 610 | 66 | RYF75 (31,862), Trolltunga |
+| בריטניה | 135 | — | 0 | 188 מתוך 686 | 92 | Ben Nevis (13,996), Old Man of Storr |
+| גרמניה | 142 | — | 0 | 431 מתוך 685 | 281 | Eibsee (42,040), DichterMusikerMaler-Weg, Teufelsstieg |
+| אירלנד | 56 | — | 0 | 74 מתוך 347 | 27 | Glendalough (5,269), Howth Cliff Walk |
+| איסלנד | 63 | — | 0 | 45 מתוך 164 | 35 | Þingvellir, Brennisteinsalda |
+| קרואטיה | 119 | — | 55 | 82 מתוך 328 | 51 | Pješačka ruta C (7,061), Velika Paklenica |
+| מונטנגרו | 28 | — | 3 | 35 מתוך 167 | 27 | אגם ביוגרד (1,960) |
 
 כמה חיפושים: כ-2 לכל אזור במדינה (ספרד: 153 דפים מכ-38 חיפושים), בתוך המכסה החינמית.
 קריאת הדפים, ההתאמה ומציאת השבילים שמתחת — חינם. איסוף של ספרד לוקח כ-5 דקות.
