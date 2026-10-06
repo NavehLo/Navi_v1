@@ -184,6 +184,89 @@ export function leadersOf<T extends { crowd?: CrowdSummary; multiDay: boolean }>
   };
 }
 
+// ── The world ranking ────────────────────────────────────────────────────────
+// "לפי דירוג" (in "מסלולים בעולם"): every trail with Komoot's numbers, across all countries,
+// by one score of how popular it is. Komoot only — its hikers, its number of
+// ratings and its rating — so trails of different countries compare on the
+// same footing (Wikipedia's page views say how famous a name is, not how many
+// walk it).
+
+export interface KomootNumbers {
+  hikers: number;          // people who walked it, by Komoot's count
+  ratings: number;         // ratings given on Komoot
+  // Their average, weighted by count; null under MIN_REVIEWS, as everywhere
+  // else (ratingOf) — the card and the list must not disagree.
+  rating: number | null;
+}
+
+// Komoot's numbers for a trail, or null when Komoot does not know it.
+export function komootOf(sources: CrowdSource[]): KomootNumbers | null {
+  let hikers = 0;
+  let ratings = 0;
+  let sum = 0;
+  let rated = 0;
+  let found = false;
+  for (const s of sources) {
+    if (s.site !== 'Komoot') continue;
+    found = true;
+    hikers += s.hikers ?? 0;
+    if (s.count > 0) {
+      ratings += s.count;
+      if (s.rating != null) { sum += s.rating * s.count; rated += s.count; }
+    }
+  }
+  if (!found || (hikers <= 0 && ratings <= 0)) return null;
+  return { hikers, ratings, rating: rated >= MIN_REVIEWS ? Math.round((sum / rated) * 10) / 10 : null };
+}
+
+// The weights of the score, 0–100. Hikers lead: popularity is the point.
+// The number of ratings follows hikers closely (about a fifth of them rate),
+// so it adds little beyond a measure of how much the rating can be trusted.
+// The rating says how much they liked it.
+export const POPULARITY_WEIGHTS = { hikers: 0.55, ratings: 0.2, rating: 0.25 };
+// Fixed ceilings, not the largest seen so far: a trail's score must not move
+// when another country is collected, nor with the filters. Logarithmic, as
+// hikers run from a dozen to tens of thousands: 100 → 1,000 counts as much as
+// 1,000 → 10,000. Above the ceiling counts as the ceiling.
+export const HIKERS_CEILING = 50_000;
+export const RATINGS_CEILING = 5_000;
+// The rating, pulled towards Komoot's usual average by RATING_PRIOR_WEIGHT
+// imagined ratings — a 5.0 from two people is mostly luck. Komoot's ratings
+// sit between 4.3 and 5, so the scale starts at RATING_FLOOR.
+export const RATING_PRIOR = 4.6;
+export const RATING_PRIOR_WEIGHT = 20;
+export const RATING_FLOOR = 4;
+
+const logShare = (v: number, ceiling: number) => Math.min(1, Math.log10(1 + Math.max(0, v)) / Math.log10(1 + ceiling));
+
+export function popularityScore(k: KomootNumbers): number {
+  const n = k.rating != null ? k.ratings : 0;
+  const shrunk = ((k.rating ?? 0) * n + RATING_PRIOR * RATING_PRIOR_WEIGHT) / (n + RATING_PRIOR_WEIGHT);
+  const rating = Math.min(1, Math.max(0, (shrunk - RATING_FLOOR) / (5 - RATING_FLOOR)));
+  const w = POPULARITY_WEIGHTS;
+  return Math.round(100 * (w.hikers * logShare(k.hikers, HIKERS_CEILING) + w.ratings * logShare(k.ratings, RATINGS_CEILING) + w.rating * rating));
+}
+
+export type RankSort = 'score' | 'hikers' | 'ratings' | 'rating';
+export const RANK_SORTS: Array<[RankSort, string]> = [
+  ['score', 'ציון משוקלל'],
+  ['hikers', 'כמות מטיילים'],
+  ['ratings', 'מספר דירוגים'],
+  ['rating', 'ציון'],
+];
+
+// Highest first by what is chosen; the weighted score breaks a tie (the
+// number of ratings first, for the rating — a 5.0 from 3 is not a 5.0 from 300).
+export function byRank<T extends { komoot: KomootNumbers; score: number }>(sort: RankSort): (a: T, b: T) => number {
+  return (a, b) => {
+    let d = 0;
+    if (sort === 'hikers') d = b.komoot.hikers - a.komoot.hikers;
+    else if (sort === 'ratings') d = b.komoot.ratings - a.komoot.ratings;
+    else if (sort === 'rating') d = (b.komoot.rating ?? -1) - (a.komoot.rating ?? -1) || b.komoot.ratings - a.komoot.ratings;
+    return d || b.score - a.score || b.komoot.hikers - a.komoot.hikers;
+  };
+}
+
 // ── Words ────────────────────────────────────────────────────────────────────
 
 export const TRAFFIC_LABELS: Record<Traffic, string> = {

@@ -1,5 +1,5 @@
-// Which continent a country is on, for the continent filter in "בעולם לפי
-// חודש". Central America and the Caribbean go with North America. The Middle
+// Which continent a country is on, for the continent filter in "מסלולים
+// בעולם". Central America and the Caribbean go with North America. The Middle
 // East is a group of its own (not part of Asia): Israel's neighbours, the
 // Gulf, Iran, Egypt and Turkey. A country that straddles two is listed in
 // both, so it is found from either side: Russia and the Caucasus in Europe and

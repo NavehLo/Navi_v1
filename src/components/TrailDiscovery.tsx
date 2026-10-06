@@ -39,7 +39,7 @@ interface TrailDiscoveryProps {
   offlinePacks?: MapPack[];
   onSelectPack?: (pack: MapPack) => void;
   online?: boolean;
-  // A world trail picked from "בעולם לפי חודש": opens its card, as the search
+  // A world trail picked from "מסלולים בעולם": opens its card, as the search
   // box does.
   onPickWorldTrail?: (summary: WmtRouteSummary) => void;
   // Raised by the page to open the panel on the list the reader came from
@@ -95,7 +95,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
   const panelRef = useRef<HTMLDivElement>(null);
   useOutsideTap(panelRef, isExpanded && !showUploader, () => setIsExpanded(false));
 
-  // "אזורי טיול" (from "בעולם לפי חודש"): the region shown on the map. On a
+  // "אזורי טיול" (from "מסלולים בעולם"): the region shown on the map. On a
   // phone the panel folds to its title so the map can be seen, with a line
   // under the title to step between regions or go back to reading.
   const [guideView, setGuideView] = useState<GuideMapView | null>(null);
@@ -388,7 +388,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
       <div className={`flex-col gap-4 md:flex overflow-hidden ${isExpanded ? 'flex flex-1 mt-2 md:mt-0' : 'hidden'}`}>
         {onPickWorldTrail && (
           <div className="flex rounded-xl bg-white/5 border border-white/10 p-0.5 shrink-0" role="tablist">
-            {([['israel', 'מסלולים בארץ'], ['world', 'בעולם לפי חודש']] as const).map(([v, label]) => (
+            {([['israel', 'מסלולים בארץ'], ['world', 'מסלולים בעולם']] as const).map(([v, label]) => (
               <button
                 key={v}
                 role="tab"

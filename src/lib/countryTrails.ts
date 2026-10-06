@@ -11,7 +11,7 @@ import { regionsAlong, regionInfo, type RegionInfo } from './regions';
 import { CROWD_VERSION } from './trailCrowd/score';
 
 // A country's marked trails with the twelve months rated for each — the list
-// behind "מסלולים בעולם לפי חודש". Server only.
+// behind "מסלולים בעולם". Server only.
 //
 // Waymarked Trails cannot list a country: an area query answers 100 routes at
 // most, the most important first (international, national, regional, local).

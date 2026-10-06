@@ -182,7 +182,7 @@ export default function TrailApp() {
   const worldTrails = useWorldTrails(map, styleRev, { onLoadTrail: loadTrailFromCoords, focused: !!trail });
   // A tap on a beach, peak or village named on the map offers its photos on Google.
   usePlacePhotos(map);
-  // A world trail chosen from "בעולם לפי חודש" opens its card, as one picked
+  // A world trail chosen from "מסלולים בעולם" opens its card, as one picked
   // in the search box does — with the layer on, so it can be seen.
   const { enable: enableWorldTrails, select: selectWorldTrail } = worldTrails;
   const pickWorldTrail = useCallback((summary: WmtRouteSummary) => {
@@ -190,7 +190,7 @@ export default function TrailApp() {
     selectWorldTrail(summary.id, summary, { fit: true });
   }, [enableWorldTrails, selectWorldTrail]);
   // ── Going back ────────────────────────────────────────────────────────────
-  // A card opened from "בעולם לפי חודש" leads back to that list, and so does
+  // A card opened from "מסלולים בעולם" leads back to that list, and so does
   // closing a trail loaded from such a card: the panel opens where the reader
   // left it (it remembers the country, area, month and filters). Any closed
   // trail can be brought back with one tap, until another one is opened.

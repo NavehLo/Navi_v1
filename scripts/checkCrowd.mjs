@@ -1,14 +1,14 @@
 // Checks the rules of "מה אומרים מטיילים" (src/lib/trailCrowd/score.ts) on a
 // made-up country: the five traffic tiers and their shares, "no information"
 // never becoming "few", the minimum for comparing at all, and the weighted
-// rating.
+// rating; and the world ranking's popularity score.
 //
 //   node scripts/checkCrowd.mjs
 
 import { register } from 'node:module';
 register('./tsResolve.mjs', import.meta.url);
 
-const { trafficTiers, ratingOf, crowdSummaries, leadersOf, MIN_SIGNALS } = await import('../src/lib/trailCrowd/score.ts');
+const { trafficTiers, ratingOf, crowdSummaries, leadersOf, MIN_SIGNALS, komootOf, popularityScore, byRank } = await import('../src/lib/trailCrowd/score.ts');
 
 let failed = 0;
 function check(name, ok, detail = '') {
@@ -73,6 +73,30 @@ check('long paths only with hikers counted', long.map((t) => t.id).join(',') ===
 
 const s = crowdSummaries(rows).get(1000);
 check('summary of a trail with nothing', s.traffic === 'unknown' && s.rating === null && s.ratingCount === 0);
+
+// The world ranking: Komoot only, one score from hikers, ratings and rating.
+const kmt = (hikers, count, rating) => ({ site: 'Komoot', url: 'https://www.komoot.com', rating, count, hikers });
+const score = (hikers, count, rating) => popularityScore(komootOf([kmt(hikers, count, rating)]));
+check('not on Komoot: not ranked', komootOf([src(4.5, 40)]) === null && komootOf([]) === null);
+check('Komoot without numbers: not ranked', komootOf([kmt(0, 0, null)]) === null);
+check('under 5 ratings: no rating, as on the card', komootOf([kmt(40, 3, 5)]).rating === null && komootOf([kmt(40, 5, 5)]).rating === 5);
+check('more hikers, all else equal, score higher', score(5000, 100, 4.7) > score(500, 100, 4.7));
+check('more ratings, all else equal, score higher', score(1000, 300, 4.7) > score(1000, 30, 4.7));
+check('a better rating, all else equal, scores higher', score(1000, 200, 4.9) > score(1000, 200, 4.5));
+check('5.0 from two does not beat 4.8 from 500', score(500, 500, 4.8) > score(500, 2, 5), `${score(500, 2, 5)} vs ${score(500, 500, 4.8)}`);
+check('a 5.0 from two counts little more than the usual 4.6', score(500, 2, 5) - score(500, 2, 4.6) <= 1, `${score(500, 2, 5)} vs ${score(500, 2, 4.6)}`);
+const extremes = [score(1, 0, null), score(10_000_000, 1_000_000, 5), score(3, 3, 1)];
+check('always 0–100', extremes.every((v) => Number.isInteger(v) && v >= 0 && v <= 100), extremes.join(','));
+check("Spain's leader scores about 87", Math.abs(score(13587, 1038, 4.9) - 87) <= 1, String(score(13587, 1038, 4.9)));
+check('a median trail scores about 49', Math.abs(score(128, 26, 4.7) - 49) <= 1, String(score(128, 26, 4.7)));
+const ranked = [[1, 9000, 50, 4.3], [2, 300, 900, 4.6], [3, 50, 40, 5]].map(([id, h, c, r]) => {
+  const komoot = komootOf([kmt(h, c, r)]);
+  return { id, komoot, score: popularityScore(komoot) };
+});
+const order = (sort) => [...ranked].sort(byRank(sort)).map((t) => t.id).join(',');
+check('by hikers', order('hikers') === '1,2,3', order('hikers'));
+check('by ratings', order('ratings') === '2,1,3', order('ratings'));
+check('by rating', order('rating') === '3,2,1', order('rating'));
 
 console.log(failed ? `\n${failed} FAILED` : '\nall ok');
 process.exit(failed ? 1 : 0);

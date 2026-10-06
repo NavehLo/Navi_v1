@@ -51,7 +51,7 @@ export default function WorldTrailCard({
   // On a stage: its long trail's stages, to step to the one before or after.
   siblings?: WmtStage[] | null;
   onStep: (stage: WmtStage) => void;
-  // Opened from "בעולם לפי חודש": back to that list, as it was left.
+  // Opened from "מסלולים בעולם": back to that list, as it was left.
   onBackToList?: () => void;
 }) {
   const d = selection.details;

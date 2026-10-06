@@ -24,10 +24,14 @@ import CountryGuide from './CountryGuide';
 import { guideCountries, loadGuide } from '../lib/countryGuide/client';
 import type { CountryGuide as Guide } from '../lib/countryGuide/types';
 import type { GuideMapView } from '../hooks/useCountryGuideMap';
+import WorldRanking from './WorldRanking';
 
-// "בעולם לפי חודש": marked trails abroad, chosen by when they are in season.
+// "מסלולים בעולם": marked trails abroad, chosen by when they are in season,
+// or by how popular they are.
 //
-// Two ways in. By month: pick a month, see every country with land in season
+// Three ways in. By rating ("לפי דירוג", WorldRanking): every trail
+// with Komoot's numbers, from all the countries collected, in one list by
+// its popularity score — no country to choose first. By month: pick a month, see every country with land in season
 // then (from the climate grid alone, instant), pick one. By country: pick a
 // country, then a month and a rating. Either way the country's list comes
 // from /api/world-trails/by-country, rated month by month by the same rules as
@@ -37,7 +41,7 @@ import type { GuideMapView } from '../hooks/useCountryGuideMap';
 // little until one knows which part of the country they are in.
 //
 // Where the admin has collected "מה אומרים מטיילים" for a country (so far
-// Greece, as a pilot), each trail also shows how busy it is compared with the
+// Spain, Greece and Malta), each trail also shows how busy it is compared with the
 // country's other trails and how hikers rated it; the list opens busiest
 // first and can be filtered by both; "המסלולים המובילים" heads it (of the
 // country, or of the area chosen); and in the country picker such a country
@@ -49,7 +53,7 @@ import type { GuideMapView } from '../hooks/useCountryGuideMap';
 // Read outdoors on a phone — white text, nothing under text-xs (CLAUDE.md).
 
 type Status = 'loading' | 'ok' | 'unavailable' | 'rate-limited';
-type Mode = 'month' | 'country';
+type Mode = 'month' | 'country' | 'ranking';
 
 interface Climate {
   countries: string[];
@@ -765,25 +769,31 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
     );
   }
 
-  // ── Choosing a country ──────────────────────────────────────────────────
-  return (
-    <div className="flex flex-col gap-3 flex-1 min-h-0">
+  // ── The three ways in ───────────────────────────────────────────────────
+  const header = (
       <div className="flex items-center gap-2 shrink-0">
-        <div className="flex rounded-xl bg-white/5 border border-white/10 p-0.5 flex-1" role="tablist">
-          {([['month', 'לפי חודש'], ['country', 'לפי מדינה']] as const).map(([m, label]) => (
+        <div className="flex rounded-xl bg-white/5 border border-white/10 p-0.5 flex-1 min-w-0" role="tablist">
+          {([['month', 'לפי חודש'], ['country', 'לפי מדינה'], ['ranking', 'לפי דירוג']] as const).map(([m, label]) => (
             <button
               key={m}
               role="tab"
               aria-selected={mode === m}
               onClick={() => setMode(m)}
-              className={`flex-1 rounded-lg py-1.5 text-sm font-bold transition-colors ${mode === m ? 'bg-white/20 text-white' : 'text-white hover:bg-white/10'}`}
+              className={`flex-1 min-w-0 rounded-lg px-1 py-1.5 text-sm font-bold leading-tight transition-colors ${mode === m ? 'bg-white/20 text-white' : 'text-white hover:bg-white/10'}`}
             >
               {label}
             </button>
           ))}
         </div>
-        <InfoButton label="מסלולים בעולם לפי חודש">
+        <InfoButton label="מסלולים בעולם">
           <p>
+            <b>לפי דירוג:</b> כל המסלולים שיש עליהם נתונים מ-Komoot, מכל המדינות שנאספו, ברשימה אחת — מהפופולרי
+            ביותר. הציון המשוקלל (0–100) בנוי מכמות המטיילים (55%), מספר הדירוגים (20%) והציון שלהם (25%). המטיילים
+            והדירוגים נספרים בסקאלה לוגריתמית — המעבר מ-100 ל-1,000 מטיילים שווה כמו מ-1,000 ל-10,000 — וציון שמבוסס על
+            מעט דירוגים נמשך לכיוון הממוצע, כך ש-5.0 משני מדרגים לא עוקף 4.8 ממאות. אפשר לסנן לפי יבשת, מדינה וחודש (רק
+            מסלולים בעונה מומלצת בו), ולסדר לפי הציון המשוקלל או לפי כל אחד משלושת הנתונים.
+          </p>
+          <p className="mt-2">
             <b>לפי חודש:</b> בוחרים חודש ורואים את המדינות שיש בהן אזורים ב&quot;עונה מומלצת&quot; — לפי האקלים בלבד,
             ליום הליכה של כ-4 שעות. האחוז הוא כמה משטח המדינה מתאים. כמה מסלולים יש שם בפועל ידוע רק אחרי שהמדינה נפתחה
             פעם ראשונה, ואז המספר מופיע ליד שמה.
@@ -798,7 +808,7 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
             וארציים. כל מסלול מדורג לפי האקלים לאורכו, הגובה שלו והאורך, כמו בכרטיס המסלול.
           </p>
           <p className="mt-2">
-            <b>מה אומרים מטיילים</b> (כרגע ביוון): ליד כל מסלול כמה מטיילים יש בו ביחס לשאר המסלולים במדינה, וציון
+            <b>מה אומרים מטיילים</b> (כרגע בספרד, ביוון ובמלטה): ליד כל מסלול כמה מטיילים יש בו ביחס לשאר המסלולים במדינה, וציון
             המטיילים — לפי המסלולים המובילים של כל אזור ב-Komoot ולפי ויקיפדיה. אפשר לסנן ולמיין לפי שניהם. מסלול שלא
             מופיע שם מסומן &quot;אין מספיק מידע&quot; — זה לא אומר שיש בו מעט מטיילים.
           </p>
@@ -810,6 +820,21 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
           </p>
         </InfoButton>
       </div>
+  );
+
+  if (mode === 'ranking') {
+    return (
+      <div className="flex flex-col gap-3 flex-1 min-h-0">
+        {header}
+        <WorldRanking onPickTrail={onPickTrail} />
+      </div>
+    );
+  }
+
+  // ── Choosing a country ──────────────────────────────────────────────────
+  return (
+    <div className="flex flex-col gap-3 flex-1 min-h-0">
+      {header}
 
       {mode === 'month' && monthChips}
       {continentChips}

@@ -107,6 +107,11 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   (`addTrails`) and live on through `trail_crowd`: `build()` re-adds every
   trail with numbers there. Never delete a country's `trail_crowd` rows to
   "clean up" — its list would lose its most walked local paths.
+  The world ranking ("מסלולים בעולם" → "לפי דירוג") scores trails only with
+  `popularityScore` (`score.ts`), from Komoot's numbers only (`komootOf`),
+  against fixed ceilings — never the largest value seen, or a trail's score
+  would move when a country is collected or a filter changes. Run
+  `checkCrowd.mjs` after changing a weight or a ceiling.
 - **"הרים, יער ונהרות" is derived in one place.** The words, levels and filters
   for mountains, forest and rivers come only from `src/lib/landscape.ts`; the
   build (`scripts/buildLandscape.mjs`) stores only numbers (a relief histogram,

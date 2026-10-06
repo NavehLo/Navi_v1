@@ -7,7 +7,7 @@ import type { WmtRouteSummary } from '../lib/waymarked';
 
 // "אזורי טיול": a country's main hiking regions, each followed by its
 // best-known trails, with the pages every paragraph came from. Opened from a
-// country in "בעולם לפי חודש", in a view of its own — it is a long read. Each
+// country in "מסלולים בעולם", in a view of its own — it is a long read. Each
 // region can be shown on the map, and so can all of them at once.
 
 // Where the reader was, for coming back from the map or from a trail.
