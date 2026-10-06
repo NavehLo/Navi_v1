@@ -21,6 +21,7 @@ const FEATURE_LABELS: Record<string, string> = {
   "trail_crowd:search": "מדדי מטיילים — חיפוש באתרי ביקורות",
   "trail_crowd:text": "מדדי מטיילים — קריאת הציונים מהעמודים",
   "country_guide:text": "אזורי טיול — סקירת מדינה עם חיפוש ברשת",
+  "help_chat:text": "שאלו את Navi — צ׳אט העזרה",
 };
 
 const PROVIDER_LABELS: Record<string, string> = {

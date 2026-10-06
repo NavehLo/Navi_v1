@@ -62,6 +62,8 @@ import {
 } from "@/lib/personalArea";
 import type { TrailData, TrailPOI, DrivePlace, TrailSource, WmtParent } from "@/hooks/useTrailData";
 import { ElevenLabsCreditsAlert } from "@/components/ElevenLabsCredits";
+import HelpChat from "@/components/HelpChat";
+import type { HelpActionId } from "@/lib/helpChat/actions";
 
 // Which of the two worlds the home screen is in: hiking trails, or a drive
 // between two places. Not remembered: the app always opens on the trails, and
@@ -337,6 +339,8 @@ export default function TrailApp() {
   // "Map only" mode: everything except the trail, the traveller and the one
   // button that brings the chrome back is taken off the screen.
   const [uiHidden, setUiHidden] = useState(false);
+  // "שאלו את Navi", the help chat in the bottom corner.
+  const [helpChatOpen, setHelpChatOpen] = useState(false);
   const [showGuidePoints, setShowGuidePoints] = useState(false);
   // The bottom of a phone screen, measured: the tour transport with the guide
   // above it, and the tour progress bar above that. The trail card stacks on
@@ -635,10 +639,15 @@ export default function TrailApp() {
   useEffect(() => {
     if (hasCard) window.history.pushState({ navi: 'card' }, "");
   }, [hasCard]);
+  useEffect(() => {
+    if (helpChatOpen) window.history.pushState({ navi: 'help-chat' }, "");
+  }, [helpChatOpen]);
   const backRef = useRef<() => void>(() => {});
   useEffect(() => {
     backRef.current = () => {
-      if (trail) closeTrail();
+      // The chat is on top of everything else: back closes it first.
+      if (helpChatOpen) setHelpChatOpen(false);
+      else if (trail) closeTrail();
       else if (worldTrails.selection) {
         if (cardFromList) setDiscoveryOpen((n) => n + 1);
         setCardFromList(false);
@@ -1386,6 +1395,32 @@ export default function TrailApp() {
     worldTrails.clearSelection();
   };
 
+  // A button under a help-chat answer (lib/helpChat/actions.ts): the same
+  // thing the button it talks about does. The chat has closed itself first,
+  // so a tour or a panel opened here is not put away by it.
+  const helpChatHidden = uiHidden || isTourActive || isMeasuring || recStatus === 'review'
+    || !!(helpTour && helpFits && !helpQuiet);
+  const runHelpAction = (id: HelpActionId) => {
+    switch (id) {
+      case 'openDiscovery': setDiscoveryOpen((n) => n + 1); break;
+      case 'openWorldTrails': worldTrails.enable(); break;
+      case 'openDrive': switchAppMode('drive'); break;
+      case 'planRoute': if (!isMeasuring) handleToggleMeasure(); break;
+      case 'locate': handleLocateUser(); break;
+      case 'record': handleRecord(); break;
+      case 'openGuidePoints': setShowGuidePoints(true); break;
+      case 'startVirtualTour':
+        if (isTourActive) break;
+        unlockAudio();
+        if (progress === 0 || progress >= 1) resetGeofence();
+        startTour();
+        break;
+      case 'openSettings': setShowSettings(true); break;
+      case 'openRecordings': setPersonalTab('recordings'); setShowPersonalArea(true); break;
+      case 'showTour': setHelpTour(trail ? 'trail' : appMode === 'drive' ? 'drive' : 'welcome'); break;
+    }
+  };
+
   // Text in the panels and cards can be selected and copied — a village's
   // name to look up, a place from "על המסלול". The map and the button rails
   // are not (Map.tsx, Controls.tsx): there a long press is a gesture.
@@ -1580,6 +1615,26 @@ export default function TrailApp() {
         showWorldTrails={worldTrails.enabled}
         onToggleWorldTrails={worldTrails.toggle}
       />}
+
+      {/* "שאלו את Navi". Hidden rather than unmounted with "הסתר הכל", like
+          the other panels; out of the way of a running tour, a measurement,
+          a recording's summary and the first-visit help. */}
+      <div className={helpChatHidden ? 'hidden' : 'contents'}>
+        <HelpChat
+          screen={{
+            hasTrail: !!trail,
+            driveTrail: isDrive,
+            mode: appMode,
+            recording: recActive,
+            nativeApp: isNativeApp(),
+            inIsrael: trailInIsrael === true,
+          }}
+          online={online}
+          open={helpChatOpen && !helpChatHidden}
+          onOpenChange={setHelpChatOpen}
+          onAction={runHelpAction}
+        />
+      </div>
 
       {/* A tapped route in the world trails overlay */}
       {worldTrails.selection && !uiHidden && (

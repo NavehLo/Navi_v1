@@ -438,5 +438,26 @@ create policy "own rows" on public.recordings
 grant select, insert, update, delete on public.recordings to authenticated;
 grant select on public.recordings to service_role;
 
+-- ── שאלו את Navi ───────────────────────────────────────────────────────────
+-- כל שאלה שנשאלה בצ׳אט העזרה (src/app/api/help-chat), עם התשובה והכפתורים
+-- שהוצעו — בלי מי ששאל. המנהל רואה את הרשימה בהגדרות ← מתקדם, כדי לדעת מה
+-- משתמשים מחפשים ולא מוצאים. screen: מה היה על המסך (מסלול פתוח, נסיעה וכו').
+create table if not exists public.help_chat_log (
+  id bigint generated always as identity primary key,
+  created_at timestamptz not null default now(),
+  question text not null,
+  answer text,
+  actions text[] not null default '{}',
+  screen jsonb,
+  status text not null
+);
+
+create index if not exists help_chat_log_created_at_idx on public.help_chat_log (created_at desc);
+
+alter table public.help_chat_log enable row level security;
+-- אין policy: רק השרת עם service_role קורא וכותב (ראו ai_usage).
+grant select, insert, delete on public.help_chat_log to service_role;
+grant usage, select on sequence public.help_chat_log_id_seq to service_role;
+
 -- PostgREST מכיר פונקציה חדשה רק אחרי רענון של מטמון הסכמה.
 notify pgrst, 'reload schema';

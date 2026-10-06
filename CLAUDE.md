@@ -181,3 +181,10 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   says so; anything new that relies on Israeli data (the canopy grid, the
   perennial-streams list) is gated the same way. "Water" in that section is
   always "מים לרחצה" — never let it read as drinking water.
+- **"שאלו את Navi" knows only the help text.** The help chat
+  (`api/help-chat`) answers from `src/components/help/features.ts` and
+  `tours.tsx` only: every new user-facing feature adds or updates its entry in
+  `features.ts` (it is also the settings help). Its buttons come only from the
+  whitelist in `src/lib/helpChat/actions.ts`, each wired in `runHelpAction`
+  (`page.tsx`). Free key only (`GEMINI_FREE_API_KEY`), like the weather
+  explanation; questions are logged to `help_chat_log` without who asked.
