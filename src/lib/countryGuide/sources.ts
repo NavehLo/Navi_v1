@@ -53,10 +53,14 @@ export interface SourceReport {
 
 const NIQQUD = /[֑-ׇֽֿׁׂׅׄ]/g;
 
+// Reference numbers written into the text ("[3]", "[1, 2]", "[4–6]"): the
+// sources are shown as links of their own.
+export function stripRefs(text: string): string {
+  return text.replace(/\s*\[\s*\d+(?:\s*[,–-]\s*\d+)*\s*\]/g, '').replace(/[ \t]{2,}/g, ' ').trim();
+}
+
 function clean(v: unknown): string {
-  return typeof v === 'string'
-    ? v.replace(NIQQUD, '').replace(/\*\*/g, '').replace(/\[(\d+)\]/g, '').replace(/[ \t]{2,}/g, ' ').trim()
-    : '';
+  return typeof v === 'string' ? stripRefs(v.replace(NIQQUD, '').replace(/\*\*/g, '')) : '';
 }
 
 function strings(v: unknown): string[] {

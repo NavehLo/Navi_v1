@@ -14,6 +14,9 @@
 // next country nobody has taken. A run stops at the first failure that looks
 // like the plan's limit; run it again later and it carries on from there.
 //
+// After a change to how regions are drawn (place.ts) or the text is cleaned,
+// without asking a model again:  node scripts/writeCountryGuide.mjs --reshape
+//
 // Or through the paid APIs (--via api --model claude-opus-5-5 | gpt-5.6-sol…),
 // about $0.5–1 a country, logged in ai_usage under "אזורי טיול".
 //
@@ -40,8 +43,9 @@ const model = flag('--model') ?? MODELS[via];
 const effort = flag('--effort') ?? 'medium';
 const tryOnly = args.includes('--try');
 const queue = args.includes('--queue');
+const reshape = args.includes('--reshape');
 const named = args.filter((a) => !a.startsWith('--')).map((a) => a.toUpperCase());
-if (!MODELS[via] || (!queue && !named.length) || named.some((c) => !/^[A-Z]{2}$/.test(c))) {
+if (!MODELS[via] || (!queue && !reshape && !named.length) || named.some((c) => !/^[A-Z]{2}$/.test(c))) {
   console.error('usage: node scripts/writeCountryGuide.mjs <CC>… | --queue  [--via claude-code|codex|api] [--model <id>] [--effort low|medium|high] [--try]');
   process.exit(1);
 }
@@ -51,6 +55,27 @@ const { buildCountryGuide } = await import('../src/lib/countryGuide/build.ts');
 const { GUIDE_VERSION } = await import('../src/lib/countryGuide/types.ts');
 
 const APP_DIR = 'public/country-guides';
+
+if (reshape) {
+  const { chooseShape } = await import('../src/lib/countryGuide/place.ts');
+  const { stripRefs } = await import('../src/lib/countryGuide/sources.ts');
+  const { countries } = JSON.parse(readFileSync(`${APP_DIR}/index.json`, 'utf8'));
+  for (const c of named.length ? named : countries) {
+    const file = `${APP_DIR}/${c}.json`;
+    const guide = JSON.parse(readFileSync(file, 'utf8'));
+    guide.intro = stripRefs(guide.intro);
+    guide.closing = stripRefs(guide.closing);
+    for (const r of guide.regions) {
+      r.body = stripRefs(r.body);
+      for (const t of r.trails) t.body = stripRefs(t.body);
+      const before = r.shape?.kind ?? 'none';
+      r.shape = chooseShape(r.shape?.kind === 'units' ? r.shape : null, r.places);
+      if ((r.shape?.kind ?? 'none') !== before) console.log(`${c} ${r.name}: ${before} → ${r.shape?.kind ?? 'none'}`);
+    }
+    writeFileSync(file, JSON.stringify(guide));
+  }
+  process.exit(0);
+}
 const TRY_DIR = 'docs/country-guides';
 // Which run is writing which country, so two runs never take the same one.
 const CLAIMS = `${TRY_DIR}/.claims`;

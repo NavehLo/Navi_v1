@@ -7,7 +7,7 @@
 
 import { spawn } from 'node:child_process';
 import { mkdtempSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 export type Via = 'claude-code' | 'codex';
@@ -27,7 +27,14 @@ export interface SubscriptionResult {
   seconds: number;
 }
 
-const CODEX_APP = '/Applications/Codex.app/Contents/Resources/codex';
+// The Codex app's own CLI lags behind (0.136 could not run gpt-5.6-terra), so
+// a current one installed for this user comes first:
+//   npm install --prefix ~/.local/share/codex-cli @openai/codex@latest
+const CODEX_BINS = [
+  process.env.CODEX_BIN,
+  join(homedir(), '.local/share/codex-cli/node_modules/.bin/codex'),
+  '/Applications/Codex.app/Contents/Resources/codex',
+];
 
 function run(cmd: string, args: string[], input: string, cwd: string, timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -110,7 +117,7 @@ export async function writeWithClaudeCode(system: string, user: string, model: s
 
 export async function writeWithCodex(system: string, user: string, model: string, effort: string): Promise<SubscriptionResult> {
   const started = Date.now();
-  const cmd = existsSync(CODEX_APP) ? CODEX_APP : 'codex';
+  const cmd = CODEX_BINS.find((b) => b && existsSync(b)) ?? 'codex';
   const out = await run(cmd, [
     '--search',
     'exec', '--json',

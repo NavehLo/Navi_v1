@@ -119,6 +119,24 @@ function hullShape(points: GuidePlace[]): GuideShape {
   };
 }
 
+function bboxArea([w, s, e, n]: [number, number, number, number]): number {
+  return Math.max(0, e - w) * Math.max(0, n - s) * Math.cos((((s + n) / 2) * Math.PI) / 180);
+}
+
+// Below this share of the provinces' box, the places say the region is a
+// corner of them: "Andros" is one island of the South Aegean, "the White
+// Mountains" one end of Crete. Models pick provinces more readily than they
+// should (Codex did for every region of Greece), so the places decide.
+const UNITS_MIN_SHARE = 0.35;
+
+// The provinces' own outlines, unless the region's places fill only a corner
+// of them; then (or with no provinces) an outline around the places.
+export function chooseShape(units: GuideShape | null, places: GuidePlace[]): GuideShape | null {
+  const hull = places.length >= 2 ? hullShape(places) : null;
+  if (units && hull && places.length >= 3 && bboxArea(hull.bbox) / bboxArea(units.bbox) < UNITS_MIN_SHARE) return hull;
+  return units ?? hull;
+}
+
 export interface PlacedRegion {
   shape: GuideShape | null;
   places: GuidePlace[];
@@ -143,16 +161,11 @@ export async function placeRegion(country: string, r: DraftRegion): Promise<Plac
     trailStarts.push(g ? [g.lon, g.lat] : null);
   }
 
-  let shape: GuideShape | null = null;
-  const units = r.provinces.length ? unitOutlines(country, r.provinces) : null;
-  if (units) {
-    shape = {
-      kind: 'units',
-      polygons: units.rings.map((ring) => [ring.map(([lon, lat]) => [round(lon), round(lat)])]),
-      bbox: units.bbox.map(round) as [number, number, number, number],
-    };
-  } else if (places.length >= 2) {
-    shape = hullShape(places);
-  }
-  return { shape, places, trailStarts, missing, strays };
+  const outlines = r.provinces.length ? unitOutlines(country, r.provinces) : null;
+  const units: GuideShape | null = outlines && {
+    kind: 'units',
+    polygons: outlines.rings.map((ring) => [ring.map(([lon, lat]) => [round(lon), round(lat)])]),
+    bbox: outlines.bbox.map(round) as [number, number, number, number],
+  };
+  return { shape: chooseShape(units, places), places, trailStarts, missing, strays };
 }
