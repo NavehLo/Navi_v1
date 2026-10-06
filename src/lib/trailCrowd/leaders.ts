@@ -19,18 +19,28 @@ export interface CountryLeaders {
 const MEMORY_MS = 10 * 60_000;
 let memo: { at: number; leaders: Record<string, CountryLeaders> } | null = null;
 
-// The countries with at least one trail that has numbers.
+// The countries with at least one trail that has numbers. Read a page at a
+// time: the API answers at most 1,000 rows, and with more rows than that the
+// later countries went missing (Switzerland, Britain, Ireland, Iceland).
 async function collectedCountries(): Promise<string[]> {
   const db = serviceClient();
   if (!db) return [];
   try {
-    const { data, error } = await db
-      .from('trail_crowd')
-      .select('country')
-      .eq('crowd_version', CROWD_VERSION)
-      .or('rating_count.gt.0,pageviews.gt.0');
-    if (error) throw error;
-    return [...new Set((data ?? []).map((r) => r.country as string))];
+    const out = new Set<string>();
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await db
+        .from('trail_crowd')
+        .select('country')
+        .eq('crowd_version', CROWD_VERSION)
+        .or('rating_count.gt.0,pageviews.gt.0')
+        .order('country')
+        .order('trail_id')
+        .range(from, from + 999);
+      if (error) throw error;
+      for (const r of data ?? []) out.add(r.country as string);
+      if ((data?.length ?? 0) < 1000) break;
+    }
+    return [...out];
   } catch (e) {
     console.error('Leading trails: countries could not be read:', e);
     return [];

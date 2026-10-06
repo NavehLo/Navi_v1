@@ -8,7 +8,7 @@
 import { register } from 'node:module';
 register('./tsResolve.mjs', import.meta.url);
 
-const { trafficTiers, ratingOf, crowdSummaries, leadersOf, MIN_SIGNALS, komootOf, popularityScore, byRank } = await import('../src/lib/trailCrowd/score.ts');
+const { trafficTiers, ratingOf, crowdSummaries, leadersOf, MIN_SIGNALS, komootOf, popularityScore, byRank, trailTitle } = await import('../src/lib/trailCrowd/score.ts');
 
 let failed = 0;
 function check(name, ok, detail = '') {
@@ -97,6 +97,14 @@ const order = (sort) => [...ranked].sort(byRank(sort)).map((t) => t.id).join(','
 check('by hikers', order('hikers') === '1,2,3', order('hikers'));
 check('by ratings', order('ratings') === '2,1,3', order('ratings'));
 check('by rating', order('rating') === '3,2,1', order('rating'));
+
+// A waymark is not a name: Komoot's name for the walk is shown instead.
+const t105 = trailTitle('105', 'Tre Cime di Lavaredo Loop');
+check('a waymark gives way to the Komoot name', t105.title === 'Tre Cime di Lavaredo Loop' && t105.waymark === '105', JSON.stringify(t105));
+for (const w of ['GG-2', 'RYF75', 'PR-LP 13', 'Tk9', 'GR 20', '1A']) check(`${w} is a waymark`, trailTitle(w, 'x').waymark === w);
+for (const n of ['Harzklub-Weg 10F', 'Seeweg', 'נחל עמוד', 'VIA ALPINA', 'Σ2 Βίκος']) check(`${n} is a name`, trailTitle(n, 'x').waymark === null);
+check('a real name stays', trailTitle('PR 8 - Vereda da Ponta', 'x').title === 'PR 8 - Vereda da Ponta' && trailTitle('Σ2 Βίκος', 'x').waymark === null);
+check('no Komoot name: the waymark stays', trailTitle('105', null).title === '105');
 
 console.log(failed ? `\n${failed} FAILED` : '\nall ok');
 process.exit(failed ? 1 : 0);

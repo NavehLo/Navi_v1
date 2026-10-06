@@ -31,13 +31,21 @@ export async function crowdRows(country: string, { fresh = false } = {}): Promis
   const db = serviceClient();
   if (!db || tableMissing) return [];
   try {
-    const { data, error } = await db
-      .from('trail_crowd')
-      .select('trail_id, pageviews, sources, fetched_at')
-      .eq('country', country)
-      .eq('crowd_version', CROWD_VERSION);
-    if (error) throw error;
-    const rows: CrowdData[] = (data ?? []).map((r) => ({
+    // A page at a time: the API answers at most 1,000 rows.
+    const data: Array<{ trail_id: number; pageviews: number; sources: unknown; fetched_at: string }> = [];
+    for (let from = 0; ; from += 1000) {
+      const { data: page, error } = await db
+        .from('trail_crowd')
+        .select('trail_id, pageviews, sources, fetched_at')
+        .eq('country', country)
+        .eq('crowd_version', CROWD_VERSION)
+        .order('trail_id')
+        .range(from, from + 999);
+      if (error) throw error;
+      data.push(...(page ?? []));
+      if ((page?.length ?? 0) < 1000) break;
+    }
+    const rows: CrowdData[] = data.map((r) => ({
       id: Number(r.trail_id),
       pageviews: Number(r.pageviews) || 0,
       sources: Array.isArray(r.sources) ? r.sources : [],

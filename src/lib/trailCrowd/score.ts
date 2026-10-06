@@ -53,6 +53,9 @@ export interface CrowdSummary {
   ratingCount: number;
   // Komoot's difficulty grade, as a level (lib/difficulty.ts); null when unknown.
   difficulty: Difficulty | null;
+  // The name of the Komoot route its numbers came from (the most walked one),
+  // shown where our name is only a waymark number (trailTitle).
+  komootName: string | null;
 }
 
 // Below this many scored reviews an average says little.
@@ -164,9 +167,38 @@ export function crowdSummaries(rows: CrowdData[]): Map<number, CrowdSummary> {
       traffic, score: traffic === 'unknown' ? null : scores.get(r.id) ?? null,
       hikers: hikers > 0 ? hikers : null, rating, ratingCount: count,
       difficulty: komootDifficulty(r.sources),
+      komootName: komootNameOf(r.sources),
     });
   }
   return out;
+}
+
+// ── Names ────────────────────────────────────────────────────────────────────
+// Many marked paths are named in OpenStreetMap only by their waymark: "105",
+// "GG-2", "RYF75" — Italy's most walked trail, around the Tre Cime, is "105".
+// Komoot calls the same walk by what it goes to; where our name has no word
+// in it, that is the title, and the waymark is said under it.
+
+export function komootNameOf(sources: CrowdSource[]): string | null {
+  let best: CrowdSource | null = null;
+  for (const s of sources) {
+    if (s.site === 'Komoot' && s.route && (!best || (s.hikers ?? 0) > (best.hikers ?? 0))) best = s;
+  }
+  return best?.route ?? null;
+}
+
+// A name with no word in it is a waymark: "105", "GG-2", "RYF75", "PR-LP 13".
+// A word is three letters or more with no digit, and not a capitals code of
+// up to four (PR, GR, SL) — capitals only where the script has small letters,
+// so a short Hebrew word still counts.
+export function isWaymarkOnly(name: string): boolean {
+  return !name.split(/[\s\-–—_/.,·:()]+/).some((w) =>
+    /^\p{L}{3,}$/u.test(w) && !(w.length <= 4 && w === w.toUpperCase() && w !== w.toLowerCase()));
+}
+
+// What a list row is titled, and the waymark to show under it (or null).
+export function trailTitle(name: string, komootName: string | null | undefined): { title: string; waymark: string | null } {
+  return komootName && isWaymarkOnly(name) ? { title: komootName, waymark: name } : { title: name, waymark: null };
 }
 
 // ── The leading trails ───────────────────────────────────────────────────────
