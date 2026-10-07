@@ -3,7 +3,7 @@ import { useOutsideTap } from '../hooks/useOutsideTap';
 import { X, ExternalLink, BookOpen, BookOpenText, Download, Loader2, TrendingUp, TrendingDown, ChevronDown, ChevronUp, List } from 'lucide-react';
 import type { WorldTrailSelection } from '../hooks/useWorldTrails';
 import { groupLabel, wikipediaUrl } from '../lib/waymarked';
-import { englishFromTags, needsEnglish, usefulEnglish } from '../lib/trailNames';
+import { englishFromTags, latinName, needsEnglish } from '../lib/trailNames';
 import { knownEnglish, translateWorldTrails } from '../lib/worldTrailSearch';
 import type { WmtStage } from '../lib/waymarked';
 import TrailStagesSection, { ParentTrailButton, StageNav } from './TrailStagesSection';
@@ -13,7 +13,8 @@ import { DifficultyLine } from './DifficultyFilter';
 import TrailLandscapeSection from './TrailLandscapeSection';
 
 // The trail's English name, when its own is in a script the reader may not
-// read: OSM's, if a mapper wrote one, else a translation from the server.
+// read: OSM's, if a mapper wrote one, else a translation from the server;
+// until that answers (or when it cannot), the name spelled in Latin letters.
 function useEnglishName(id: number, name: string | undefined, tags: Record<string, string> | undefined) {
   const fromTags = englishFromTags(tags);
   const foreign = needsEnglish(name);
@@ -28,7 +29,7 @@ function useEnglishName(id: number, name: string | undefined, tags: Record<strin
   }, [id, ask]);
   if (!foreign) return null;
   const en = fromTags ?? (translated?.id === id ? translated.en : null) ?? knownEnglish(id) ?? null;
-  return usefulEnglish(name, en);
+  return latinName(name, en);
 }
 
 // The card that opens when a route in the world trails overlay is tapped.

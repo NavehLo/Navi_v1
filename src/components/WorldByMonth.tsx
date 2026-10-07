@@ -5,6 +5,7 @@ import Collapsible from './Collapsible';
 import { RATING_DOT, RATING_TEXT } from './BestMonthsSection';
 import { CLIMATE_VERSION, MONTH_NAMES, MONTH_SHORT, RATING_LABELS, type MonthRating } from '../lib/climate';
 import { countryName } from '../lib/worldTrailSearch';
+import { latinName } from '../lib/trailNames';
 import { groupLabel, type WmtRouteSummary } from '../lib/waymarked';
 import { readTripDate } from '../lib/weatherCache';
 import type { CountryMonth } from '../lib/climateCountries';
@@ -416,7 +417,7 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
     return l ? (
       <span className="text-xs font-semibold text-sky-200 flex items-center gap-1 min-w-0">
         <Trophy className="w-3.5 h-3.5 shrink-0 text-amber-300" />
-        <NameList names={l.day.slice(0, 3).map((t) => t.name_en ?? trailTitle(t.name, t.crowd.komootName).title)} />
+        <NameList names={l.day.slice(0, 3).map((t) => latinName(t.name, t.name_en, code) ?? trailTitle(t.name, t.crowd.komootName).title)} />
       </span>
     ) : null;
   };
@@ -671,6 +672,7 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
               panel, and above the list they would leave the list no room. */}
           {leaders && (
             <LeadersSection
+              country={country}
               area={region && region !== 'all' ? regionNames.get(region)?.name ?? null : null}
               leaders={leaders}
               month={month}
@@ -758,7 +760,7 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
                 <span className={`w-2 h-2 rounded-full shrink-0 ${RATING_DOT[t.months[month]]}`} />
                 <span className="min-w-0">{trailTitle(t.name, t.crowd?.komootName).title}</span>
               </span>
-              {t.name_en && t.name_en !== t.name && <span className="text-xs text-white" dir="ltr">{t.name_en}</span>}
+              <LatinLine t={t} country={country} />
               {trailTitle(t.name, t.crowd?.komootName).waymark && <span className="text-xs font-semibold text-amber-200">סימון בשטח: <bdi>{t.name}</bdi></span>}
               <span className="text-xs text-white">
                 {t.multiDay ? 'רב-יומי' : groupLabel(t.group)} · {t.km >= 10 ? Math.round(t.km) : t.km} ק״מ
@@ -967,9 +969,10 @@ function CrowdLine({ crowd }: { crowd?: CrowdSummary }) {
 
 // "המסלולים המובילים": the busiest day walks and long-distance paths of the
 // country or area, ranked, each with its numbers and this month's dot.
-function LeadersSection({ area, leaders, month, regionLabel, onPick }: {
+function LeadersSection({ area, country, leaders, month, regionLabel, onPick }: {
   // The area chosen, or null for the whole country (named in the header).
   area: string | null;
+  country: string | null;
   leaders: { day: ListTrail[]; long: ListTrail[] };
   month: number;
   // Across the whole country, where each one is.
@@ -988,7 +991,7 @@ function LeadersSection({ area, leaders, month, regionLabel, onPick }: {
           <span className="min-w-0">{trailTitle(t.name, t.crowd?.komootName).title}</span>
           <span className={`w-2 h-2 rounded-full shrink-0 ${RATING_DOT[t.months[month]]}`} title={RATING_LABELS[t.months[month]]} />
         </span>
-        {t.name_en && t.name_en !== t.name && <span className="text-xs text-white" dir="ltr">{t.name_en}</span>}
+        <LatinLine t={t} country={country} />
         {trailTitle(t.name, t.crowd?.komootName).waymark && <span className="text-xs font-semibold text-amber-200">סימון בשטח: <bdi>{t.name}</bdi></span>}
         <span className="text-xs text-white">
           {t.km >= 10 ? Math.round(t.km) : t.km} ק״מ
@@ -1004,7 +1007,7 @@ function LeadersSection({ area, leaders, month, regionLabel, onPick }: {
       className="shrink-0"
       icon={<Trophy className="w-4 h-4 text-amber-300" />}
       title={<span className="whitespace-nowrap">{area ? `המובילים ב${area}` : 'המסלולים המובילים'}</span>}
-      summary={<span className="max-w-[8rem] text-sky-200 flex min-w-0"><NameList names={[top[0].name_en ?? trailTitle(top[0].name, top[0].crowd?.komootName).title]} /></span>}
+      summary={<span className="max-w-[8rem] text-sky-200 flex min-w-0"><NameList names={[latinName(top[0].name, top[0].name_en, country) ?? trailTitle(top[0].name, top[0].crowd?.komootName).title]} /></span>}
     >
       <div className="flex flex-col gap-1">
         <span className="text-xs text-white">לפי מספר המטיילים, בלי קשר לעונה. הנקודה ליד השם: ירוק — מומלץ בחודש שנבחר, צהוב — בהיערכות, אדום — לא מומלץ.</span>
@@ -1028,6 +1031,12 @@ function LeadersSection({ area, leaders, month, regionLabel, onPick }: {
 // Names in any script, in reading order from the right, cut at the last one
 // when the line runs out — each isolated, or an English run of them would be
 // laid out left to right and lose its first name instead.
+// The name in Latin letters, under a name in another script (trailNames.ts).
+function LatinLine({ t, country }: { t: { name: string; name_en: string | null }; country: string | null }) {
+  const latin = latinName(t.name, t.name_en, country);
+  return latin ? <span className="text-xs text-white" dir="ltr">{latin}</span> : null;
+}
+
 function NameList({ names }: { names: string[] }) {
   return (
     <span className="truncate min-w-0">

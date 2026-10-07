@@ -8,6 +8,7 @@ import { groupLabel, type WmtRouteSummary } from '../lib/waymarked';
 import { CONTINENTS, inContinent, type Continent } from '../lib/continents';
 import { NO_CROWD_INFO, RANK_SORTS, byRank, trailTitle, type RankSort } from '../lib/trailCrowd/score';
 import type { RankedTrail, Ranking } from '../lib/trailCrowd/ranking';
+import { latinName } from '../lib/trailNames';
 import { NO_DIFFICULTY_FILTER, passesDifficulty, type DifficultyFilter } from '../lib/difficulty';
 import { DifficultyBadge, DifficultyFilterPanel } from './DifficultyFilter';
 
@@ -228,6 +229,7 @@ function RankedRow({ t, rank, month, bins, onPick }: {
 }) {
   const k = t.komoot;
   const { title, waymark } = trailTitle(t.name, t.komootName);
+  const latin = latinName(t.name, t.name_en, t.country);
   return (
     <button
       onClick={onPick}
@@ -239,7 +241,7 @@ function RankedRow({ t, rank, month, bins, onPick }: {
           {month != null && <span className={`w-2 h-2 rounded-full shrink-0 ${RATING_DOT[t.months[month]]}`} title={RATING_LABELS[t.months[month]]} />}
           <span className="min-w-0">{title}</span>
         </span>
-        {t.name_en && t.name_en !== title && <span className="text-xs text-white" dir="ltr">{t.name_en}</span>}
+        {latin && latin !== title && <span className="text-xs text-white" dir="ltr">{latin}</span>}
         {waymark && <span className="text-xs font-semibold text-amber-200">סימון בשטח: <bdi>{waymark}</bdi></span>}
         <span className="text-xs text-white">
           {t.multiDay ? 'רב-יומי' : groupLabel(t.group)} · {t.km >= 10 ? Math.round(t.km) : t.km} ק״מ · <span className="font-bold text-amber-200">{countryName(t.country)}</span>

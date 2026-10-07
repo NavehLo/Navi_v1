@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, ChevronLeft, ListOrdered, Loader2, TrendingDown,
 import Collapsible from "./Collapsible";
 import InfoButton from "./help/InfoButton";
 import type { WmtStage } from "../lib/waymarked";
-import { needsEnglish, usefulEnglish } from "../lib/trailNames";
+import { latinName, needsEnglish, usefulEnglish } from "../lib/trailNames";
 import { knownEnglish, translateWorldTrails } from "../lib/worldTrailSearch";
 
 // "מקטעי המסלול": a long world trail mapped in OSM as a chain of stages (the
@@ -114,7 +114,8 @@ function StageList({ stages, onPick, pendingId }: { stages: WmtStage[]; onPick: 
 // A line in Latin letters under a stage whose name the reader may not read:
 // its start and end as OSM has them when those are in Latin letters,
 // otherwise the name translated (the same shared table and model as the
-// trail's own English name, ten at a time).
+// trail's own English name, ten at a time), or until then spelled in Latin
+// letters.
 function useStageEnglish(stages: WmtStage[]): Map<number, string> {
   const [translated, setTranslated] = useState<Map<number, string>>(() => new Map());
 
@@ -144,7 +145,7 @@ function useStageEnglish(stages: WmtStage[]): Map<number, string> {
   const out = new Map<number, string>();
   for (const s of stages) {
     const candidate = latinItinerary(s) ?? translated.get(s.id) ?? knownEnglish(s.id) ?? null;
-    const shown = usefulEnglish(s.name, candidate);
+    const shown = usefulEnglish(s.name, candidate) ?? latinName(s.name, null);
     if (shown) out.set(s.id, shown);
   }
   return out;

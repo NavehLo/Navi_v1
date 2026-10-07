@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type mapboxgl from 'mapbox-gl';
 import { useLeaders } from '../lib/trailLeadersClient';
 import { TRAFFIC_LABELS, trailTitle } from '../lib/trailCrowd/score';
+import { latinName } from '../lib/trailNames';
 import type { WmtRouteSummary } from '../lib/waymarked';
 
 // The leading trails of every collected country, as gold stars on the map
@@ -28,12 +29,12 @@ export function useTrailLeaders(
 
   useEffect(() => {
     if (!map || !enabled) return;
-    const features = Object.values(leaders).flatMap((l) =>
+    const features = Object.entries(leaders).flatMap(([code, l]) =>
       [...l.day, ...l.long].map((t, i) => ({
         type: 'Feature' as const,
         properties: {
           id: t.id, name: t.name, group: t.group, linear: t.linear,
-          label: t.name_en ?? trailTitle(t.name, t.crowd.komootName).title,
+          label: latinName(t.name, t.name_en, code) ?? trailTitle(t.name, t.crowd.komootName).title,
           sub: [t.crowd.traffic !== 'unknown' ? TRAFFIC_LABELS[t.crowd.traffic] : null, t.crowd.rating != null ? `★ ${t.crowd.rating.toFixed(1)}` : null]
             .filter(Boolean).join(' · '),
           // The busiest are drawn on top and named first.

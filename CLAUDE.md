@@ -207,3 +207,10 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   schema `enum` (400, every question failed) — an optional field is left out
   instead. Free key only (`GEMINI_FREE_API_KEY`), like the weather
   explanation; questions are logged to `help_chat_log` without who asked.
+- **A name in another script is shown in Latin letters too.** Wherever a
+  world trail's name is shown, the line under it comes from `latinName`
+  (`src/lib/trailNames.ts`): the English name (OSM or `trail_name_en`) when
+  there is one, else the rule-based romanization in `src/lib/romanize.ts`
+  (each country's official system; pass the country code when known — it
+  picks the Cyrillic system). The original name always stays the title.
+  Run `node scripts/checkRomanize.mjs` after changing a table.

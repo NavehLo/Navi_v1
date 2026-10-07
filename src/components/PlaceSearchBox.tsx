@@ -10,7 +10,7 @@ import {
 import { describeSearchOrDirectionsError } from '../lib/mapboxDirections';
 import { nameMatches, normalizeName } from '../lib/osmPlaces';
 import { groupLabel } from '../lib/waymarked';
-import { usefulEnglish } from '../lib/trailNames';
+import { latinName } from '../lib/trailNames';
 import { countryName, searchWorldTrails, translateWorldTrails, type WorldTrailHit } from '../lib/worldTrailSearch';
 
 // "Where do I want to look?" — a country, a city, a nature reserve, a wadi —
@@ -320,7 +320,7 @@ export default function PlaceSearchBox({
             const active = i === highlight;
             const row = item.kind === 'place'
               ? <PlaceRow s={item.s} />
-              : <TrailRow t={item.t} english={usefulEnglish(item.t.name, item.t.name_en ?? english[item.t.id])} />;
+              : <TrailRow t={item.t} english={latinName(item.t.name, item.t.name_en ?? english[item.t.id], item.t.countries?.[0])} />;
             return (
               <div key={item.key}>
                 {heading && (

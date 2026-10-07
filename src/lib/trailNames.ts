@@ -1,3 +1,5 @@
+import { romanize } from './romanize';
+
 // English names for world trails — the pure half, shared by the server and the
 // browser. A route in Greece is mapped as "2A - Αγία Μαρίνα – Δανακός" and one
 // in Japan in kanji; the original stays the trail's name, and an English one is
@@ -60,4 +62,17 @@ export function parseTranslations(text: string, ids: number[]): Record<number, s
     if (en && en.length <= 200 && !needsEnglish(en)) out[id] = en;
   }
   return out;
+}
+
+// What to show beside a name in another script: the English name when OSM or
+// the model gave one, else the name spelled in Latin letters by rule
+// (romanize.ts) — so every Cyrillic, Greek, Georgian or Armenian name can be
+// read, even before anyone translated it. `country` picks the Cyrillic system.
+export function latinName(
+  name: string | null | undefined,
+  english: string | null | undefined,
+  country?: string | null,
+): string | null {
+  if (!needsEnglish(name)) return null;
+  return usefulEnglish(name, english) ?? usefulEnglish(name, romanize(name, country));
 }
