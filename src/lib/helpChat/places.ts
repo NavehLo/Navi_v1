@@ -31,11 +31,11 @@ export const HELP_PLACES = {
   settings: { name: 'הגדרות', where: 'בראש הקבוצה התחתונה בסרגל הכפתורים שבצד שמאל', icon: 'גלגל שיניים', when: 'any' },
   'hide-all': { name: 'הסתר הכל', where: 'בסרגל שבצד שמאל, מתחת ל"הגדרות"', icon: 'עין, בכתום־צהוב', when: 'any' },
   labels: { name: 'הסתר שמות / הצג שמות', where: 'הכפתור התחתון בסרגל שבצד שמאל', icon: 'תווית מחיר', when: 'any' },
-  discovery: { name: 'מסלולים לפי מדינות, עונות ומאפיינים נוספים', where: 'החלונית בתחתית מסך הבית', icon: 'סמן מיקום כתום, וחץ למעלה שפותח את הרשימה', when: 'trailsHome' },
+  discovery: { name: 'מסלולים לפי מדינות, עונות ומאפיינים נוספים', where: 'החלונית בתחתית מסך הבית, משמאל לכפתור הצ׳אט העגול', icon: 'סמן מיקום כתום, וחץ למעלה שפותח את הרשימה', when: 'trailsHome' },
   stats: { name: 'כרטיס המסלול', where: 'בתחתית המסך, מעל כפתור הסיור הווירטואלי; "נתונים" פותח אותו', icon: 'שם המסלול, אורך ועליות; כפתור "נתונים"', when: 'trail' },
   'trail-info': { name: 'על המסלול', where: 'בכרטיס המסלול, ליד "נתונים"', icon: 'ספר פתוח על עיגול כחול', when: 'trail' },
   'tour-button': { name: 'סיור וירטואלי', where: 'הכפתור הכתום בתחתית המסך, במרכז', icon: 'משולש "נגן"', when: 'trail' },
-  'help-chat': { name: 'שאלו את Navi', where: 'הכפתור העגול הכחול בפינה הימנית התחתונה', icon: 'בועת דיבור', when: 'any' },
+  'help-chat': { name: 'שאלו את Navi', where: 'הכפתור העגול הכחול בצד ימין למטה — במסך הבית ליד חלונית המסלולים, וכשמסלול פתוח בפינה', icon: 'בועת דיבור', when: 'any' },
 } as const satisfies Record<string, { name: string; where: string; icon: string; when: When }>;
 
 export type HelpPlaceId = keyof typeof HELP_PLACES;

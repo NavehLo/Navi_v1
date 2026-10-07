@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import mapboxgl from 'mapbox-gl';
 import { Car, MapPin, X, Loader2, Search, ArrowLeftRight, Check, LocateFixed, Plus, Navigation, ChevronDown, ChevronUp } from 'lucide-react';
 import { useOutsideTap } from '../hooks/useOutsideTap';
+import { useHelpChatBeside } from '../hooks/useHelpChatBeside';
 import {
   newSessionToken, suggestPlaces, retrievePlace, reversePlace,
   type Place, type PlaceSuggestion,
@@ -85,6 +86,10 @@ export default function DrivePlanner({
   // panel; open, it covers the control rails (see the z-index below).
   const panelRef = useRef<HTMLDivElement>(null);
   useOutsideTap(panelRef, isExpanded && pinning === null, () => setIsExpanded(false));
+  // Folded on a phone, the panel leaves the right corner to the help chat's
+  // button, which stands level with it (hooks/useHelpChatBeside).
+  const besideRef = useHelpChatBeside(!isExpanded);
+  const setPanel = useCallback((n: HTMLDivElement | null) => { panelRef.current = n; besideRef(n); }, [besideRef]);
   const [options, setOptions] = useState<RouteOption[] | null>(null);
   const [selected, setSelected] = useState(0);
 
@@ -298,9 +303,9 @@ export default function DrivePlanner({
 
   return (
     <div
-      ref={panelRef}
+      ref={setPanel}
       data-tour="drive-panel"
-      className={`absolute left-4 right-4 ${isExpanded ? 'z-[44] md:z-40' : 'z-40'} flex flex-col md:w-[380px] md:bottom-auto md:right-6 md:left-auto md:top-6 bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl transition-all
+      className={`absolute left-4 ${isExpanded ? 'right-4' : 'right-[72px]'} ${isExpanded ? 'z-[44] md:z-40' : 'z-40'} flex flex-col md:w-[380px] md:bottom-auto md:right-6 md:left-auto md:top-6 bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl transition-all
         ${isExpanded ? 'bottom-16 rounded-3xl p-5 max-h-[70vh] md:max-h-[calc(100vh-3rem)]' : 'bottom-16 rounded-2xl p-3'}`}
       dir="rtl"
     >

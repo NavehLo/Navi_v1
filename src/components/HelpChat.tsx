@@ -170,7 +170,9 @@ export default function HelpChat({
         aria-label="שאלו את Navi"
         title="שאלו את Navi"
         data-tour="help-chat"
-        className="absolute bottom-3 right-3 md:right-auto md:left-3 md:bottom-10 z-[43] w-12 h-12 flex items-center justify-center rounded-full bg-sky-500 text-white shadow-xl border border-white/20 hover:bg-sky-400 transition-colors"
+        // Beside the folded panel at the bottom of the home screen when there
+        // is one (hooks/useHelpChatBeside), else in the corner.
+        className="absolute bottom-[var(--help-chat-bottom,12px)] right-3 md:right-auto md:left-3 md:bottom-10 z-[43] w-12 h-12 flex items-center justify-center rounded-full bg-sky-500 text-white shadow-xl border border-white/20 hover:bg-sky-400 transition-colors"
       >
         {open ? <X size={22} /> : <MessageCircle size={22} />}
       </button>
@@ -181,7 +183,7 @@ export default function HelpChat({
         <div
           ref={panelRef}
           dir="rtl"
-          className="absolute bottom-[max(72px,calc(var(--bottom-stack-h,0px)+8px))] left-4 right-4 md:right-auto md:left-3 md:bottom-[max(100px,calc(var(--bottom-stack-h,0px)+8px))] md:w-[360px] z-[45] flex flex-col max-h-[60dvh] bg-black/85 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl"
+          className="absolute bottom-[max(calc(var(--help-chat-bottom,12px)+60px),calc(var(--bottom-stack-h,0px)+8px))] left-4 right-4 md:right-auto md:left-3 md:bottom-[max(100px,calc(var(--bottom-stack-h,0px)+8px))] md:w-[360px] z-[45] flex flex-col max-h-[60dvh] bg-black/85 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl"
         >
           <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-2 border-b border-white/10">
             {showHistory ? (

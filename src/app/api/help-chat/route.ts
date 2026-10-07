@@ -54,7 +54,8 @@ async function generate(system: string, turns: Turn[], actions: HelpActionId[], 
         contents: turns.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
         generationConfig: {
           temperature: 0.2,
-          maxOutputTokens: 400,
+          // Room for the model's own thinking too: a cut-off answer is not JSON.
+          maxOutputTokens: 1000,
           responseMimeType: 'application/json',
           responseSchema: {
             type: 'OBJECT',
@@ -62,7 +63,9 @@ async function generate(system: string, turns: Turn[], actions: HelpActionId[], 
               answer: { type: 'STRING' },
               // An empty enum is not allowed; with no button to offer, none is asked for.
               ...(actions.length ? { actions: { type: 'ARRAY', items: { type: 'STRING', enum: actions } } } : {}),
-              pointTo: { type: 'STRING', enum: ['', ...places] },
+              // Optional, and no '' in the list: Gemini answers 400 to an empty
+              // enum value ("enum[0]: cannot be empty"), which failed every question.
+              ...(places.length ? { pointTo: { type: 'STRING', enum: places } } : {}),
             },
             required: ['answer'],
           },
@@ -76,7 +79,9 @@ async function generate(system: string, turns: Turn[], actions: HelpActionId[], 
   if (!res.ok) throw new Error(data.error?.message || `Gemini ${res.status}`);
   await recordAiUsage({ kind: 'text', provider: 'gemini-free', model: MODEL, ...geminiTokens(data) });
   const parts: Array<{ text?: string }> = data.candidates?.[0]?.content?.parts ?? [];
-  const parsed = JSON.parse(parts.map((p) => p.text ?? '').join('')) as { answer?: string; actions?: string[]; pointTo?: string };
+  let parsed: { answer?: string; actions?: string[]; pointTo?: string };
+  // Not JSON (cut off, or prose): asked once more by the caller.
+  try { parsed = JSON.parse(parts.map((p) => p.text ?? '').join('')); } catch { return null; }
   const answer = (parsed.answer ?? '').replace(NIQQUD, '').trim();
   if (!answer || FOREIGN_SCRIPT.test(answer)) return null;
   const picked = (parsed.actions ?? []).filter((a): a is HelpActionId => (actions as string[]).includes(a));
@@ -150,7 +155,9 @@ async function handlePost(request: Request) {
   } catch (error) {
     const status: Status = error instanceof QuotaError ? 'busy' : 'unavailable';
     console.error('Help chat error:', error);
-    log({ question, answer: null, actions: [], screen, status });
+    // The reason goes into the admin's list: the server logs are not always at hand.
+    const reason = error instanceof Error ? error.message.trim().slice(0, 300) : String(error);
+    log({ question, answer: `[שגיאה] ${reason}`, actions: [], screen, status });
     return NextResponse.json({ status });
   }
 }

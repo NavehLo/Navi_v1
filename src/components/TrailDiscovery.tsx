@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import type { MapPack } from '../lib/offlineMap';
 import { MapPin, Loader2, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Search, X, Droplets, Trees, WifiOff, BookOpen, Gauge } from 'lucide-react';
@@ -13,6 +13,7 @@ import WorldByMonth from './WorldByMonth';
 import type { WmtRouteSummary } from '../lib/waymarked';
 import InfoButton from './help/InfoButton';
 import { useOutsideTap } from '../hooks/useOutsideTap';
+import { useHelpChatBeside } from '../hooks/useHelpChatBeside';
 import { useCountryGuideMap, type GuideMapView } from '../hooks/useCountryGuideMap';
 
 export interface TrailInfo {
@@ -101,6 +102,10 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
   // Open, the list covers the side buttons (see the z-index below); a tap
   // anywhere else folds it back to its title bar.
   const panelRef = useRef<HTMLDivElement>(null);
+  // Folded on a phone, the panel leaves the right corner to the help chat's
+  // button, which stands level with it (hooks/useHelpChatBeside).
+  const besideRef = useHelpChatBeside(!isExpanded);
+  const setPanel = useCallback((n: HTMLDivElement | null) => { panelRef.current = n; besideRef(n); }, [besideRef]);
   useOutsideTap(panelRef, isExpanded && !showUploader, () => setIsExpanded(false));
 
   // "אזורי טיול" (from "מסלולים בעולם"): the region shown on the map. On a
@@ -357,7 +362,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
     // Open, it sits above the control rails (z-42) — the rails used to float
     // over the list — and below the place search (z-45), whose suggestions
     // drop down over it.
-    <div ref={panelRef} data-tour="discovery" className={`absolute left-4 right-4 ${isExpanded ? 'z-[44] md:z-40' : 'z-40'} flex flex-col md:w-[380px] md:bottom-6 md:right-6 md:left-auto md:top-6 md:max-h-[calc(100vh-3rem)] bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl transition-all
+    <div ref={setPanel} data-tour="discovery" className={`absolute left-4 ${isExpanded ? 'right-4' : 'right-[72px]'} ${isExpanded ? 'z-[44] md:z-40' : 'z-40'} flex flex-col md:w-[380px] md:bottom-6 md:right-6 md:left-auto md:top-6 md:max-h-[calc(100vh-3rem)] bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl transition-all
       ${isExpanded ? 'bottom-16 top-[108px] md:top-6 rounded-3xl p-5 md:bottom-6' : 'bottom-16 rounded-2xl p-4 md:rounded-3xl md:p-5 md:bottom-6'} 
       `} dir="rtl">
       

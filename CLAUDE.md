@@ -189,5 +189,9 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   (where, icon, when it shows) with a matching `data-tour` on the button, for
   "הראה לי איפה". Its buttons come only from the
   whitelist in `src/lib/helpChat/actions.ts`, each wired in `runHelpAction`
-  (`page.tsx`). Free key only (`GEMINI_FREE_API_KEY`), like the weather
+  (`page.tsx`). On a phone its round button stands beside the folded panel at
+  the bottom of a home screen: such a panel is `right-[72px]` when folded and
+  calls `useHelpChatBeside`. Gemini rejects an empty string in a response
+  schema `enum` (400, every question failed) — an optional field is left out
+  instead. Free key only (`GEMINI_FREE_API_KEY`), like the weather
   explanation; questions are logged to `help_chat_log` without who asked.
