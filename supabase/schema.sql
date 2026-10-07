@@ -459,5 +459,23 @@ alter table public.help_chat_log enable row level security;
 grant select, insert, delete on public.help_chat_log to service_role;
 grant usage, select on sequence public.help_chat_log_id_seq to service_role;
 
+-- ── תמונות מהמסלול ─────────────────────────────────────────────────────────
+-- התמונות שנבחרו לכל מסלול (src/lib/trailPhotos): קישורים, צלם ורישיון בלבד —
+-- לא קבצי התמונות. נבחר פעם אחת לכל מסלול ומשמש את כולם; מתחדש אחרי 90 יום,
+-- או אחרי שבוע כש-Gemini לא בדק את התמונות.
+-- trail_key = 'pts:<sha1 של נקודות המסלול>'. photos_version (PHOTOS_VERSION
+-- ב-cache.ts) מאפשר לבחור מחדש את כל התמונות כשכללי הבחירה משתנים.
+create table if not exists public.trail_photos (
+  trail_key text not null,
+  photos_version int not null,
+  photos jsonb not null,
+  created_at timestamptz not null default now(),
+  primary key (trail_key, photos_version)
+);
+
+alter table public.trail_photos enable row level security;
+-- אין policy: רק השרת עם service_role קורא וכותב.
+grant select, insert, update on public.trail_photos to service_role;
+
 -- PostgREST מכיר פונקציה חדשה רק אחרי רענון של מטמון הסכמה.
 notify pgrst, 'reload schema';

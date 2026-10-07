@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { LEADERS_DOT } from './useTrailLeaders';
+import { PHOTOS_ICON_LAYER } from './useTrailPhotosMap';
 
 // Tapping a name the map itself writes — a beach, a peak, a bay, a village —
 // opens a small card with a button to Google Images for that place, so the
@@ -15,7 +16,7 @@ const LABEL_SOURCES = new Set(['poi_label', 'natural_label', 'place_label', 'air
 // Too big to mean "this spot".
 const SKIP_LAYERS = new Set(['country-label', 'state-label', 'continent-label']);
 // The app's own markers answer their own taps.
-const OWN_LAYERS = ['trail-poi-dot', 'unclustered-point', 'clusters', LEADERS_DOT, 'measure-line', 'drive-options-line'];
+const OWN_LAYERS = ['trail-poi-dot', 'unclustered-point', 'clusters', LEADERS_DOT, 'measure-line', 'drive-options-line', PHOTOS_ICON_LAYER];
 
 export interface PlaceLabel {
   /** The name as the map shows it (English where it has one). */

@@ -63,6 +63,9 @@ import {
 import type { TrailData, TrailPOI, DrivePlace, TrailSource, WmtParent } from "@/hooks/useTrailData";
 import { ElevenLabsCreditsAlert } from "@/components/ElevenLabsCredits";
 import HelpChat from "@/components/HelpChat";
+import PhotoViewer from "@/components/PhotoViewer";
+import { useTrailPhotosMap } from "@/hooks/useTrailPhotosMap";
+import type { TrailPhoto } from "@/lib/trailPhotos/types";
 import type { HelpActionId } from "@/lib/helpChat/actions";
 import { HELP_PLACES, type HelpPlaceId } from "@/lib/helpChat/places";
 
@@ -344,6 +347,36 @@ export default function TrailApp() {
   const [helpChatOpen, setHelpChatOpen] = useState(false);
   // The button a help-chat answer was about, lit up by "הראה לי איפה".
   const [helpPoint, setHelpPoint] = useState<HelpPlaceId | null>(null);
+  // "תמונות מהמסלול": the open trail's photos once its card loaded them —
+  // marked on the map until the trail is closed — the one open on the whole
+  // screen, and the one last shown on the map. Each is kept with the trail it
+  // belongs to, so a new trail starts with none.
+  const [trailPhotosOf, setTrailPhotosOf] = useState<{ of: unknown; photos: TrailPhoto[] } | null>(null);
+  const [photoViewOf, setPhotoViewOf] = useState<{ of: unknown; photos: TrailPhoto[]; index: number } | null>(null);
+  const [photoFocusOf, setPhotoFocusOf] = useState<{ of: unknown; id: string } | null>(null);
+  const trailKey = trail?.coords;
+  const trailPhotos = trailPhotosOf && trailPhotosOf.of === trailKey ? trailPhotosOf.photos : null;
+  const photoView = photoViewOf && photoViewOf.of === trailKey ? photoViewOf : null;
+  const photoFocus = photoFocusOf && photoFocusOf.of === trailKey ? photoFocusOf.id : null;
+  const setPhotoView = useCallback((v: { photos: TrailPhoto[]; index: number } | null) => {
+    setPhotoViewOf(v ? { of: trailKey, ...v } : null);
+  }, [trailKey]);
+  const showTrailPhotos = useCallback((photos: TrailPhoto[]) => setTrailPhotosOf({ of: trailKey, photos }), [trailKey]);
+  const openTrailPhoto = useCallback((photos: TrailPhoto[], index: number) => setPhotoView({ photos, index }), [setPhotoView]);
+  const photoHandlers = useMemo(() => ({ onShow: showTrailPhotos, onOpen: openTrailPhoto }), [showTrailPhotos, openTrailPhoto]);
+  useTrailPhotosMap(
+    map, styleRev, trail && !uiHidden ? trailPhotos : null, photoFocus,
+    (index) => { if (trailPhotos) setPhotoView({ photos: trailPhotos, index }); },
+  );
+  // "הצג במפה": the viewer closes and the map flies to where the photo was
+  // taken, its mark drawn larger.
+  const showPhotoOnMap = useCallback((photo: TrailPhoto) => {
+    setPhotoView(null);
+    setPhotoFocusOf({ of: trailKey, id: photo.id });
+    if (map && photo.lat != null && photo.lon != null) {
+      map.flyTo({ center: [photo.lon, photo.lat], zoom: Math.max(map.getZoom(), 15), duration: 1500, essential: true });
+    }
+  }, [map, trailKey, setPhotoView]);
   const [showGuidePoints, setShowGuidePoints] = useState(false);
   // The bottom of a phone screen, measured: the tour transport with the guide
   // above it, and the tour progress bar above that. The trail card stacks on
@@ -645,11 +678,17 @@ export default function TrailApp() {
   useEffect(() => {
     if (helpChatOpen) window.history.pushState({ navi: 'help-chat' }, "");
   }, [helpChatOpen]);
+  const photoOpen = !!photoView;
+  useEffect(() => {
+    if (photoOpen) window.history.pushState({ navi: 'photo' }, "");
+  }, [photoOpen]);
   const backRef = useRef<() => void>(() => {});
   useEffect(() => {
     backRef.current = () => {
-      // The chat is on top of everything else: back closes it first.
+      // The chat is on top of everything else: back closes it first, then a
+      // photo open on the whole screen.
       if (helpChatOpen) setHelpChatOpen(false);
+      else if (photoView) setPhotoView(null);
       else if (trail) closeTrail();
       else if (worldTrails.selection) {
         if (cardFromList) setDiscoveryOpen((n) => n + 1);
@@ -1502,7 +1541,7 @@ export default function TrailApp() {
 
       {/* Stats UI Layer */}
       {trail && !uiHidden && !isMeasuring && (
-        <MemoizedStatsPanel trail={trail} progress={progress} onClose={closeTrail} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} water={water} waterStatus={waterStatus} userPos={userOnTrail} weather={tripWeather} climate={trailClimate} waypoints={activeWaypoints} onShowInfo={openTrailInfo ? showOpenTrailInfo : undefined} inIsrael={trailInIsrael === true} stages={trailStages} worldId={openWmtId} />
+        <MemoizedStatsPanel trail={trail} progress={progress} onClose={closeTrail} isTourActive={isTourActive} shade={shade} shadeLoading={shadeLoading} water={water} waterStatus={waterStatus} userPos={userOnTrail} weather={tripWeather} climate={trailClimate} waypoints={activeWaypoints} onShowInfo={openTrailInfo ? showOpenTrailInfo : undefined} inIsrael={trailInIsrael === true} stages={trailStages} worldId={openWmtId} photos={photoHandlers} />
       )}
 
       {/* Measuring: the floating pin and its panel. Keyed by the trail so
@@ -1639,6 +1678,17 @@ export default function TrailApp() {
           onPoint={setHelpPoint}
         />
       </div>
+
+      {/* A trail photo on the whole screen, above the card and the rails. */}
+      {photoView && !uiHidden && (
+        <PhotoViewer
+          photos={photoView.photos}
+          index={photoView.index}
+          onIndex={(index) => setPhotoView({ photos: photoView.photos, index })}
+          onClose={() => setPhotoView(null)}
+          onShowOnMap={showPhotoOnMap}
+        />
+      )}
 
       {/* A tapped route in the world trails overlay */}
       {worldTrails.selection && !uiHidden && (

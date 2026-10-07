@@ -20,6 +20,7 @@ import TrailCrowdSection, { useTrailCrowd } from "./TrailCrowdSection";
 import { trailDifficulty } from "../lib/difficulty";
 import { DifficultyLine } from "./DifficultyFilter";
 import TrailLandscapeSection from "./TrailLandscapeSection";
+import TrailPhotosSection, { type TrailPhotosHandlers } from "./TrailPhotosSection";
 
 // A world trail's place among long trails (see useWmtStages): the stages it is
 // made of, the long trail it is a stage of, and what a tap on either does.
@@ -51,7 +52,7 @@ export interface UserOnTrail {
 // somewhere else, not partway along this trail.
 const ON_TRAIL_MAX_M = 300;
 
-export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus, userPos, weather, climate, waypoints, onShowInfo, inIsrael = false, stages = null, worldId = null }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus, userPos?: UserOnTrail | null, weather?: TripWeather, climate?: TrailClimate, waypoints?: { label: string; km: number }[] | null, onShowInfo?: () => void, inIsrael?: boolean, stages?: TrailStages | null, worldId?: number | null }) {
+export default function StatsPanel({ trail, progress, onClose, isTourActive, shade, shadeLoading, water, waterStatus, userPos, weather, climate, waypoints, onShowInfo, inIsrael = false, stages = null, worldId = null, photos }: { trail: TrailData, progress: number, onClose?: () => void, isTourActive?: boolean, shade?: ShadeResult | null, shadeLoading?: boolean, water?: WaterResult | null, waterStatus?: WaterStatus, userPos?: UserOnTrail | null, weather?: TripWeather, climate?: TrailClimate, waypoints?: { label: string; km: number }[] | null, onShowInfo?: () => void, inIsrael?: boolean, stages?: TrailStages | null, worldId?: number | null, photos?: TrailPhotosHandlers }) {
   const [collapsed, setCollapsed] = useState(true);
   const cardRef = useRef<HTMLDivElement>(null);
   // A drive has a road, a length and a time; none of the hiking readouts
@@ -451,6 +452,12 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
           as on its card before it was loaded. */}
       {worldId != null && <TrailCrowdSection id={worldId} />}
       {worldId != null && <TrailLandscapeSection id={worldId} />}
+
+      {/* Photos along the trail, in Israel and abroad; a drive has no trail
+          to photograph. */}
+      {photos && !isDrive && (
+        <TrailPhotosSection coords={trail.coords} wmtId={worldId} name={trail.name} onShow={photos.onShow} onOpen={photos.onOpen} />
+      )}
 
       {stages && stages.stages.length > 0 && (
         <TrailStagesSection stages={stages.stages} onPick={stages.onPick} pendingId={stages.pendingId} />

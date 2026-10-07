@@ -22,6 +22,7 @@ const FEATURE_LABELS: Record<string, string> = {
   "trail_crowd:text": "מדדי מטיילים — קריאת הציונים מהעמודים",
   "country_guide:text": "אזורי טיול — סקירת מדינה עם חיפוש ברשת",
   "help_chat:text": "שאלו את Navi — צ׳אט העזרה",
+  "trail_photos:text": "תמונות מהמסלול — בדיקת התמונות",
 };
 
 const PROVIDER_LABELS: Record<string, string> = {

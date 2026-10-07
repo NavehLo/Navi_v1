@@ -26,6 +26,7 @@ export type AiArea =
   | 'trail_crowd'    // "מה אומרים מטיילים": ratings read off review sites
   | 'country_guide'  // "אזורי טיול": a country's hiking regions, written by the admin
   | 'help_chat'      // "שאלו את Navi": questions about using the app
+  | 'trail_photos'   // "תמונות מהמסלול": the free model looking at the photos
   | 'other';
 
 // What the call did.

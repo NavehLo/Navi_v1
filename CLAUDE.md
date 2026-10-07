@@ -181,6 +181,18 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   says so; anything new that relies on Israeli data (the canopy grid, the
   perennial-streams list) is gated the same way. "Water" in that section is
   always "מים לרחצה" — never let it read as drinking water.
+- **"תמונות מהמסלול" are chosen in one place.** Which photos a trail shows is
+  decided only in `src/lib/trailPhotos/select.ts`: at most one photo per part
+  of the trail (`segmentCount`, ≤ 12), one per shoot (`groupShoots`), none
+  farther than `CORRIDOR_M`, and an empty part stays empty — never fill it with
+  a second photo from a richer part. Free sources only (Wikimedia Commons,
+  Panoramax, the trail's own OSM/Wikidata image); never Google photos, Flickr's
+  paid API or Mapillary (roads only). Every photo is shown with its author,
+  licence and a link to its page, and only links are stored (`trail_photos`),
+  never the pictures. The model's look (`vision.ts`) uses the free key only.
+  Commons answers 429 to bursts: few searches per trail, one after another
+  (`searchBoxes`). After changing a rule run `node scripts/checkPhotos.mjs`
+  (`--live` for real trails) and bump `PHOTOS_VERSION` (`cache.ts`).
 - **"שאלו את Navi" knows only the help text.** The help chat
   (`api/help-chat`) answers from `src/components/help/features.ts` and
   `tours.tsx` only: every new user-facing feature adds or updates its entry in
