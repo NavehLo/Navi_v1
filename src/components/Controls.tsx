@@ -84,7 +84,7 @@ const PILL =
 // It defaults to on: an icon nobody can read is not minimal, it is only quiet.
 // One tap on the tag button at the bottom of the rail puts it back to bare
 // glyphs, and the choice is remembered.
-const LABELS_KEY = "navi:railLabels";
+export const LABELS_KEY = "navi:railLabels";
 
 function RailBtn({
   label, labelsOn, onClick, className = "", title, children, ariaPressed, dataTour, btnRef,
@@ -172,7 +172,7 @@ export default function Controls(props: ControlsProps) {
         {/* Out of the open trail, first of all. */}
         {hasTrail && onHome && (
           <div className={PILL}>
-            <RailBtn label="בית" labelsOn={labelsOn} onClick={onHome} className="text-orange-400" title="מסך הבית — יציאה מהמסלול">
+            <RailBtn label="בית" labelsOn={labelsOn} onClick={onHome} dataTour="home" className="text-orange-400" title="מסך הבית — יציאה מהמסלול">
               <Home className="w-[18px] h-[18px]" />
             </RailBtn>
           </div>
@@ -182,6 +182,7 @@ export default function Controls(props: ControlsProps) {
             btnRef={layersBtnRef}
             label="תצוגת מפה"
             labelsOn={labelsOn}
+            dataTour="layers"
             onClick={() => {
               const r = layersBtnRef.current?.getBoundingClientRect();
               if (r) setLayersLeft(Math.round(r.right + 8));
@@ -214,6 +215,7 @@ export default function Controls(props: ControlsProps) {
             <RailBtn
               label="תכנון מסלול"
               labelsOn={labelsOn}
+              dataTour="plan"
               onClick={onMeasure}
               className={`border-t border-white/10 ${isMeasuring ? 'bg-orange-500 text-white' : 'text-orange-300'}`}
               title={hasTrail ? 'תכנון מסלול בין נקודות לאורך המסלול הפתוח, עם המרחק ביניהן' : 'תכנון מסלול הליכה בין נקודות על המפה, עם המרחק ביניהן'}
@@ -258,13 +260,14 @@ export default function Controls(props: ControlsProps) {
 
         {hasTrail && (
           <div className={PILL} data-tour="trail-rail">
-            <RailBtn label="כל המסלול" labelsOn={labelsOn} onClick={onFitToTrail} className="text-amber-400" title="מרכוז התצוגה על כל המסלול">
+            <RailBtn label="כל המסלול" labelsOn={labelsOn} onClick={onFitToTrail} dataTour="fit" className="text-amber-400" title="מרכוז התצוגה על כל המסלול">
               <Maximize2 className="w-[18px] h-[18px]" />
             </RailBtn>
             {onToggleGuide && (
               <RailBtn
                 label={isGuideEnabled ? 'מדריכה פעילה' : 'מדריכה כבויה'}
                 labelsOn={labelsOn}
+                dataTour="guide"
                 onClick={onToggleGuide}
                 className={`border-t border-white/10 ${isGuideEnabled ? 'text-emerald-400' : 'text-white'}`}
                 title={isGuideEnabled ? 'המדריכה פעילה לסיור הזה — לחץ לכיבוי' : 'המדריכה כבויה ולא תקריין מעצמה — לחץ להפעלה לסיור הזה'}
@@ -277,6 +280,7 @@ export default function Controls(props: ControlsProps) {
               <RailBtn
                 label={guidePointCount ? `נקודות (${guidePointCount})` : 'נקודות'}
                 labelsOn={labelsOn}
+                dataTour="points"
                 onClick={onOpenGuidePoints}
                 className="border-t border-white/10 relative"
                 title="נקודות המדריכה במסלול והורדה לאופליין"
@@ -304,6 +308,7 @@ export default function Controls(props: ControlsProps) {
             <RailBtn
               label="הסתר הכל"
               labelsOn={labelsOn}
+              dataTour="hide-all"
               onClick={onHideUI}
               className="border-t border-white/10 text-amber-400"
               title="הסתר את כל הנתונים מהמפה"
@@ -314,6 +319,7 @@ export default function Controls(props: ControlsProps) {
           <RailBtn
             label="הסתר שמות"
             labelsOn={labelsOn}
+            dataTour="labels"
             onClick={toggleLabels}
             className="border-t border-white/10 text-white"
             title={labelsOn ? 'הסתר את שמות הכפתורים' : 'הצג את שמות הכפתורים'}

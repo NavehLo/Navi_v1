@@ -64,6 +64,7 @@ import type { TrailData, TrailPOI, DrivePlace, TrailSource, WmtParent } from "@/
 import { ElevenLabsCreditsAlert } from "@/components/ElevenLabsCredits";
 import HelpChat from "@/components/HelpChat";
 import type { HelpActionId } from "@/lib/helpChat/actions";
+import { HELP_PLACES, type HelpPlaceId } from "@/lib/helpChat/places";
 
 // Which of the two worlds the home screen is in: hiking trails, or a drive
 // between two places. Not remembered: the app always opens on the trails, and
@@ -341,6 +342,8 @@ export default function TrailApp() {
   const [uiHidden, setUiHidden] = useState(false);
   // "שאלו את Navi", the help chat in the bottom corner.
   const [helpChatOpen, setHelpChatOpen] = useState(false);
+  // The button a help-chat answer was about, lit up by "הראה לי איפה".
+  const [helpPoint, setHelpPoint] = useState<HelpPlaceId | null>(null);
   const [showGuidePoints, setShowGuidePoints] = useState(false);
   // The bottom of a phone screen, measured: the tour transport with the guide
   // above it, and the tour progress bar above that. The trail card stacks on
@@ -1633,6 +1636,7 @@ export default function TrailApp() {
           open={helpChatOpen && !helpChatHidden}
           onOpenChange={setHelpChatOpen}
           onAction={runHelpAction}
+          onPoint={setHelpPoint}
         />
       </div>
 
@@ -1871,6 +1875,17 @@ export default function TrailApp() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* "הראה לי איפה" from the help chat: a tip round the button, gone at
+          the next tap (a tap on the button itself included). */}
+      {helpPoint && (
+        <Coachmark
+          key={`point-${helpPoint}`}
+          steps={[{ target: helpPoint, body: <>כאן: <b>״{HELP_PLACES[helpPoint].name}״</b></> }]}
+          dim={false}
+          onDone={() => setHelpPoint(null)}
+        />
       )}
 
       {/* First-visit help, above everything else on the screen */}

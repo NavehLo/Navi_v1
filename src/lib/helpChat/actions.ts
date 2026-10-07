@@ -13,6 +13,9 @@ export interface HelpScreen {
   recording: boolean;
   nativeApp: boolean;
   inIsrael: boolean;
+  // The names under the rail buttons are shown ("הסתר שמות" hides them, and
+  // then only the icons tell the buttons apart).
+  labelsOn: boolean;
 }
 
 type Needs = 'trail' | 'noTrail' | 'any';

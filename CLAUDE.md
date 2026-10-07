@@ -184,7 +184,10 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
 - **"שאלו את Navi" knows only the help text.** The help chat
   (`api/help-chat`) answers from `src/components/help/features.ts` and
   `tours.tsx` only: every new user-facing feature adds or updates its entry in
-  `features.ts` (it is also the settings help). Its buttons come only from the
+  `features.ts` (it is also the settings help), and every button that is
+  added, moved or given a new icon is described in `src/lib/helpChat/places.ts`
+  (where, icon, when it shows) with a matching `data-tour` on the button, for
+  "הראה לי איפה". Its buttons come only from the
   whitelist in `src/lib/helpChat/actions.ts`, each wired in `runHelpAction`
   (`page.tsx`). Free key only (`GEMINI_FREE_API_KEY`), like the weather
   explanation; questions are logged to `help_chat_log` without who asked.

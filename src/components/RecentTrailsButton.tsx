@@ -23,6 +23,7 @@ export default function RecentTrailsButton({ onPick }: {
       <button
         ref={btnRef}
         type="button"
+        data-tour="recent"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-label="מסלולים אחרונים"

@@ -235,6 +235,7 @@ export default function StatsPanel({ trail, progress, onClose, isTourActive, sha
               className="p-1.5 bg-sky-600 hover:bg-sky-500 rounded-full transition-colors"
               title="על המסלול"
               aria-label="על המסלול"
+              data-tour="trail-info"
             >
               <BookOpenText className="w-4 h-4 text-white" />
             </button>

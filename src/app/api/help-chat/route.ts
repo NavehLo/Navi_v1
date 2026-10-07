@@ -3,7 +3,8 @@ import { rateLimit, clientIp } from '../../../lib/rateLimit';
 import { geminiTokens, recordAiUsage, withAiUsage } from '../../../lib/aiUsage';
 import { serviceClient } from '../../../lib/supabaseService';
 import { availableActions, type HelpActionId, type HelpScreen } from '../../../lib/helpChat/actions';
-import { systemPrompt } from '../../../lib/helpChat/knowledge';
+import { placesOnScreen, systemPrompt } from '../../../lib/helpChat/knowledge';
+import type { HelpPlaceId } from '../../../lib/helpChat/places';
 
 // "שאלו את Navi": short answers to questions about using the app, from the
 // help text only (lib/helpChat/knowledge.ts), with up to two buttons that
@@ -42,7 +43,7 @@ const FOREIGN_SCRIPT = /[؀-ۿЀ-ӿ]/;
 
 class QuotaError extends Error {}
 
-async function generate(system: string, turns: Turn[], actions: HelpActionId[]) {
+async function generate(system: string, turns: Turn[], actions: HelpActionId[], places: HelpPlaceId[]) {
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${KEY}`,
     {
@@ -61,6 +62,7 @@ async function generate(system: string, turns: Turn[], actions: HelpActionId[]) 
               answer: { type: 'STRING' },
               // An empty enum is not allowed; with no button to offer, none is asked for.
               ...(actions.length ? { actions: { type: 'ARRAY', items: { type: 'STRING', enum: actions } } } : {}),
+              pointTo: { type: 'STRING', enum: ['', ...places] },
             },
             required: ['answer'],
           },
@@ -74,11 +76,12 @@ async function generate(system: string, turns: Turn[], actions: HelpActionId[]) 
   if (!res.ok) throw new Error(data.error?.message || `Gemini ${res.status}`);
   await recordAiUsage({ kind: 'text', provider: 'gemini-free', model: MODEL, ...geminiTokens(data) });
   const parts: Array<{ text?: string }> = data.candidates?.[0]?.content?.parts ?? [];
-  const parsed = JSON.parse(parts.map((p) => p.text ?? '').join('')) as { answer?: string; actions?: string[] };
+  const parsed = JSON.parse(parts.map((p) => p.text ?? '').join('')) as { answer?: string; actions?: string[]; pointTo?: string };
   const answer = (parsed.answer ?? '').replace(NIQQUD, '').trim();
   if (!answer || FOREIGN_SCRIPT.test(answer)) return null;
   const picked = (parsed.actions ?? []).filter((a): a is HelpActionId => (actions as string[]).includes(a));
-  return { answer, actions: [...new Set(picked)].slice(0, 2) };
+  const pointTo = (places as string[]).includes(parsed.pointTo ?? '') ? (parsed.pointTo as HelpPlaceId) : null;
+  return { answer, actions: [...new Set(picked)].slice(0, 2), pointTo };
 }
 
 function readScreen(s: Partial<HelpScreen> | undefined): HelpScreen {
@@ -89,6 +92,7 @@ function readScreen(s: Partial<HelpScreen> | undefined): HelpScreen {
     recording: !!s?.recording,
     nativeApp: !!s?.nativeApp,
     inIsrael: !!s?.inIsrael,
+    labelsOn: s?.labelsOn !== false,
   };
 }
 
@@ -133,9 +137,10 @@ async function handlePost(request: Request) {
   if (!allowed) return NextResponse.json({ status: 'rate-limited' satisfies Status }, { status: 429 });
 
   const actions = availableActions(screen);
+  const places = placesOnScreen(screen);
   const system = systemPrompt(screen, actions);
   try {
-    const reply = (await generate(system, turns, actions)) ?? (await generate(system, turns, actions));
+    const reply = (await generate(system, turns, actions, places)) ?? (await generate(system, turns, actions, places));
     if (!reply) {
       log({ question, answer: null, actions: [], screen, status: 'unavailable' });
       return NextResponse.json({ status: 'unavailable' satisfies Status });

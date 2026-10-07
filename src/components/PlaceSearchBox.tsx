@@ -259,7 +259,7 @@ export default function PlaceSearchBox({
   const bothKinds = suggestions.length > 0 && trails.length > 0;
 
   return (
-    <div className={`absolute z-[45] ${className}`} dir="rtl">
+    <div className={`absolute z-[45] ${className}`} dir="rtl" data-tour="search">
       <div className="relative">
         <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-300 pointer-events-none" size={16} />
         <input
