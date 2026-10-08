@@ -51,6 +51,11 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   `FEATURE_LABELS` (`src/components/AiUsagePanel.tsx`), and a new model a
   price in `src/lib/aiPricing.ts`. Client requests to such routes send
   `authHeaders()` (`src/lib/authHeaders.ts`) so usage is attributed to the user.
+- **Sign-in is PKCE only.** The browser client is created with
+  `flowType: 'pkce'` (`src/lib/supabase.ts`), and a sign-in that returns to
+  the app is finished only by `exchangeCodeForSession`. Never call
+  `setSession` with tokens read from a URL or a deep link — anyone can make
+  such a link, and it would sign the reader into the link author's account.
 - **Admin-only means server-side.** Gate with `isAdminRequest`
   (`ADMIN_EMAILS`); hiding a button is not enough. The admin's tools live in
   settings under "מתקדם" and "שימוש ועלויות AI".

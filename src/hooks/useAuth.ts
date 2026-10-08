@@ -85,15 +85,14 @@ export function useAuth() {
   }, []);
 
   // The app's sign-in comes back as a link into the app (see lib/native.ts):
-  // a code to exchange, or the tokens themselves after the "#".
+  // a code to exchange, which works only with the verifier this app stored
+  // when it began the sign-in (PKCE, see lib/supabase.ts). Tokens in a link
+  // are never taken: anyone can make such a link.
   useEffect(() => onNativeAuthRedirect(async (url) => {
     const client = supabase;
     if (!client) return;
     const code = url.searchParams.get('code');
-    const hash = new URLSearchParams(url.hash.replace(/^#/, ''));
-    const access_token = hash.get('access_token'), refresh_token = hash.get('refresh_token');
     if (code) await client.auth.exchangeCodeForSession(code);
-    else if (access_token && refresh_token) await client.auth.setSession({ access_token, refresh_token });
   }), []);
 
   const signInWithGoogle = useCallback(async () => {
