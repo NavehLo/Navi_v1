@@ -20,11 +20,15 @@ Rebuild the APK only when the native side changes (plugins, manifest, icon):
 ```bash
 cd android-app && npm install && npx cap sync android
 export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
-cd android && ./gradlew assembleDebug
-# → android/app/build/outputs/apk/debug/app-debug.apk
+cd android && ./gradlew assembleRelease
+# → android/app/build/outputs/apk/release/app-release.apk
 ```
 
 Gradle is 9.1 because Android Studio's bundled Java (25) is too new for 8.x;
 the plugins' Java 21 toolchain is fetched by the foojay resolver in settings.gradle.
-The APK is signed with the local debug key — keep building on this Mac, or
-Android will refuse the update over the installed copy.
+The APK is a release build (not debuggable, its web view closed to USB
+inspection) signed with this Mac's debug key — keep building on this Mac, or
+Android will refuse the update over the installed copy. Never ship
+`assembleDebug`: a debug build lets anyone with the phone on a cable read the
+app's storage, sign-in token and recordings included. Raise `versionCode` in
+`android/app/build.gradle` with every APK.

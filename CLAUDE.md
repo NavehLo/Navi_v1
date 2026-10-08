@@ -86,8 +86,9 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
 - **Offline is tested on the production build** (`prod` launch config);
   `next dev` never hydrates without a network.
 - **Android**: web changes need only a deploy. Rebuild the APK
-  (`android-app/README.md`) only when the native side changes, on this Mac
-  (debug-signed).
+  (`android-app/README.md`) only when the native side changes, on this Mac:
+  `assembleRelease`, signed with this Mac's debug key so it updates the
+  installed copy. Never ship `assembleDebug` — it is debuggable.
 - **Panels on the map follow one layout contract.** An open panel collapses
   or closes on a tap outside it (`useOutsideTap`). An expanded panel covers
   the control rails (z-44/45, above the rails' 42) rather than sitting under
