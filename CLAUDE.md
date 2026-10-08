@@ -51,6 +51,11 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   `FEATURE_LABELS` (`src/components/AiUsagePanel.tsx`), and a new model a
   price in `src/lib/aiPricing.ts`. Client requests to such routes send
   `authHeaders()` (`src/lib/authHeaders.ts`) so usage is attributed to the user.
+- **Sign-in is PKCE only.** The browser client is created with
+  `flowType: 'pkce'` (`src/lib/supabase.ts`), and a sign-in that returns to
+  the app is finished only by `exchangeCodeForSession`. Never call
+  `setSession` with tokens read from a URL or a deep link — anyone can make
+  such a link, and it would sign the reader into the link author's account.
 - **Admin-only means server-side.** Gate with `isAdminRequest`
   (`ADMIN_EMAILS`); hiding a button is not enough. The admin's tools live in
   settings under "מתקדם" and "שימוש ועלויות AI".
@@ -81,8 +86,9 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
 - **Offline is tested on the production build** (`prod` launch config);
   `next dev` never hydrates without a network.
 - **Android**: web changes need only a deploy. Rebuild the APK
-  (`android-app/README.md`) only when the native side changes, on this Mac
-  (debug-signed).
+  (`android-app/README.md`) only when the native side changes, on this Mac:
+  `assembleRelease`, signed with this Mac's debug key so it updates the
+  installed copy. Never ship `assembleDebug` — it is debuggable.
 - **Panels on the map follow one layout contract.** An open panel collapses
   or closes on a tap outside it (`useOutsideTap`). An expanded panel covers
   the control rails (z-44/45, above the rails' 42) rather than sitting under

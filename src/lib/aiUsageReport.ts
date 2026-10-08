@@ -22,7 +22,12 @@ export interface UsageGroup extends UsageTotals {
   parts: Array<{ label: string; calls: number; costUsd: number }>;
 }
 
-export type UsageReport =
+// How the paid routes' rate limits are kept: 'upstash' is one count shared by
+// every server; 'memory' is a count per server instance (lib/rateLimit), which
+// is easy to get around when Vercel runs several.
+export type RateLimitMode = 'upstash' | 'memory';
+
+export type UsageReport = { rateLimit?: RateLimitMode } & (
   | { status: 'not-configured' | 'no-table' | 'error'; detail?: string }
   | {
       status: 'ok';
@@ -32,4 +37,5 @@ export type UsageReport =
       byFeature: UsageGroup[];
       byModel: UsageGroup[];
       byUser: UsageGroup[];
-    };
+    }
+);
