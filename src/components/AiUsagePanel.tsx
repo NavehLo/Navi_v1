@@ -125,6 +125,16 @@ export default function AiUsagePanel() {
         כל פנייה בתשלום לשירות בינה מלאכותית, מכל המשתמשים. העלות היא הערכה לפי המחירון של כל ספק, לא חשבונית.
       </p>
 
+      {report?.rateLimit === "upstash" && (
+        <p className="text-white text-sm mb-3 leading-6">הגבלת קצב: משותפת לכל השרתים (Upstash).</p>
+      )}
+      {report?.rateLimit === "memory" && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-3 text-amber-300 text-sm leading-6">
+          הגבלת קצב: לכל שרת בנפרד — קל לעקוף אותה ולהוציא כסף על AI. להגדיר ב-Vercel את{" "}
+          <span dir="ltr">UPSTASH_REDIS_REST_URL</span> ו-<span dir="ltr">UPSTASH_REDIS_REST_TOKEN</span> (חינם ב-upstash.com).
+        </div>
+      )}
+
       <ElevenLabsCreditsCard />
 
       <div className="flex gap-1.5 mb-3" role="group" aria-label="תקופה">

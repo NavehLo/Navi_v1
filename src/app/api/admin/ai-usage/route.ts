@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { isAdminRequest } from '../../../../lib/supabaseServer';
 import { serviceClient } from '../../../../lib/supabaseService';
-import type { UsageGroup, UsageTotals } from '../../../../lib/aiUsageReport';
+import { isDistributedRateLimitConfigured } from '../../../../lib/rateLimit';
+import type { RateLimitMode, UsageGroup, UsageTotals } from '../../../../lib/aiUsageReport';
 
 // GET ?days=7|30|90|0 → the AI usage logged by lib/aiUsage, for the admin's
 // "שימוש ועלויות AI" page: one total, and the same numbers by use, by model
@@ -75,8 +76,11 @@ export async function GET(request: Request) {
   if (!(await isAdminRequest(request))) {
     return NextResponse.json({ error: 'זמין למנהל האתר בלבד.' }, { status: 403 });
   }
+  // Shown whatever the state of the usage log: it answers "is Upstash set in
+  // production?", which nothing else on the site shows.
+  const rateLimit: RateLimitMode = isDistributedRateLimitConfigured ? 'upstash' : 'memory';
   const db = serviceClient();
-  if (!db) return NextResponse.json({ status: 'not-configured' });
+  if (!db) return NextResponse.json({ status: 'not-configured', rateLimit });
 
   const days = Math.max(0, Math.min(3650, parseInt(new URL(request.url).searchParams.get('days') ?? '30', 10) || 0));
   const since = days > 0 ? new Date(Date.now() - days * 86_400_000).toISOString() : null;
@@ -95,7 +99,7 @@ export async function GET(request: Request) {
     // The admin sees Supabase's own words: "error" alone could not be told
     // apart from any other failure, and this page is closed to everyone else.
     const detail = [summary.error.code, summary.error.message].filter(Boolean).join(': ');
-    return NextResponse.json({ status: missing ? 'no-table' : 'error', detail });
+    return NextResponse.json({ status: missing ? 'no-table' : 'error', detail, rateLimit });
   }
 
   const rows = (summary.data ?? []) as Row[];
@@ -105,6 +109,7 @@ export async function GET(request: Request) {
   return NextResponse.json(
     {
       status: 'ok',
+      rateLimit,
       days,
       trackingSince: first.data?.[0]?.created_at ?? null,
       total,
