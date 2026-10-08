@@ -365,7 +365,7 @@ export default function Controls(props: ControlsProps) {
               {showWorldTrails ? 'מסלולים בעולם — הסתר' : 'מסלולים בעולם — הצג'}
             </button>
           )}
-          <MapLegend />
+          <MapLegend showWorldTrails={showWorldTrails} />
         </div>
       )}
 
@@ -375,7 +375,7 @@ export default function Controls(props: ControlsProps) {
 
 // What the marks drawn on the map mean. The colours are the ones page.tsx
 // paints the layers with; change one there, change it here.
-function MapLegend() {
+function MapLegend({ showWorldTrails }: { showWorldTrails?: boolean }) {
   const dot = (fill: string, stroke: string) => (
     <span className="w-3 h-3 rounded-full shrink-0 border-2" style={{ background: fill, borderColor: stroke }} />
   );
@@ -388,6 +388,15 @@ function MapLegend() {
     [dot('#1e293b', '#7dd3fc'), 'מים לרחצה — לא מאומת'],
     [dot('#38bdf8', '#ffffff'), 'המיקום שלכם'],
   ];
+  // The lines of the "מסלולים בעולם" layer are Waymarked Trails' own, coloured
+  // by the route's level, not by its marking on the ground. Only shown while
+  // the layer is on.
+  const worldLevels: Array<[string, string]> = [
+    ['#a855f7', 'סגול — שביל מקומי'],
+    ['#3b82f6', 'כחול — שביל ארצי'],
+    ['#f97316', 'כתום — שביל אזורי'],
+    ['#ef4444', 'אדום — שביל בינלאומי'],
+  ];
   return (
     <div className="border-t border-white/10 mt-1 pt-2 px-2 pb-1 flex flex-col gap-1.5">
       <div className="text-white text-xs font-bold">מקרא</div>
@@ -396,6 +405,17 @@ function MapLegend() {
           <span className="w-4 flex justify-center">{mark}</span>{label}
         </div>
       ))}
+      {showWorldTrails && (
+        <>
+          <div className="text-white text-xs font-bold mt-1">צבעי "מסלולים בעולם"</div>
+          {worldLevels.map(([color, label]) => (
+            <div key={label} className="flex items-center gap-2 text-white text-xs">
+              <span className="w-4 flex justify-center">{line(color)}</span>{label}
+            </div>
+          ))}
+          <div className="text-white text-xs">הצבע מראה את דרגת השביל, לא את הסימון שלו בשטח.</div>
+        </>
+      )}
     </div>
   );
 }
