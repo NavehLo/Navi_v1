@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { track } from '../lib/track';
 import mapboxgl from 'mapbox-gl';
 import {
   Search, X, Loader2, MapPin, Building2, Globe2, Trees, Waves, Mountain, Landmark, Binoculars, Route,
@@ -204,6 +205,7 @@ export default function PlaceSearchBox({
     try {
       const place = await retrievePlace(s, sessionRef.current);
       setSelected(place);
+      track('place_search');
       setQuery('');
       setSuggestions([]);
       setTrails([]);

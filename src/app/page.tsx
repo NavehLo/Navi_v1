@@ -13,6 +13,7 @@ import SettingsActions from "@/components/SettingsActions";
 import PersonalArea, { type Tab as PersonalTab } from "@/components/PersonalArea";
 import RecordPanel from "@/components/RecordPanel";
 import { useRecorder } from "@/hooks/useRecorder";
+import { track } from "@/lib/track";
 import { recordingCoords, recordingToGpx } from "@/lib/recording/gpx";
 import { syncRecordings, upsertRecording } from "@/lib/recording/sync";
 import type { Recording } from "@/lib/recording/types";
@@ -844,6 +845,39 @@ export default function TrailApp() {
   // off-route alarm, an open window, a hidden UI, a measurement, a trail still
   // loading.
   const [helpTour, setHelpTour] = useState<HelpKey | null>(null);
+
+  // ── The users report ("משתמשים ושימוש") ─────────────────────────────────
+  // What was opened and switched on, counted once each time it starts
+  // (lib/track; the names and their Hebrew labels are in lib/appEvents).
+  useEffect(() => { track('app_open', { native: isNativeApp() }); }, []);
+  useEffect(() => {
+    if (!trail) return;
+    const kind = trailSource?.kind;
+    const inWorld = kind === 'wmt' || (trailSource?.kind === 'pack' && /^wmt:/.test(trailSource.sourceUrl ?? ''));
+    track(
+      trail.kind === 'drive' || kind === 'drive' ? 'drive_open'
+        : kind === 'file' ? 'trail_open_file'
+        : inWorld ? 'trail_open_world'
+        : 'trail_open_israel',
+      { name: trail.name, offline: kind === 'pack' },
+    );
+    // Once per trail opened, not on every change of its source's details.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trail?.coords]);
+  const selectedWorldId = worldTrails.selection?.id ?? null;
+  useEffect(() => { if (selectedWorldId != null) track('world_card'); }, [selectedWorldId]);
+  useEffect(() => { if (isTourActive) track('virtual_tour'); }, [isTourActive]);
+  useEffect(() => { if (isGuideEnabled) track('guide_on'); }, [isGuideEnabled]);
+  useEffect(() => { if (infoRequest) track('trail_info'); }, [infoRequest]);
+  useEffect(() => { if (photoOpen) track('photos_open'); }, [photoOpen]);
+  useEffect(() => { if (isTracking) track('live_location'); }, [isTracking]);
+  useEffect(() => { if (isMeasuring) track('measure'); }, [isMeasuring]);
+  useEffect(() => { if (showPersonalArea) track('personal_area'); }, [showPersonalArea]);
+  useEffect(() => { if (helpChatOpen) track('help_chat'); }, [helpChatOpen]);
+  useEffect(() => { if (helpTour) track('help_tour', { tour: helpTour }); }, [helpTour]);
+  useEffect(() => { if (saveTrailState === 'saved') track('save_trail'); }, [saveTrailState]);
+  const signedInId = user && sessionLive ? user.id : null;
+  useEffect(() => { if (signedInId) track('sign_in'); }, [signedInId]);
   const helpQuiet = isTourActive || !!offRoute.alert || showSettings || showPersonalArea
     || showGuidePoints || uiHidden || isMeasuring || trailLoading || !!worldTrails.selection
     || recStatus === 'review';
@@ -905,6 +939,7 @@ export default function TrailApp() {
     if (!isTracking) centerOnNextFixRef.current = true;
     setIsTracking(true);
     recStart();
+    track('record_start');
   }, [recStatus, recStart, isTracking]);
 
   // A recording brought back after the page was dropped needs the location
@@ -922,6 +957,7 @@ export default function TrailApp() {
   const handleSaveRecording = useCallback(async (name: string) => {
     const rec = await recSave(name, user?.id ?? null);
     if (!rec) return;
+    track('record_save');
     endRecording();
     setToast('ההקלטה נשמרה — היא באזור האישי, בלשונית ״הקלטות״.');
     if (user && sessionLive && online) upsertRecording(rec, user.id).catch((e) => console.error('Recording upload failed:', e));

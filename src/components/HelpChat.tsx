@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { MessageCircle, X, Send, Loader2, WifiOff, History, SquarePen, ChevronRight, Crosshair } from "lucide-react";
 import { useOutsideTap } from "../hooks/useOutsideTap";
 import { authHeaders } from "../lib/authHeaders";
+import { deviceId } from "../lib/deviceId";
 import { LABELS_KEY } from "./Controls";
 import { HELP_ACTIONS, availableActions, type HelpActionId, type HelpScreen } from "../lib/helpChat/actions";
 import { isPlaceOnScreen, type HelpPlaceId } from "../lib/helpChat/places";
@@ -42,20 +43,6 @@ function history(messages: ChatMessage[]) {
   return messages
     .filter((m, i) => !m.note && !(m.role === "user" && messages[i + 1]?.note))
     .map(({ role, text }) => ({ role, text }));
-}
-
-const DEVICE_KEY = "navi:device.v1";
-function deviceId(): string | undefined {
-  try {
-    let id = localStorage.getItem(DEVICE_KEY);
-    if (!id) {
-      id = crypto.randomUUID();
-      localStorage.setItem(DEVICE_KEY, id);
-    }
-    return id;
-  } catch {
-    return undefined;
-  }
 }
 
 // Whether the rail shows its button names (Controls, "הסתר שמות").

@@ -1,11 +1,12 @@
 import type React from "react";
 import { useState, useEffect, useMemo, useRef } from "react";
-import { X, Sparkles, Volume2, Loader2, RotateCcw, AlertTriangle, Type, WifiOff, SlidersHorizontal, ChevronDown, Receipt, MessageCircle } from "lucide-react";
+import { X, Sparkles, Volume2, Loader2, RotateCcw, AlertTriangle, Type, WifiOff, SlidersHorizontal, ChevronDown, Receipt, MessageCircle, Users } from "lucide-react";
 import { AI_PROVIDER_STORAGE_KEY } from "../hooks/useAIGuide";
 import { type VoicePrefs, readVoicePrefs, rememberVoiceNames, writeVoicePrefs } from "../lib/voicePrefs";
 import { readSimulateOffline, setSimulateOffline, storageEstimate } from "../lib/offlineMap";
 import OffRouteSetting from "./OffRouteSetting";
 import AiUsagePanel from "./AiUsagePanel";
+import UsersReportPanel from "./UsersReportPanel";
 import HelpChatLog from "./HelpChatLog";
 import TrailCrowdAdmin from "./TrailCrowdAdmin";
 // The admin-only tools below carry the signed-in user's token. The server
@@ -112,6 +113,7 @@ const VOICE_SLIDERS: Array<{ key: keyof VoicePrefs; label: string; hint: string;
 export default function SettingsPanel({ onClose, children, help }: SettingsPanelProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showUsage, setShowUsage] = useState(false);
+  const [showUsers, setShowUsers] = useState(false);
   const [showChatLog, setShowChatLog] = useState(false);
   // "מתקדם" is the site admin's alone. Unknown (no answer yet, no reception,
   // not signed in) counts as no.
@@ -752,6 +754,21 @@ export default function SettingsPanel({ onClose, children, help }: SettingsPanel
           <ChevronDown size={16} className={`text-white shrink-0 transition-transform ${showUsage ? "rotate-180" : ""}`} />
         </button>
         {showUsage && <AiUsagePanel />}
+
+        {/* Who uses the app, and for what — the admin's own use left out. */}
+        <button
+          onClick={() => setShowUsers((v) => !v)}
+          aria-expanded={showUsers}
+          className="w-full flex items-center justify-between gap-2 text-right rounded-xl bg-white/5 hover:bg-white/10 p-3 transition-colors mt-2"
+        >
+          <span className="flex items-center gap-2 text-white font-bold text-sm">
+            <Users size={16} className="text-white" />
+            משתמשים ושימוש
+            <span className="font-normal text-white text-xs">רשומים, אורחים ובמה השתמשו</span>
+          </span>
+          <ChevronDown size={16} className={`text-white shrink-0 transition-transform ${showUsers ? "rotate-180" : ""}`} />
+        </button>
+        {showUsers && <UsersReportPanel />}
 
         {/* What users asked the help chat, and what it could not answer. */}
         <button

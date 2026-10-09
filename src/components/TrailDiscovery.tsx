@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { track } from '../lib/track';
 import mapboxgl from 'mapbox-gl';
 import type { MapPack } from '../lib/offlineMap';
 import { MapPin, Loader2, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Search, X, Droplets, Trees, WifiOff, BookOpen } from 'lucide-react';
@@ -98,6 +99,10 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
   useEffect(() => {
     if (openSignal > openedFor) markOpened(openSignal);
   }, [openSignal]);
+  // For the users report: the Israeli list opened (the world one counts itself).
+  useEffect(() => {
+    if (isExpanded && scope === 'israel') track('trail_discovery');
+  }, [isExpanded, scope]);
 
   // Open, the list covers the side buttons (see the z-index below); a tap
   // anywhere else folds it back to its title bar.

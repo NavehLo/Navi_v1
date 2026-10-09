@@ -1,9 +1,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { createHash } from 'node:crypto';
 import { type AiProvider, type UsageUnits, estimateCost } from './aiPricing';
 import { serviceClient } from './supabaseService';
 import { bearerToken, isAdminEmail, userFromToken } from './supabaseServer';
 import { clientIp } from './rateLimit';
+import { deviceOf, hashClient } from './clientHash';
+import { isOwnerDevice } from './ownerExclusion';
 import { afterRecorded, type TodayUsage } from './aiLimits';
 
 // A log of every paid AI call, for the admin's "שימוש ועלויות AI" page.
@@ -17,7 +18,8 @@ import { afterRecorded, type TodayUsage } from './aiLimits';
 // The same context says who is paying for the call — a signed-in user, a
 // guest (by a hash of the IP, never the IP itself), or the admin and the
 // admin's scripts, which are recorded but exempt from the limits
-// (lib/aiLimits checks those before every call).
+// (lib/aiLimits checks those before every call). The admin's own devices and
+// IPs (lib/ownerExclusion) are exempt too, signed in or not.
 //
 // Only successful calls are recorded: a refused or failed request is not billed.
 // Recording never throws and never holds a response up for long: a missing
@@ -44,6 +46,7 @@ interface UsageContext {
   area: AiArea;
   token: string | null;
   client: string | null;  // hashed IP, for guests
+  device: string | null;  // the device's own random id (lib/deviceId)
   script: boolean;        // started on the admin's machine, not by a request
   who?: Promise<Payer>;
   // Today's usage, read once per request and kept current as calls are
@@ -61,18 +64,15 @@ export interface Payer {
 
 const context = new AsyncLocalStorage<UsageContext>();
 
-// A guest is told apart by IP, stored only as a salted hash.
-function hashClient(ip: string): string {
-  return createHash('sha256').update(`navi-client:${ip}:${process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''}`).digest('hex').slice(0, 32);
-}
-
 export function withAiUsage<T>(request: Request, area: AiArea, work: () => Promise<T>): Promise<T> {
-  return context.run({ area, token: bearerToken(request), client: hashClient(clientIp(request)), script: false }, work);
+  return context.run({
+    area, token: bearerToken(request), client: hashClient(clientIp(request)), device: deviceOf(request), script: false,
+  }, work);
 }
 
 // The same, for work that no request started: the admin's scripts.
 export function withAiArea<T>(area: AiArea, work: () => Promise<T>): Promise<T> {
-  return context.run({ area, token: null, client: null, script: true }, work);
+  return context.run({ area, token: null, client: null, device: null, script: true }, work);
 }
 
 export function currentContext(): UsageContext | undefined {
@@ -88,7 +88,7 @@ export function payerOf(ctx: UsageContext): Promise<Payer> {
       userId: user?.id ?? null,
       email: user?.email ?? null,
       client: user ? null : ctx.client,
-      exempt: isAdminEmail(user?.email),
+      exempt: isAdminEmail(user?.email) || (await isOwnerDevice(ctx.device, ctx.client, !!user)),
     };
   })();
   return ctx.who;
@@ -137,8 +137,10 @@ export async function recordAiUsage(record: UsageRecord): Promise<void> {
       searches: Math.round(record.searches ?? 0),
       cost_usd: costUsd,
     };
-    let { error } = await db.from('ai_usage').insert({ ...row, client_hash: payer?.client ?? null, exempt: payer?.exempt ?? false });
-    // Before schema.sql adds the payer columns, the row still goes in.
+    const payerCols = { client_hash: payer?.client ?? null, exempt: payer?.exempt ?? false };
+    let { error } = await db.from('ai_usage').insert({ ...row, ...payerCols, device_id: ctx?.device ?? null });
+    // Before schema.sql adds the newer columns, the row still goes in.
+    if (error && /device_id/.test(error.message)) ({ error } = await db.from('ai_usage').insert({ ...row, ...payerCols }));
     if (error && /client_hash|exempt/.test(error.message)) ({ error } = await db.from('ai_usage').insert(row));
     if (error) console.error('AI usage not recorded:', error.message);
 

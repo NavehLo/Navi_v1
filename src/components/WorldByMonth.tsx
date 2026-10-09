@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { track } from '../lib/track';
 import { ArrowRight, BookOpen, ChevronLeft, Footprints, Loader2, RefreshCw, Search, Star, Trophy, X } from 'lucide-react';
 import InfoButton from './help/InfoButton';
 import Collapsible from './Collapsible';
@@ -145,6 +146,8 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
   guideShown?: number | null;
 }) {
   const [mode, setMode] = useState<Mode>(kept.mode ?? 'month');
+  // For the users report: which way the world's trails were looked through.
+  useEffect(() => { track(mode === 'ranking' ? 'world_ranking' : 'world_by_month', { mode }); }, [mode]);
   const [month, setMonth] = useState(() => kept.month ?? defaultMonth());
   const [rating, setRating] = useState<MonthRating>(kept.rating ?? 'good');
   const [country, setCountry] = useState<string | null>(kept.country ?? null);

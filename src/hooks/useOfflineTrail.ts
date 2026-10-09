@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { TrailData, TrailPOI } from './useTrailData';
-import { supabase } from '../lib/supabase';
+import { authHeaders } from '../lib/authHeaders';
+import { track } from '../lib/track';
 import { poiKeyFor } from '../lib/poiKey';
 import {
   MapPack,
@@ -203,12 +204,7 @@ export function useOfflineTrail(
       })),
     };
 
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (supabase) {
-      const { data } = await supabase.auth.getSession();
-      const accessToken = data.session?.access_token;
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-    }
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(await authHeaders()) };
 
     // Copies from a voice that is no longer in use are dropped first: they
     // will never be played again, and leaving them there means a second full
@@ -358,6 +354,7 @@ export function useOfflineTrail(
 
   const download = useCallback(async () => {
     if (!trailSlug) return;
+    track('offline_download', { name: trail?.name });
     cancelRef.current = false;
     setStatus('downloading');
     setMessage(null);
@@ -379,7 +376,7 @@ export function useOfflineTrail(
     setStatus(messages.length > 0 ? 'error' : 'done');
     setMessage(messages.length > 0 ? messages.join(' ') : null);
     await refresh();
-  }, [trailSlug, pois.length, downloadNarrations, downloadMap, refresh]);
+  }, [trailSlug, trail?.name, pois.length, downloadNarrations, downloadMap, refresh]);
 
   const cancel = useCallback(() => {
     cancelRef.current = true;

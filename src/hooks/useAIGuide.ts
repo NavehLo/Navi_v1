@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Coordinate3D } from "../utils/trailUtils";
-import { supabase } from "../lib/supabase";
+import { authHeaders } from "../lib/authHeaders";
 import { poiKeyFor } from "../lib/poiKey";
 import { NO_VOICE, getStoredNarration } from "../lib/offlineAudio";
 import { readVoicePrefs } from "../lib/voicePrefs";
@@ -362,12 +362,7 @@ export function useAIGuide() {
     try {
       // Attach the signed-in user's token so the server can enforce a real
       // per-account daily quota instead of just an IP-based one.
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (supabase) {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const accessToken = sessionData.session?.access_token;
-        if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
-      }
+      const headers: Record<string, string> = { "Content-Type": "application/json", ...(await authHeaders()) };
 
       const response = await fetch("/api/tour-guide", {
         method: "POST",

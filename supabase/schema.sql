@@ -540,5 +540,92 @@ $$;
 revoke execute on function public.ai_usage_today(timestamptz, uuid, text) from public, anon, authenticated;
 grant execute on function public.ai_usage_today(timestamptz, uuid, text) to service_role;
 
+-- ── דו״ח משתמשים ("משתמשים ושימוש" בהגדרות של המנהל) ──────────────────────
+-- app_events: פעולה אחת באפליקציה (פתיחת מסלול, סיור וירטואלי, הקלטה…), נכתב
+-- רק מהשרת (src/app/api/events). מי: user_id למחוברים; device_id — מזהה אקראי
+-- שהמכשיר יצר לעצמו (לא מזהה חומרה); client_hash — IP מגובב, לא ה-IP עצמו.
+-- שימוש של המנהל לא נשמר בכלל.
+create table if not exists public.app_events (
+  id bigint generated always as identity primary key,
+  created_at timestamptz not null default now(),
+  event text not null,
+  user_id uuid references auth.users (id) on delete set null,
+  user_email text,
+  device_id text,
+  client_hash text,
+  native boolean not null default false,
+  props jsonb
+);
+create index if not exists app_events_created_at_idx on public.app_events (created_at);
+alter table public.app_events enable row level security;
+-- אין policy: רק השרת עם service_role קורא וכותב.
+grant select, insert, delete on public.app_events to service_role;
+grant usage, select on sequence public.app_events_id_seq to service_role;
+
+-- המכשיר של כל קריאת AI, כדי לחבר אותה לאורח ולהחריג את מכשירי המנהל.
+alter table public.ai_usage add column if not exists device_id text;
+
+-- המכשירים וכתובות ה-IP של המנהל: כל שימוש מהם לא נספר בדו״ח ופטור מהמגבלות.
+-- מכשיר נוסף כאן מעצמו כשהמנהל מחובר בו, או בכפתור "המכשיר הזה שלי".
+create table if not exists public.owner_devices (
+  device_id text primary key,
+  label text,
+  created_at timestamptz not null default now()
+);
+alter table public.owner_devices enable row level security;
+grant select, insert, update, delete on public.owner_devices to service_role;
+
+create table if not exists public.owner_ips (
+  ip text primary key,
+  label text,
+  created_at timestamptz not null default now()
+);
+alter table public.owner_ips enable row level security;
+grant select, insert, update, delete on public.owner_ips to service_role;
+
+-- הפעולות מאז p_since, מקובצות לפי אדם, פעולה ויום (שעון ישראל) — כדי
+-- שהדו״ח יספור בכמה ימים שונים כל אחד השתמש.
+create or replace function public.app_events_summary(p_since timestamptz)
+returns table(
+  user_id uuid, user_email text, device_id text, client_hash text, native boolean,
+  event text, day date, events bigint, first_at timestamptz, last_at timestamptz
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select user_id, user_email, device_id, client_hash, native, event,
+         (created_at at time zone 'Asia/Jerusalem')::date,
+         count(*), min(created_at), max(created_at)
+  from public.app_events
+  where p_since is null or created_at >= p_since
+  group by 1, 2, 3, 4, 5, 6, 7;
+$$;
+revoke execute on function public.app_events_summary(timestamptz) from public, anon, authenticated;
+grant execute on function public.app_events_summary(timestamptz) to service_role;
+
+-- קריאות ה-AI מאז p_since, לפי אדם, שירות ויום.
+create or replace function public.ai_usage_by_person(p_since timestamptz)
+returns table(
+  user_id uuid, user_email text, device_id text, client_hash text, exempt boolean,
+  provider text, day date, calls bigint, chars bigint, searches bigint, cost_usd numeric,
+  first_at timestamptz, last_at timestamptz
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select user_id, user_email, device_id, client_hash, exempt, provider,
+         (created_at at time zone 'Asia/Jerusalem')::date,
+         count(*), sum(chars), sum(searches), sum(cost_usd), min(created_at), max(created_at)
+  from public.ai_usage
+  where p_since is null or created_at >= p_since
+  group by 1, 2, 3, 4, 5, 6, 7;
+$$;
+revoke execute on function public.ai_usage_by_person(timestamptz) from public, anon, authenticated;
+grant execute on function public.ai_usage_by_person(timestamptz) to service_role;
+
 -- PostgREST מכיר פונקציה חדשה רק אחרי רענון של מטמון הסכמה.
 notify pgrst, 'reload schema';

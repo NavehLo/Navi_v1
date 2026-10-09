@@ -240,3 +240,12 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   (each country's official system; pass the country code when known — it
   picks the Cyrillic system). The original name always stays the title.
   Run `node scripts/checkRomanize.mjs` after changing a table.
+- **The users report counts every feature, never the owner.** A new
+  user-facing feature calls `track` (`src/lib/track.ts`) with a name added to
+  `EVENT_LABELS` (`src/lib/appEvents.ts`, which is also the server's whitelist
+  and the report's Hebrew label). Client requests send `authHeaders()` — it
+  carries the device id (`X-Navi-Device`) as well as the token. The owner is
+  left out only on the server (`src/lib/ownerExclusion.ts`: the address,
+  `owner_devices`, `owner_ips` — an IP only for someone not signed in); never
+  rely on the page to say who it is. Never store a raw IP (`hashClient`), and
+  never write the owner's IP into a tracked file — the repository is public.

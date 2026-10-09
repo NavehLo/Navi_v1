@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { track } from '../lib/track';
 import { ArrowRight, Footprints, Map as MapIcon, MapPin, Route } from 'lucide-react';
 import { countryName } from '../lib/worldTrailSearch';
 import { hostOf } from '../lib/countryGuide/client';
@@ -53,6 +54,7 @@ export default function CountryGuide({
   const scrollRef = useRef<HTMLDivElement>(null);
   const regionRefs = useRef<(HTMLElement | null)[]>([]);
 
+  useEffect(() => { track('country_guide', { country: guide.country }); }, [guide.country]);
   useEffect(() => {
     if (kept.country !== guide.country) Object.assign(kept, { scroll: 0, country: guide.country });
     if (scrollRef.current) scrollRef.current.scrollTop = kept.scroll;
