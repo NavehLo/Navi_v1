@@ -3,7 +3,7 @@ import { ArrowRight, BookOpen, ChevronLeft, Footprints, Loader2, RefreshCw, Sear
 import InfoButton from './help/InfoButton';
 import Collapsible from './Collapsible';
 import { RATING_DOT, RATING_TEXT } from './BestMonthsSection';
-import { CLIMATE_VERSION, MONTH_NAMES, MONTH_SHORT, RATING_LABELS, type MonthRating } from '../lib/climate';
+import { CLIMATE_VERSION, MONTH_NAMES, RATING_LABELS, type MonthRating } from '../lib/climate';
 import { countryName } from '../lib/worldTrailSearch';
 import { latinName } from '../lib/trailNames';
 import { groupLabel, type WmtRouteSummary } from '../lib/waymarked';
@@ -453,37 +453,34 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
 
   // ── Pieces ──────────────────────────────────────────────────────────────
 
-  const monthChips = (
-    <div className="grid grid-cols-6 gap-1 shrink-0" role="radiogroup" aria-label="בחירת חודש">
-      {MONTH_SHORT.map((m, i) => (
-        <button
-          key={i}
-          role="radio"
-          aria-checked={i === month}
-          aria-label={MONTH_NAMES[i]}
-          onClick={() => setMonth(i)}
-          className={`rounded-lg py-1.5 text-xs font-bold transition-colors border ${i === month ? 'bg-orange-500 text-white border-orange-400' : 'bg-white/5 text-white border-white/10 hover:bg-white/10'}`}
-        >
-          {m}
-        </button>
-      ))}
-    </div>
+  // Drop-downs, not rows of chips: on a phone the chips took half the panel
+  // and left the list little room.
+  const select = 'w-full bg-zinc-900 text-white text-sm font-bold border border-white/20 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-500/60';
+  const monthSelect = (
+    <select className={select} value={month} onChange={(e) => setMonth(Number(e.target.value))} aria-label="בחירת חודש">
+      {MONTH_NAMES.map((m, i) => <option key={i} value={i}>{m}</option>)}
+    </select>
   );
 
   const continentLabel = CONTINENTS.find((c) => c.id === continent)?.label;
-  const continentChips = (
-    <div className="flex flex-wrap gap-1.5 shrink-0" role="radiogroup" aria-label="סינון לפי יבשת">
-      {[{ id: null, label: 'כל העולם' }, ...CONTINENTS].map((c) => (
-        <button
-          key={c.id ?? 'all'}
-          role="radio"
-          aria-checked={continent === c.id}
-          onClick={() => setContinent(c.id)}
-          className={`px-2.5 py-1 rounded-full text-xs font-bold border transition-colors ${continent === c.id ? 'bg-orange-500 text-white border-orange-400' : 'bg-white/5 text-white border-white/15 hover:bg-white/10'}`}
-        >
-          {c.label}
-        </button>
-      ))}
+  const continentSelect = (
+    <select
+      className={select}
+      value={continent ?? ''}
+      onChange={(e) => setContinent((e.target.value || null) as Continent | null)}
+      aria-label="סינון לפי יבשת"
+    >
+      <option value="">כל העולם</option>
+      {CONTINENTS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+    </select>
+  );
+
+  const ratingSelect = (
+    <div className="relative min-w-0">
+      <span className={`pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full ${RATING_DOT[rating]}`} />
+      <select className={`${select} pr-7`} value={rating} onChange={(e) => setRating(e.target.value as MonthRating)} aria-label="בחירת דרגה">
+        {(['good', 'fair', 'bad'] as const).map((r) => <option key={r} value={r}>{RATING_LABELS[r]}</option>)}
+      </select>
     </div>
   );
 
@@ -647,20 +644,9 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
             )}
           </div>
         )}
-        {monthChips}
-        <div className="flex flex-wrap gap-1.5 shrink-0" role="radiogroup" aria-label="בחירת דרגה">
-          {(['good', 'fair', 'bad'] as const).map((r) => (
-            <button
-              key={r}
-              role="radio"
-              aria-checked={r === rating}
-              onClick={() => setRating(r)}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-colors ${r === rating ? 'bg-white/20 text-white border-white/40' : 'bg-transparent text-white border-white/15 hover:bg-white/5'}`}
-            >
-              <span className={`w-2 h-2 rounded-full ${RATING_DOT[r]}`} />
-              {RATING_LABELS[r]}
-            </button>
-          ))}
+        <div className="grid grid-cols-2 gap-2 shrink-0">
+          {monthSelect}
+          {ratingSelect}
         </div>
 
         <div
@@ -860,8 +846,10 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
     <div className="flex flex-col gap-3 flex-1 min-h-0">
       {header}
 
-      {mode === 'month' && monthChips}
-      {continentChips}
+      <div className={`grid gap-2 shrink-0 ${mode === 'month' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+        {mode === 'month' && monthSelect}
+        {continentSelect}
+      </div>
 
       <div className="relative shrink-0">
         <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-300" size={16} />
