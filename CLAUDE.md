@@ -45,12 +45,26 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   table privileges**: every new table needs explicit `grant`s — to
   `authenticated` for per-user tables, to `service_role` (and its identity
   sequence) for server-only tables — or PostgREST answers 42501.
-- **Every paid AI or search call is logged.** Call `recordAiUsage` (from
-  `src/lib/aiUsage.ts`) after a successful call, wrap the route's handler in
-  `withAiUsage(request, area, …)`, give a new area/kind a Hebrew label in
-  `FEATURE_LABELS` (`src/components/AiUsagePanel.tsx`), and a new model a
-  price in `src/lib/aiPricing.ts`. Client requests to such routes send
-  `authHeaders()` (`src/lib/authHeaders.ts`) so usage is attributed to the user.
+- **Every AI or search call is limited and logged.** Call `ensureAllowed(provider)`
+  (`src/lib/aiLimits.ts`) right before the call and `recordAiUsage` (from
+  `src/lib/aiUsage.ts`) after a successful one; wrap the route's handler in
+  `withAiUsage(request, area, …)` (an admin script: `withAiArea`, which is
+  exempt). A text engine refused by a limit is skipped, not paused
+  (`isAiLimitError`) — reaching a paid limit must leave the free engine
+  working. Give a new area/kind a Hebrew label in `FEATURE_LABELS`
+  (`src/components/AiUsagePanel.tsx`), a new model a price in
+  `src/lib/aiPricing.ts`, and a row in README's "איפה האפליקציה משתמשת ב-AI".
+  Paid keys are exactly `PAID_PROVIDERS` (OpenAI, paid Gemini, Claude); only
+  they count in dollars, toward the daily caps and the email alerts.
+  ElevenLabs and Tavily are on free plans with no billing — their cost is 0
+  (`ELEVENLABS_TAVILY_BILLED` in aiPricing.ts) and their allowance is shown as
+  credits. The limits' values live in `ai_settings`, set from the admin's
+  screen — never hard-code a quota in a route or an env var. The admin
+  (`ADMIN_EMAILS`) is exempt from every limit and alert. Client requests to
+  these routes send `authHeaders()` (`src/lib/authHeaders.ts`) so usage is
+  charged to the user, not to a guest. Code the admin's scripts load through
+  Node's type stripping (anything `scripts/*.mjs` imports) must not use
+  TypeScript parameter properties.
 - **Sign-in is PKCE only.** The browser client is created with
   `flowType: 'pkce'` (`src/lib/supabase.ts`), and a sign-in that returns to
   the app is finished only by `exchangeCodeForSession`. Never call
@@ -63,8 +77,10 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   explanation uses `GEMINI_FREE_API_KEY` only.
 - **ElevenLabs is on the free plan**: only `premade` voices work over the API
   (Voice Library voices → 402 `paid_plan_required`), and Hebrew only on
-  `eleven_v3`. Credits (10,000/month) are shown to the admin, who gets an alert
-  when they run low or out.
+  `eleven_v3`. Credits (10,000/month, renewed on the 14th) and Tavily's
+  (1,000/month, renewed on the 1st, pay-as-you-go off) are shown to the admin,
+  who gets an alert on the map screen when either runs low or out
+  (`CreditsAlert`).
 - **Caches have versions.** Bump `DISCOVERY_VERSION` (`poiDiscoveryCache.ts`)
   and `PREFIX` (`poiCache.ts`) when the guide-point filter changes, and
   `INFO_VERSION` (`trailInfo/cache.ts`) when "על המסלול" changes. Bumping

@@ -19,6 +19,7 @@ import {
 
 export type { NiqqudProvider, NiqqudOutcome } from './niqqud';
 import { geminiTokens, recordAiUsage } from './aiUsage';
+import { ensureAllowed } from './aiLimits';
 
 // Text-to-speech, one voice chosen per request.
 //
@@ -198,6 +199,8 @@ export async function synthesize(
 
 async function synthesizeOpenAI(text: string, voice: TtsVoice): Promise<{ buffer: Buffer; format: string } | null> {
   try {
+    // A paid key: over a limit, the phone's own voice reads it instead.
+    await ensureAllowed('openai');
     const res = await fetch('https://api.openai.com/v1/audio/speech', {
       method: 'POST',
       headers: {
@@ -227,6 +230,7 @@ async function synthesizeOpenAI(text: string, voice: TtsVoice): Promise<{ buffer
 
 async function synthesizeGemini(text: string, voice: TtsVoice): Promise<{ buffer: Buffer; format: string } | null> {
   try {
+    await ensureAllowed('gemini');
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${voice.model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {

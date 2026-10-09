@@ -1,6 +1,7 @@
 import { NextResponse, after } from 'next/server';
 import { rateLimit, clientIp } from '../../../lib/rateLimit';
 import { geminiTokens, recordAiUsage, withAiUsage } from '../../../lib/aiUsage';
+import { ensureAllowed, isAiLimitError } from '../../../lib/aiLimits';
 import { serviceClient } from '../../../lib/supabaseService';
 import { availableActions, type HelpActionId, type HelpScreen } from '../../../lib/helpChat/actions';
 import { placesOnScreen, systemPrompt } from '../../../lib/helpChat/knowledge';
@@ -44,6 +45,7 @@ const FOREIGN_SCRIPT = /[؀-ۿЀ-ӿ]/;
 class QuotaError extends Error {}
 
 async function generate(system: string, turns: Turn[], actions: HelpActionId[], places: HelpPlaceId[]) {
+  await ensureAllowed('gemini-free');
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${KEY}`,
     {
@@ -153,7 +155,7 @@ async function handlePost(request: Request) {
     log({ question, answer: reply.answer, actions: reply.actions, screen, status: 'ok' });
     return NextResponse.json({ status: 'ok' satisfies Status, ...reply });
   } catch (error) {
-    const status: Status = error instanceof QuotaError ? 'busy' : 'unavailable';
+    const status: Status = error instanceof QuotaError || isAiLimitError(error) ? 'busy' : 'unavailable';
     console.error('Help chat error:', error);
     // The reason goes into the admin's list: the server logs are not always at hand.
     const reason = error instanceof Error ? error.message.trim().slice(0, 300) : String(error);

@@ -61,7 +61,7 @@ import {
   listSavedTrails, listTourHistory, listTrailNotes, cachePersonalData, warmSavedTrailFiles,
 } from "@/lib/personalArea";
 import type { TrailData, TrailPOI, DrivePlace, TrailSource, WmtParent } from "@/hooks/useTrailData";
-import { ElevenLabsCreditsAlert } from "@/components/ElevenLabsCredits";
+import CreditsAlert from "@/components/CreditsAlert";
 import HelpChat from "@/components/HelpChat";
 import PhotoViewer from "@/components/PhotoViewer";
 import { useTrailPhotosMap } from "@/hooks/useTrailPhotosMap";
@@ -1584,7 +1584,7 @@ export default function TrailApp() {
 
       {/* Strayed off the route: said once, loudly, until back on it */}
       {/* The admin's alone: the server answers 403 to everyone else. */}
-      <ElevenLabsCreditsAlert signedInAs={sessionLive ? user?.id ?? null : null} />
+      <CreditsAlert signedInAs={sessionLive ? user?.id ?? null : null} />
 
       {offRoute.alert && (
         <div className={`absolute top-16 inset-x-3 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-[400px] z-[55] bg-red-600 text-white rounded-2xl shadow-2xl border border-red-300/40 p-3 flex items-center gap-2 ${offRoute.alert.silenced ? '' : 'animate-pulse'}`} dir="rtl" role="alert">

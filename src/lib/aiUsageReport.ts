@@ -2,6 +2,11 @@
 
 export interface UsageTotals {
   calls: number;
+  // Calls to the paid keys (OpenAI, paid Gemini, Claude), and calls to the
+  // free Gemini key. costUsd counts the paid keys only: the free plans of
+  // ElevenLabs and Tavily, and the free Gemini key, are never billed.
+  paidCalls: number;
+  freeTextCalls: number;
   inputTokens: number;
   outputTokens: number;
   chars: number;
@@ -17,6 +22,8 @@ export interface UsageGroup extends UsageTotals {
   provider?: string;
   model?: string;
   email?: string | null;
+  // The admin, or the admin's scripts: recorded, not limited.
+  exempt?: boolean;
   // The models a use ran on, or the uses a model served — the second level of
   // detail, cheapest last.
   parts: Array<{ label: string; calls: number; costUsd: number }>;

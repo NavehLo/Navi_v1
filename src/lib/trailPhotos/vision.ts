@@ -1,4 +1,5 @@
 import { geminiTokens, recordAiUsage } from '../aiUsage';
+import { ensureAllowed, isAiLimitError } from '../aiLimits';
 import type { Candidate, Placed, Verdict } from './select';
 
 // The free model looks at the shortlisted pictures (select.ts → shortlist):
@@ -61,6 +62,7 @@ export async function lookAtPhotos(list: Placed<Candidate>[]): Promise<Map<strin
   });
 
   try {
+    await ensureAllowed('gemini-free');
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${KEY}`,
       {
@@ -110,7 +112,7 @@ export async function lookAtPhotos(list: Placed<Candidate>[]): Promise<Map<strin
     }
     return out.size ? out : null;
   } catch (e) {
-    if (!(e instanceof QuotaError)) console.error('Trail photos: the model could not look at the photos:', e);
+    if (!(e instanceof QuotaError) && !isAiLimitError(e)) console.error('Trail photos: the model could not look at the photos:', e);
     return null;
   }
 }

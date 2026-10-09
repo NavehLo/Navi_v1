@@ -1,4 +1,5 @@
 import { recordAiUsage } from './aiUsage';
+import { ensureAllowed, isAiLimitError } from './aiLimits';
 
 // ElevenLabs text-to-speech.
 //
@@ -243,6 +244,15 @@ export async function synthesizeElevenLabs(
         variantsTried: [],
       },
     };
+  }
+
+  // The person's daily share of the free credits (lib/aiLimits). Over it,
+  // the narration is read by the phone's own voice.
+  try {
+    await ensureAllowed('elevenlabs', { chars: text.length });
+  } catch (e) {
+    if (!isAiLimitError(e)) throw e;
+    return { ok: false, error: { status: null, detail: 'daily voice limit reached (Navi)', variantsTried: [] } };
   }
 
   const signature = elevenLabsVoiceSignature(override);

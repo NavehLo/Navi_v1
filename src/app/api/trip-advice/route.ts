@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { rateLimit, clientIp } from '../../../lib/rateLimit';
 import type { AdviceInput } from '../../../lib/tripAdvice';
 import { geminiTokens, recordAiUsage, withAiUsage } from '../../../lib/aiUsage';
+import { ensureAllowed } from '../../../lib/aiLimits';
 
 // A few sentences on what the trip day will be like, from the conclusions the
 // app already reached (lib/hikeAdvice.ts). Off by default in the panel — the
@@ -72,6 +73,8 @@ function clean(text: string): string | null {
 }
 
 async function generate(user: string): Promise<string> {
+  // Over the person's daily share: the plain sentences stay.
+  await ensureAllowed('gemini-free');
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${KEY}`,
     {

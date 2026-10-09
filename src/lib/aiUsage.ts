@@ -1,7 +1,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { createHash } from 'node:crypto';
 import { type AiProvider, type UsageUnits, estimateCost } from './aiPricing';
 import { serviceClient } from './supabaseService';
-import { bearerToken, userFromToken } from './supabaseServer';
+import { bearerToken, isAdminEmail, userFromToken } from './supabaseServer';
+import { clientIp } from './rateLimit';
+import { afterRecorded, type TodayUsage } from './aiLimits';
 
 // A log of every paid AI call, for the admin's "שימוש ועלויות AI" page.
 //
@@ -10,6 +13,11 @@ import { bearerToken, userFromToken } from './supabaseServer';
 // thread "which feature, which user" through every signature, each route wraps
 // its work in `withAiUsage`, and the provider code calls `recordAiUsage` with
 // only what it knows — provider, model, tokens. The two meet here.
+//
+// The same context says who is paying for the call — a signed-in user, a
+// guest (by a hash of the IP, never the IP itself), or the admin and the
+// admin's scripts, which are recorded but exempt from the limits
+// (lib/aiLimits checks those before every call).
 //
 // Only successful calls are recorded: a refused or failed request is not billed.
 // Recording never throws and never holds a response up for long: a missing
@@ -35,18 +43,55 @@ export type AiKind = 'text' | 'voice' | 'search';
 interface UsageContext {
   area: AiArea;
   token: string | null;
-  user?: Promise<{ id: string; email: string | null } | null>;
+  client: string | null;  // hashed IP, for guests
+  script: boolean;        // started on the admin's machine, not by a request
+  who?: Promise<Payer>;
+  // Today's usage, read once per request and kept current as calls are
+  // recorded (lib/aiLimits).
+  today?: Promise<TodayUsage | null>;
+}
+
+// Who a call is charged to, for the limits and the log.
+export interface Payer {
+  userId: string | null;
+  email: string | null;
+  client: string | null;
+  exempt: boolean;
 }
 
 const context = new AsyncLocalStorage<UsageContext>();
 
+// A guest is told apart by IP, stored only as a salted hash.
+function hashClient(ip: string): string {
+  return createHash('sha256').update(`navi-client:${ip}:${process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''}`).digest('hex').slice(0, 32);
+}
+
 export function withAiUsage<T>(request: Request, area: AiArea, work: () => Promise<T>): Promise<T> {
-  return context.run({ area, token: bearerToken(request) }, work);
+  return context.run({ area, token: bearerToken(request), client: hashClient(clientIp(request)), script: false }, work);
 }
 
 // The same, for work that no request started: the admin's scripts.
 export function withAiArea<T>(area: AiArea, work: () => Promise<T>): Promise<T> {
-  return context.run({ area, token: null }, work);
+  return context.run({ area, token: null, client: null, script: true }, work);
+}
+
+export function currentContext(): UsageContext | undefined {
+  return context.getStore();
+}
+
+// One lookup per request, however many calls it makes.
+export function payerOf(ctx: UsageContext): Promise<Payer> {
+  ctx.who ??= (async () => {
+    if (ctx.script) return { userId: null, email: null, client: null, exempt: true };
+    const user = ctx.token ? await userFromToken(ctx.token) : null;
+    return {
+      userId: user?.id ?? null,
+      email: user?.email ?? null,
+      client: user ? null : ctx.client,
+      exempt: isAdminEmail(user?.email),
+    };
+  })();
+  return ctx.who;
 }
 
 export interface UsageRecord extends UsageUnits {
@@ -76,24 +121,28 @@ export async function recordAiUsage(record: UsageRecord): Promise<void> {
       return;
     }
     const ctx = context.getStore();
-    // One lookup per request, however many calls it makes.
-    if (ctx?.token) ctx.user ??= userFromToken(ctx.token);
-    const user = ctx?.user ? await ctx.user : null;
+    const payer = ctx ? await payerOf(ctx) : null;
+    const costUsd = estimateCost(record.provider, record.model, record);
 
-    const { error } = await db.from('ai_usage').insert({
+    const row = {
       area: ctx?.area ?? 'other',
       kind: record.kind,
       provider: record.provider,
       model: record.model,
-      user_id: user?.id ?? null,
-      user_email: user?.email ?? null,
+      user_id: payer?.userId ?? null,
+      user_email: payer?.email ?? null,
       input_tokens: Math.round(record.inputTokens ?? 0),
       output_tokens: Math.round(record.outputTokens ?? 0),
       chars: Math.round(record.chars ?? 0),
       searches: Math.round(record.searches ?? 0),
-      cost_usd: estimateCost(record.provider, record.model, record),
-    });
+      cost_usd: costUsd,
+    };
+    let { error } = await db.from('ai_usage').insert({ ...row, client_hash: payer?.client ?? null, exempt: payer?.exempt ?? false });
+    // Before schema.sql adds the payer columns, the row still goes in.
+    if (error && /client_hash|exempt/.test(error.message)) ({ error } = await db.from('ai_usage').insert(row));
     if (error) console.error('AI usage not recorded:', error.message);
+
+    if (ctx && payer) await afterRecorded(ctx, payer, record, costUsd);
   } catch (e) {
     console.error('AI usage not recorded:', e);
   }

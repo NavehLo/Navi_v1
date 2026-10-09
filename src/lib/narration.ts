@@ -25,6 +25,7 @@ import {
   sourcesForStorage,
 } from './grounding';
 import { geminiTokens, recordAiUsage } from './aiUsage';
+import { ensureAllowed, isAiLimitError } from './aiLimits';
 
 // One narration for one point of interest, produced in two halves so the
 // caller can put a quota check between them: `lookupNarration` is free and
@@ -231,7 +232,9 @@ async function generateTextClaude(system: string, user: string, opts: TextOption
   return data.content.map((b: any) => (b.type === 'text' ? b.text : '')).join('');
 }
 
-function generateText(engine: TextEngine, system: string, user: string, opts?: TextOptions): Promise<string> {
+async function generateText(engine: TextEngine, system: string, user: string, opts?: TextOptions): Promise<string> {
+  // Over a limit (lib/aiLimits): this engine is skipped, the chain goes on.
+  await ensureAllowed(engine);
   if (engine === 'gemini') return generateTextGemini(system, user, false, opts);
   if (engine === 'gemini-free') return generateTextGemini(system, user, true, opts);
   if (engine === 'claude') return generateTextClaude(system, user, opts);
@@ -256,6 +259,9 @@ export async function generateTextWithFallback(
       lastError = new Error(`${engine} returned empty text`);
     } catch (e) {
       lastError = e;
+      // A limit is about this person or today, not about the engine: it stays
+      // in the chain for everyone else.
+      if (isAiLimitError(e)) continue;
       pauseEngine(engine);
       console.error(`Narration text via ${engine} failed, trying the next provider:`, e);
     }

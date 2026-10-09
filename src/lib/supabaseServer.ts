@@ -25,11 +25,19 @@ export function bearerToken(request: Request): string | null {
 // the niqqud check. Server-side on purpose: the repository is public, so the
 // address stays out of the code and out of the page, and the tools that spend
 // TTS credits are closed to everyone else, not merely hidden from them.
-export async function isAdminRequest(request: Request): Promise<boolean> {
-  const admins = (process.env.ADMIN_EMAILS ?? '')
+export function adminEmails(): string[] {
+  return (process.env.ADMIN_EMAILS ?? '')
     .split(',')
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
+}
+
+export function isAdminEmail(email: string | null | undefined): boolean {
+  return !!email && adminEmails().includes(email.toLowerCase());
+}
+
+export async function isAdminRequest(request: Request): Promise<boolean> {
+  const admins = adminEmails();
   if (admins.length === 0) return false;
   const token = bearerToken(request);
   if (!token) return false;
@@ -49,59 +57,6 @@ export async function userFromToken(token: string): Promise<{ id: string; email:
   } catch {
     return null;
   }
-}
-
-export interface QuotaResult {
-  // false when the quota could not be enforced — either Supabase isn't set up
-  // at all, or it's unreachable (see `unavailable`). Either way the caller must
-  // fall back to another limit rather than letting the request through unmetered.
-  configured: boolean;
-  unavailable: boolean; // Supabase is configured but the RPC failed (paused project, outage)
-  allowed: boolean;
-  chars: number;
-}
-
-// The daily quota is a character budget, because characters are what the TTS
-// provider actually bills. Only a cache miss spends any of it — replaying a
-// narration that already exists costs nothing and so is never counted.
-//
-// Called twice per miss: once with chars = 0, which changes nothing and only
-// reports whether the user is still under budget, and once afterwards with the
-// characters actually synthesized. A user can therefore overshoot by at most
-// one narration, and never by a narration that was free.
-//
-// See supabase/schema.sql → increment_guide_usage.
-async function callGuideUsage(
-  accessToken: string,
-  dailyLimit: number,
-  chars: number
-): Promise<QuotaResult> {
-  const client = userScopedClient(accessToken);
-  if (!client) return { configured: false, unavailable: false, allowed: true, chars: 0 };
-
-  try {
-    const { data, error } = await client.rpc('increment_guide_usage', {
-      p_daily_limit: dailyLimit,
-      p_chars: chars,
-    });
-    if (error || !data || !data[0]) throw error ?? new Error('empty quota response');
-    return { configured: true, unavailable: false, allowed: data[0].allowed, chars: data[0].current_chars };
-  } catch (e) {
-    // Don't hard-fail the user, but don't hand out unmetered TTS either: the
-    // caller degrades to the per-IP daily cap while Supabase is down.
-    console.error('Guide quota RPC failed:', e);
-    return { configured: false, unavailable: true, allowed: true, chars: 0 };
-  }
-}
-
-// Read-only: is this user still under today's character budget?
-export function checkGuideQuota(accessToken: string, dailyCharLimit: number): Promise<QuotaResult> {
-  return callGuideUsage(accessToken, dailyCharLimit, 0);
-}
-
-// Records characters that were actually synthesized (and therefore paid for).
-export function recordGuideUsage(accessToken: string, dailyCharLimit: number, chars: number): Promise<QuotaResult> {
-  return callGuideUsage(accessToken, dailyCharLimit, Math.max(1, Math.round(chars)));
 }
 
 // Cheap read used by /api/keepalive to keep a free-tier project from being

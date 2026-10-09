@@ -1,12 +1,10 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, X } from "lucide-react";
 import { authHeaders } from "../lib/authHeaders";
 import type { CreditsReport } from "../lib/creditsReport";
 
 // The ElevenLabs allowance, for the admin: how much is left, how fast it is
-// going, and which plan that pace would need. Two views of the same answer —
-// a card in settings (ElevenLabsCreditsCard) and an alert on the map screen
-// when it is running out (ElevenLabsCreditsAlert).
+// going, and which plan that pace would need. A card in settings; the alert on
+// the map screen when it runs low is CreditsAlert, shared with Tavily.
 
 // ElevenLabs' plans as of 2026-10-03 (elevenlabs.io/pricing), one credit per
 // character.
@@ -21,7 +19,7 @@ const num = (n: number) => Math.round(n).toLocaleString("he-IL");
 const date = (iso: string) => new Date(iso).toLocaleDateString("he-IL", { day: "numeric", month: "numeric" });
 const daysBetween = (a: number, b: number) => Math.round((b - a) / 86_400_000);
 
-async function fetchCredits(): Promise<CreditsReport | null> {
+export async function fetchCredits(): Promise<CreditsReport | null> {
   const headers = await authHeaders();
   // Nobody signed in: certainly not the admin, and no reason to ask.
   if (!headers.Authorization) return null;
@@ -124,60 +122,6 @@ export function ElevenLabsCreditsCard() {
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-// Dismissed per level and per period: a "running low" that was dismissed
-// still alerts again when it actually runs out, and again next month.
-const DISMISS_KEY = "navi:creditsAlertDismissed.v1";
-
-export function ElevenLabsCreditsAlert({ signedInAs }: { signedInAs: string | null }) {
-  const [report, setReport] = useState<CreditsReport | null>(null);
-  const [dismissed, setDismissed] = useState<string | null>(() => {
-    try { return localStorage.getItem(DISMISS_KEY); } catch { return null; }
-  });
-
-  useEffect(() => {
-    if (!signedInAs) return;
-    let live = true;
-    fetchCredits().then((r) => live && setReport(r)).catch(() => {});
-    return () => { live = false; };
-  }, [signedInAs]);
-
-  if (!signedInAs || report?.status !== "ok" || report.level === "ok") return null;
-  const key = `${report.level}:${report.resetAt ?? ""}`;
-  if (dismissed === key) return null;
-
-  const dismiss = () => {
-    setDismissed(key);
-    try { localStorage.setItem(DISMISS_KEY, key); } catch {}
-  };
-
-  const out = report.level === "out";
-  return (
-    <div
-      className={`absolute bottom-24 inset-x-3 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-[420px] z-[56] rounded-2xl shadow-2xl border p-3 flex items-start gap-2 ${
-        out ? "bg-red-700 border-red-300/40" : "bg-amber-600 border-amber-200/40"
-      }`}
-      dir="rtl"
-      role="alert"
-    >
-      <AlertTriangle size={20} className="text-white shrink-0 mt-0.5" />
-      <div className="flex-1 text-white text-sm leading-6">
-        <p className="font-bold">{out ? "נגמרו הקרדיטים של ElevenLabs" : "הקרדיטים של ElevenLabs עומדים להיגמר"}</p>
-        <p>
-          נוצלו {num(report.used)} מתוך {num(report.limit)}
-          {report.resetAt && <>, מתחדש ב-{date(report.resetAt)}</>}.
-          {out
-            ? " עד אז נקודות חדשות יוקראו בקול של הטלפון."
-            : report.runsOutAt && <> בקצב הנוכחי ייגמרו בערך ב-{date(report.runsOutAt)}.</>}
-        </p>
-        <p className="text-xs mt-1">הפרטים בהגדרות ← שימוש ועלויות AI. ההתראה מוצגת רק לך, כמנהל.</p>
-      </div>
-      <button onClick={dismiss} className="text-white p-1 shrink-0" aria-label="סגור התראה">
-        <X size={18} />
-      </button>
     </div>
   );
 }

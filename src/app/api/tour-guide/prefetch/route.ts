@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { rateLimit, clientIp } from '../../../../lib/rateLimit';
-import { bearerToken, checkGuideQuota, recordGuideUsage } from '../../../../lib/supabaseServer';
+import { bearerToken } from '../../../../lib/supabaseServer';
+import { isAiLimitError, voiceCharsLeft } from '../../../../lib/aiLimits';
 import {
   type NarrationInput,
   type NarrationResult,
@@ -19,8 +20,6 @@ import { withAiUsage } from '../../../../lib/aiUsage';
 
 export const maxDuration = 60;
 
-const DAILY_CHARS_PER_USER = parseInt(process.env.GUIDE_DAILY_CHARS_PER_USER || '12000', 10);
-const DAILY_MISSES_ANON = parseInt(process.env.GUIDE_DAILY_MISSES_ANON || '8', 10);
 
 // Generating is slow — several seconds per point — and a serverless function
 // has a deadline. Rather than risk a timeout that loses the whole batch, each
@@ -149,30 +148,15 @@ async function handlePost(request: Request) {
         continue;
       }
 
-      // Each generation is charged, so each one is checked.
-      let quotaEnforced = false;
-      if (token) {
-        const quota = await checkGuideQuota(token, DAILY_CHARS_PER_USER);
-        if (quota.configured && !quota.allowed) {
-          quotaReached = true;
-          quotaScope = 'user';
-          pending.push({ poiKey: lookup.poiKey, reason: 'quota' });
-          continue;
-        }
-        quotaEnforced = quota.configured;
-      }
-      if (!quotaEnforced) {
-        const allowed = await rateLimit(
-          `guide:daily:${clientIp(request)}`,
-          DAILY_MISSES_ANON,
-          24 * 60 * 60 * 1000
-        );
-        if (!allowed) {
-          quotaReached = true;
-          quotaScope = 'anon';
-          pending.push({ poiKey: lookup.poiKey, reason: 'quota' });
-          continue;
-        }
+      // A download is for listening in the field: once the person's daily
+      // share of the voice is used up (lib/aiLimits), the rest waits for
+      // tomorrow rather than being stored without a voice.
+      const voice = await voiceCharsLeft();
+      if (voice && voice.left <= 0) {
+        quotaReached = true;
+        quotaScope = voice.signedIn ? 'user' : 'anon';
+        pending.push({ poiKey: lookup.poiKey, reason: 'quota' });
+        continue;
       }
 
       // One point failing must not lose the points that already succeeded:
@@ -185,11 +169,15 @@ async function handlePost(request: Request) {
         }
         generated++;
         charsThisRequest += result.charsSynthesized;
-        if (token && quotaEnforced && result.charsSynthesized > 0) {
-          await recordGuideUsage(token, DAILY_CHARS_PER_USER, result.charsSynthesized);
-        }
         results.push(result);
       } catch (e) {
+        // Every text engine is over this person's limits for today.
+        if (isAiLimitError(e)) {
+          quotaReached = true;
+          quotaScope = token ? 'user' : 'anon';
+          pending.push({ poiKey: lookup.poiKey, reason: 'quota' });
+          continue;
+        }
         console.error('Narration generation failed for', lookup.poiKey, e);
         failures++;
         pending.push({

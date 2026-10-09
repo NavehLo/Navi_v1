@@ -51,13 +51,20 @@ function tokenPrice(provider: AiProvider, model: string, at: number): TokenPrice
   return null;
 }
 
+// ElevenLabs and Tavily are on free plans with no billing at all (2026-10:
+// ElevenLabs 10,000 characters a month, renewing on the 14th; Tavily 1,000
+// credits a month, renewing on the 1st, pay-as-you-go off). Running out stops
+// the service until it renews — it never charges. So they cost nothing here;
+// their allowances are shown as credits in the admin's screen instead. On a
+// paid plan, set this to true and the list prices below apply.
+const ELEVENLABS_TAVILY_BILLED = false;
+
 // ElevenLabs v3 through the API, any plan.
 const ELEVENLABS_PER_1K_CHARS = 0.08;
 // OpenAI's speech endpoint reports no usage. gpt-4o-mini-tts comes to about
 // $0.015 a minute, and spoken Hebrew runs at roughly 850 characters a minute.
 const OPENAI_TTS_PER_1K_CHARS = 0.015 / 0.85;
-// Tavily pay-as-you-go; a basic search is one credit. The first 1,000 a month
-// are free, so this is the cost once past that allowance.
+// Tavily pay-as-you-go; a basic search is one credit.
 const TAVILY_PER_SEARCH = 0.008;
 // A model's own web search (Claude's web_search tool, OpenAI's web_search
 // call): $10 per 1,000 at both, on top of the tokens the results add.
@@ -73,8 +80,8 @@ export interface UsageUnits {
 export function estimateCost(provider: AiProvider, model: string, units: UsageUnits, at = Date.now()): number {
   // The free key belongs to a Google project with no billing: nothing is charged.
   if (provider === 'gemini-free') return 0;
-  if (provider === 'elevenlabs') return ((units.chars ?? 0) / 1000) * ELEVENLABS_PER_1K_CHARS;
-  if (provider === 'tavily') return (units.searches ?? 0) * TAVILY_PER_SEARCH;
+  if (provider === 'elevenlabs') return ELEVENLABS_TAVILY_BILLED ? ((units.chars ?? 0) / 1000) * ELEVENLABS_PER_1K_CHARS : 0;
+  if (provider === 'tavily') return ELEVENLABS_TAVILY_BILLED ? (units.searches ?? 0) * TAVILY_PER_SEARCH : 0;
   if (provider === 'openai' && model.toLowerCase().includes('tts') && !units.outputTokens) {
     return ((units.chars ?? 0) / 1000) * OPENAI_TTS_PER_1K_CHARS;
   }

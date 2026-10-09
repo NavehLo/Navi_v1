@@ -12,6 +12,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { recordAiUsage } from '../aiUsage';
+import { ensureAllowed } from '../aiLimits';
 import type { AiProvider } from '../aiPricing';
 
 export interface WriterResult {
@@ -38,6 +39,8 @@ export function providerOf(model: string): AiProvider {
 
 export async function writeOverview(system: string, user: string, opts: WriterOptions): Promise<WriterResult> {
   const started = Date.now();
+  // Run from the admin's machine, so exempt — but the same gate as every call.
+  await ensureAllowed(providerOf(opts.model));
   const result = providerOf(opts.model) === 'claude'
     ? await writeWithClaude(system, user, opts)
     : await writeWithOpenAI(system, user, opts);

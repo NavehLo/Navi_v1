@@ -342,30 +342,8 @@ alter table public.ai_usage enable row level security;
 grant select, insert on public.ai_usage to service_role;
 grant usage, select on sequence public.ai_usage_id_seq to service_role;
 
--- סיכום לפי אזור, סוג, מודל ומשתמש מאז p_since (null = הכול). עמוד המנהל
--- מקבץ מזה את הסיכומים לפי שימוש, לפי מודל ולפי משתמש.
-create or replace function public.ai_usage_summary(p_since timestamptz)
-returns table(
-  area text, kind text, provider text, model text,
-  user_id uuid, user_email text,
-  calls bigint, input_tokens bigint, output_tokens bigint,
-  chars bigint, searches bigint, cost_usd numeric, last_at timestamptz
-)
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select area, kind, provider, model, user_id, user_email,
-         count(*), sum(input_tokens), sum(output_tokens),
-         sum(chars), sum(searches), sum(cost_usd), max(created_at)
-  from public.ai_usage
-  where p_since is null or created_at >= p_since
-  group by area, kind, provider, model, user_id, user_email;
-$$;
-
-revoke execute on function public.ai_usage_summary(timestamptz) from public, anon, authenticated;
-grant execute on function public.ai_usage_summary(timestamptz) to service_role;
+-- הסיכום לעמוד המנהל (ai_usage_summary) מוגדר בסעיף "מגבלות שימוש ב-AI" למטה,
+-- אחרי שנוספות העמודות client_hash ו-exempt.
 
 -- ── מסלולי עולם לפי מדינה, עם 12 החודשים ───────────────────────────────────
 -- "מסלולים בעולם לפי חודש": לכל מדינה רשימת המסלולים המסומנים שלה מ-Waymarked
@@ -476,6 +454,91 @@ create table if not exists public.trail_photos (
 alter table public.trail_photos enable row level security;
 -- אין policy: רק השרת עם service_role קורא וכותב.
 grant select, insert, update on public.trail_photos to service_role;
+
+-- ── מגבלות שימוש ב-AI ───────────────────────────────────────────────────────
+-- המגבלות (src/lib/aiLimits.ts) נבדקות לפני כל קריאה לשירות AI, מול מה שנרשם
+-- ב-ai_usage מתחילת היום (שעון ישראל). מי ששילם על הקריאה: client_hash מזהה
+-- אורח לפי IP מגובב (לא ה-IP עצמו), ו-exempt מסמן שימוש של המנהל ושל
+-- הסקריפטים במחשב שלו — הוא נרשם ונראה במסך, אבל לא נספר במגבלות.
+alter table public.ai_usage add column if not exists client_hash text;
+alter table public.ai_usage add column if not exists exempt boolean not null default false;
+
+-- ההגדרות שהמנהל קובע במסך "שימוש ועלויות AI". שורה אחת בלבד (id = 1).
+create table if not exists public.ai_settings (
+  id int primary key default 1 check (id = 1),
+  limits jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+alter table public.ai_settings enable row level security;
+-- אין policy: רק השרת עם service_role קורא וכותב.
+grant select, insert, update on public.ai_settings to service_role;
+
+-- התראות שנשלחו במייל, כדי שכל התראה תישלח פעם אחת בלבד (key כולל את היום).
+create table if not exists public.ai_alerts (
+  key text primary key,
+  subject text not null,
+  created_at timestamptz not null default now()
+);
+alter table public.ai_alerts enable row level security;
+-- אין policy: רק השרת עם service_role קורא וכותב.
+grant select, insert on public.ai_alerts to service_role;
+
+-- שימוש קודם של הסקריפטים של המנהל (אזורי טיול, איסוף מדדי מטיילים) נרשם
+-- בלי משתמש, לפני שהיה exempt — הוא שלו, לא של אורחים.
+update public.ai_usage set exempt = true
+where not exempt and user_id is null and area in ('country_guide', 'trail_crowd');
+
+-- סיכום לפי אזור, סוג, מודל, משתמש ופטור מאז p_since (null = הכול). עמוד
+-- המנהל מקבץ מזה את הסיכומים לפי שימוש, לפי מודל ולפי משתמש. החתימה השתנתה
+-- (נוסף exempt), ולכן הגרסה הקודמת נמחקת קודם.
+drop function if exists public.ai_usage_summary(timestamptz);
+create function public.ai_usage_summary(p_since timestamptz)
+returns table(
+  area text, kind text, provider text, model text,
+  user_id uuid, user_email text, exempt boolean,
+  calls bigint, input_tokens bigint, output_tokens bigint,
+  chars bigint, searches bigint, cost_usd numeric, last_at timestamptz
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select area, kind, provider, model, user_id, user_email, exempt,
+         count(*), sum(input_tokens), sum(output_tokens),
+         sum(chars), sum(searches), sum(cost_usd), max(created_at)
+  from public.ai_usage
+  where p_since is null or created_at >= p_since
+  group by area, kind, provider, model, user_id, user_email, exempt;
+$$;
+
+revoke execute on function public.ai_usage_summary(timestamptz) from public, anon, authenticated;
+grant execute on function public.ai_usage_summary(timestamptz) to service_role;
+
+-- השימוש מאז p_since: של אדם אחד (משתמש מחובר לפי p_user, אורח לפי
+-- p_client) ושל כל האפליקציה, לפי ספק. בלי השורות הפטורות.
+create or replace function public.ai_usage_today(p_since timestamptz, p_user uuid, p_client text)
+returns table(scope text, provider text, calls bigint, chars bigint, searches bigint, cost_usd numeric)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select 'person', provider, count(*), sum(chars), sum(searches), sum(cost_usd)
+  from public.ai_usage
+  where created_at >= p_since and not exempt
+    and ((p_user is not null and user_id = p_user)
+      or (p_user is null and p_client is not null and client_hash = p_client))
+  group by provider
+  union all
+  select 'app', provider, count(*), sum(chars), sum(searches), sum(cost_usd)
+  from public.ai_usage
+  where created_at >= p_since and not exempt
+  group by provider;
+$$;
+
+revoke execute on function public.ai_usage_today(timestamptz, uuid, text) from public, anon, authenticated;
+grant execute on function public.ai_usage_today(timestamptz, uuid, text) to service_role;
 
 -- PostgREST מכיר פונקציה חדשה רק אחרי רענון של מטמון הסכמה.
 notify pgrst, 'reload schema';

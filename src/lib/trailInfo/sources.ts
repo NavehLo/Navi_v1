@@ -11,6 +11,7 @@
 
 import type { SourceTier, TrailInfoRequest } from './types';
 import { recordAiUsage } from '../aiUsage';
+import { ensureAllowed } from '../aiLimits';
 import { crawlSite, fetchHtml, htmlToText, decodeEntities } from './crawl';
 import { fetchWmt } from '../wmtServer';
 import type { WmtRouteDetails } from '../waymarked';
@@ -196,6 +197,8 @@ async function webSearch(query: string): Promise<WebResult[]> {
 export async function tavilySearch(query: string, opts: { domains?: string[]; max?: number } = {}): Promise<WebResult[] | null> {
   const key = process.env.TAVILY_API_KEY;
   if (!key) return null;
+  // Over the person's daily searches (lib/aiLimits): as if there were no key.
+  try { await ensureAllowed('tavily'); } catch { return null; }
   const data = await getJson('https://api.tavily.com/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },

@@ -2,11 +2,15 @@ import { type ReactNode, useEffect, useState } from "react";
 import { Loader2, RotateCcw } from "lucide-react";
 import { authHeaders } from "../lib/authHeaders";
 import { ElevenLabsCreditsCard } from "./ElevenLabsCredits";
+import { TavilyCreditsCard } from "./TavilyCredits";
+import AiLimitsPanel from "./AiLimitsPanel";
 import type { UsageGroup, UsageReport, UsageTotals } from "../lib/aiUsageReport";
 
-// The admin's view of what the app's AI costs: every paid call logged by
-// lib/aiUsage, summed for a period, then broken down by use, by model and by
-// user. Shown inside settings, under "מתקדם".
+// The admin's view of the app's AI: the paid keys (today's spend, the daily
+// cap, the limits and the email alerts — AiLimitsPanel), the free plans'
+// credits, and every call logged by lib/aiUsage, summed for a period and
+// broken down by use, by model and by user. Only the paid keys cost money;
+// the free ones are counted in their own units. Settings → "שימוש ועלויות AI".
 
 const FEATURE_LABELS: Record<string, string> = {
   "guide:text": "המדריך הקולי — כתיבת הקריינות",
@@ -28,11 +32,15 @@ const FEATURE_LABELS: Record<string, string> = {
 const PROVIDER_LABELS: Record<string, string> = {
   openai: "OpenAI",
   gemini: "Gemini",
-  "gemini-free": "Gemini (מפתח חינמי)",
+  "gemini-free": "Gemini",
   claude: "Claude",
   elevenlabs: "ElevenLabs",
   tavily: "Tavily",
 };
+
+// Which keys cost money. Kept beside the names, outside the English, so the
+// Hebrew word reads in its own direction.
+const PAID = new Set(["openai", "gemini", "claude"]);
 
 const PERIODS: Array<{ days: number; label: string }> = [
   { days: 7, label: "7 ימים" },
@@ -47,7 +55,12 @@ const featureLabel = (key: string) => FEATURE_LABELS[key] ?? key;
 // the English and the Hebrew around it keep their own reading order.
 function modelLabel(key: string): ReactNode {
   const [provider, model] = key.split(" · ");
-  return <><bdi>{PROVIDER_LABELS[provider] ?? provider}</bdi> · <bdi>{model}</bdi></>;
+  return (
+    <>
+      <bdi>{PROVIDER_LABELS[provider] ?? provider}</bdi> · <bdi>{model}</bdi> ·{" "}
+      <span className={PAID.has(provider) ? "text-yellow-300" : "text-emerald-300"}>{PAID.has(provider) ? "בתשלום" : "חינמי"}</span>
+    </>
+  );
 }
 
 const num = (n: number) => Math.round(n).toLocaleString("he-IL");
@@ -58,14 +71,19 @@ function cost(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
-// What was consumed, in the units the provider bills by.
+// What was consumed, in each provider's own units.
 function amount(t: UsageTotals): string {
   const parts = [`${num(t.calls)} פעמים`];
+  if (t.paidCalls) parts.push(`${num(t.paidCalls)} בתשלום`);
   const tokens = t.inputTokens + t.outputTokens;
   if (tokens) parts.push(`${num(tokens)} טוקנים`);
   if (t.chars) parts.push(`${num(t.chars)} תווים שהוקראו`);
   if (t.searches) parts.push(`${num(t.searches)} חיפושים`);
   return parts.join(" · ");
+}
+
+function SectionTitle({ children }: { children: ReactNode }) {
+  return <h3 className="text-white font-bold text-sm mt-5 mb-2 border-b border-white/10 pb-1">{children}</h3>;
 }
 
 function Group({ group, title, partLabel }: { group: UsageGroup; title: ReactNode; partLabel: (k: string) => ReactNode }) {
@@ -122,7 +140,8 @@ export default function AiUsagePanel() {
   return (
     <div className="mt-4">
       <p className="text-white text-sm mb-3 leading-6">
-        כל פנייה בתשלום לשירות בינה מלאכותית, מכל המשתמשים. העלות היא הערכה לפי המחירון של כל ספק, לא חשבונית.
+        כל פנייה לשירות בינה מלאכותית, מכל המשתמשים. רק המפתחות בתשלום (OpenAI, Gemini, Claude) עולים כסף —
+        העלות היא הערכה לפי המחירון של כל ספק, לא חשבונית. השירותים החינמיים נספרים ביחידות שלהם.
       </p>
 
       {report?.rateLimit === "upstash" && (
@@ -130,12 +149,24 @@ export default function AiUsagePanel() {
       )}
       {report?.rateLimit === "memory" && (
         <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-3 text-amber-300 text-sm leading-6">
-          הגבלת קצב: לכל שרת בנפרד — קל לעקוף אותה ולהוציא כסף על AI. להגדיר ב-Vercel את{" "}
-          <span dir="ltr">UPSTASH_REDIS_REST_URL</span> ו-<span dir="ltr">UPSTASH_REDIS_REST_TOKEN</span> (חינם ב-upstash.com).
+          הגבלת הקצב לדקה נספרת בכל שרת בנפרד, ולכן קל לעקוף אותה. כדי שתהיה משותפת לכל השרתים צריך חשבון
+          חינמי ב-Upstash ושני משתנים ב-Vercel — ההוראות שלב אחר שלב ב-README, בפרק ״Upstash״. (המגבלות
+          היומיות למעלה לא תלויות בזה: הן נספרות בבסיס הנתונים.)
         </div>
       )}
 
+      <SectionTitle>מפתחות בתשלום</SectionTitle>
+      <AiLimitsPanel />
+
+      <SectionTitle>שירותים חינמיים</SectionTitle>
       <ElevenLabsCreditsCard />
+      <TavilyCreditsCard />
+      <p className="text-white text-xs mb-3 leading-5">
+        Gemini עם המפתח החינמי: בלי עלות. Google מגביל את מספר הפניות ביום; כשהמכסה שלו נגמרת, הטקסט נכתב
+        במפתח בתשלום — בתוך המגבלות שלמעלה.
+      </p>
+
+      <SectionTitle>פירוט השימוש</SectionTitle>
 
       <div className="flex gap-1.5 mb-3" role="group" aria-label="תקופה">
         {PERIODS.map((p) => (
@@ -184,11 +215,15 @@ export default function AiUsagePanel() {
           <div className="rounded-2xl bg-white/10 border border-white/15 p-4 mb-3">
             <div className="flex items-baseline justify-between gap-3">
               <span className="text-white text-sm font-bold">
-                {days ? `סך הכול ב-${PERIODS.find((p) => p.days === days)?.label}` : "סך הכול מאז תחילת המעקב"}
+                {days ? `בתשלום ב-${PERIODS.find((p) => p.days === days)?.label}` : "בתשלום מאז תחילת המעקב"}
               </span>
               <span className="text-yellow-300 text-2xl font-extrabold" dir="ltr">{cost(ok.total.costUsd)}</span>
             </div>
-            <p className="text-white text-xs mt-1">{amount(ok.total)}</p>
+            <p className="text-white text-xs mt-1">{num(ok.total.paidCalls)} פניות למפתחות בתשלום.</p>
+            <p className="text-white text-xs mt-1">
+              חינמי: {num(ok.total.freeTextCalls)} פניות ל-Gemini החינמי · {num(ok.total.chars)} תווים שהוקראו ב-ElevenLabs ·{" "}
+              {num(ok.total.searches)} חיפושים ב-Tavily.
+            </p>
             {ok.trackingSince && (
               <p className="text-white text-xs mt-2">
                 המעקב התחיל ב-{new Date(ok.trackingSince).toLocaleDateString("he-IL")}. שימוש מלפני כן לא נספר.
@@ -223,7 +258,9 @@ export default function AiUsagePanel() {
                   title={
                     tab === "feature" ? featureLabel(g.key)
                       : tab === "model" ? modelLabel(g.key)
-                      : g.email ?? (g.key === "anonymous" ? "אורחים (לא מחוברים)" : "משתמש ללא כתובת")
+                      : g.key === "scripts" ? "הסקריפטים שלך (מהמחשב) — פטורים מהמגבלות"
+                      : g.key === "anonymous" ? "אורחים (לא מחוברים)"
+                      : `${g.email ?? "משתמש ללא כתובת"}${g.exempt ? " — אתה, פטור מהמגבלות" : ""}`
                   }
                   partLabel={tab === "feature" ? modelLabel : featureLabel}
                 />
@@ -232,8 +269,8 @@ export default function AiUsagePanel() {
           )}
 
           <p className="text-white text-xs mt-3 leading-5">
-            טוקנים הם יחידות הטקסט שלפיהן מחויבים מודלי השפה. Gemini עם המפתח החינמי אינו עולה כסף.
-            ב-Tavily ‏1,000 החיפושים הראשונים בכל חודש חינמיים, כך שהעלות שלו כאן היא הגבוהה האפשרית.
+            טוקנים הם יחידות הטקסט שלפיהן מחויבים מודלי השפה. ״חינם״ ליד שירות פירושו שהוא במסלול חינמי בלי חיוב:
+            כשהמכסה שלו נגמרת הוא פשוט ממתין לחידוש.
           </p>
         </div>
       )}

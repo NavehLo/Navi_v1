@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
-import { isAdminRequest } from '../../../../lib/supabaseServer';
+import { isAdminEmail, isAdminRequest } from '../../../../lib/supabaseServer';
 import { serviceClient } from '../../../../lib/supabaseService';
 import { isDistributedRateLimitConfigured } from '../../../../lib/rateLimit';
 import type { RateLimitMode, UsageGroup, UsageTotals } from '../../../../lib/aiUsageReport';
+import { PAID_PROVIDERS } from '../../../../lib/aiLimits';
+import type { AiProvider } from '../../../../lib/aiPricing';
 
 // GET ?days=7|30|90|0 → the AI usage logged by lib/aiUsage, for the admin's
 // "שימוש ועלויות AI" page: one total, and the same numbers by use, by model
@@ -15,6 +17,7 @@ interface Row {
   model: string;
   user_id: string | null;
   user_email: string | null;
+  exempt?: boolean;
   calls: number;
   input_tokens: number;
   output_tokens: number;
@@ -25,16 +28,22 @@ interface Row {
 }
 
 function empty(): UsageTotals {
-  return { calls: 0, inputTokens: 0, outputTokens: 0, chars: 0, searches: 0, costUsd: 0 };
+  return { calls: 0, paidCalls: 0, freeTextCalls: 0, inputTokens: 0, outputTokens: 0, chars: 0, searches: 0, costUsd: 0 };
 }
+
+const isPaid = (r: Row) => PAID_PROVIDERS.has(r.provider as AiProvider);
+// What a row cost in money: only the paid keys are ever billed.
+const costOf = (r: Row) => (isPaid(r) ? Number(r.cost_usd) : 0);
 
 function add(t: UsageTotals, r: Row) {
   t.calls += Number(r.calls);
+  if (isPaid(r)) t.paidCalls += Number(r.calls);
+  if (r.provider === 'gemini-free') t.freeTextCalls += Number(r.calls);
   t.inputTokens += Number(r.input_tokens);
   t.outputTokens += Number(r.output_tokens);
   t.chars += Number(r.chars);
   t.searches += Number(r.searches);
-  t.costUsd += Number(r.cost_usd);
+  t.costUsd += costOf(r);
 }
 
 function groupBy(
@@ -58,7 +67,7 @@ function groupBy(
     const label = partOf(r);
     const part = p.get(label) ?? { calls: 0, costUsd: 0 };
     part.calls += Number(r.calls);
-    part.costUsd += Number(r.cost_usd);
+    part.costUsd += costOf(r);
     p.set(label, part);
   }
   for (const g of groups.values()) {
@@ -117,8 +126,9 @@ export async function GET(request: Request) {
       byModel: groupBy(rows, modelLabel, (r) => ({ provider: r.provider, model: r.model }), featureKey),
       byUser: groupBy(
         rows,
-        (r) => r.user_id ?? r.user_email ?? 'anonymous',
-        (r) => ({ email: r.user_email }),
+        // The admin's scripts run with no user; guests have none either.
+        (r) => r.user_id ?? r.user_email ?? (r.exempt ? 'scripts' : 'anonymous'),
+        (r) => ({ email: r.user_email, exempt: !!r.exempt || isAdminEmail(r.user_email) }),
         featureKey
       ),
     },
