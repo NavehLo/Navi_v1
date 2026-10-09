@@ -70,6 +70,20 @@ export function DifficultyFilterPanel({ filter, onChange, explanation, unknown }
       title="רמת קושי"
       summary={<span className={active ? 'text-sky-300' : undefined}>{difficultyGist(filter)}</span>}
     >
+      <DifficultyFilterBody filter={filter} onChange={onChange} explanation={explanation} unknown={unknown} />
+    </Collapsible>
+  );
+}
+
+// The same, without the frame, for a drop-down (FilterDropdown).
+export function DifficultyFilterBody({ filter, onChange, explanation, unknown }: {
+  filter: DifficultyFilter;
+  onChange: (f: DifficultyFilter) => void;
+  explanation: ReactNode;
+  unknown: number;
+}) {
+  const active = filter.levels.length > 0;
+  return (
       <div className="flex flex-col gap-2 text-sm text-white">
         <span className="text-xs">{explanation} אפשר לבחור כמה.</span>
         <DifficultyChips filter={filter} onChange={onChange} />
@@ -90,7 +104,6 @@ export function DifficultyFilterPanel({ filter, onChange, explanation, unknown }
           </button>
         )}
       </div>
-    </Collapsible>
   );
 }
 

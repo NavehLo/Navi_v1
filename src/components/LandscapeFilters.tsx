@@ -56,7 +56,18 @@ function Part({ icon, title, value, on, open, onToggle, children }: {
   );
 }
 
-export function LandscapeFilterPanel({ filter, onChange, sort, onSort, kind = 'area', what }: {
+// The three filters alone, without the order, for a drop-down that has its
+// own frame (the world lists, where the order is a drop-down of its own).
+export function LandscapeFilterParts({ filter, onChange, kind = 'area', what }: {
+  filter: LandscapeFilter;
+  onChange: (f: LandscapeFilter) => void;
+  kind?: Kind;
+  what: string;
+}) {
+  return <LandscapeFilterPanel filter={filter} onChange={onChange} sort="default" onSort={() => {}} kind={kind} what={what} bare />;
+}
+
+export function LandscapeFilterPanel({ filter, onChange, sort, onSort, kind = 'area', what, bare = false }: {
   filter: LandscapeFilter;
   onChange: (f: LandscapeFilter) => void;
   sort: LandscapeSort;
@@ -64,6 +75,7 @@ export function LandscapeFilterPanel({ filter, onChange, sort, onSort, kind = 'a
   kind?: Kind;
   // "מדינות", "אזורים" or "מסלולים": what the filter keeps.
   what: string;
+  bare?: boolean;
 }) {
   const [open, setOpen] = useState<Part | null>(null);
   const toggle = (p: Part) => setOpen((o) => (o === p ? null : p));
@@ -77,13 +89,7 @@ export function LandscapeFilterPanel({ filter, onChange, sort, onSort, kind = 'a
     sorted ? `לפי ${SORT_LABELS[sort].replace(/^הכי /, '')}` : null,
   ].filter(Boolean).join(' · ');
 
-  return (
-    <Collapsible
-      className="shrink-0"
-      icon={<Mountain className="w-4 h-4 text-emerald-300" />}
-      title="נוף: סינון וסדר"
-      summary={gist ? <span className="text-emerald-300">{gist}</span> : 'הכל'}
-    >
+  const parts = (
       <div className="flex flex-col">
         <Part
           icon={<Mountain className="w-4 h-4 text-amber-300" />}
@@ -147,7 +153,7 @@ export function LandscapeFilterPanel({ filter, onChange, sort, onSort, kind = 'a
           </div>
         </Part>
 
-        <Part
+        {!bare && <Part
           icon={<ArrowDownWideNarrow className="w-4 h-4 text-sky-300" />}
           title="סדר הרשימה"
           value={SORT_LABELS[sort]}
@@ -163,7 +169,7 @@ export function LandscapeFilterPanel({ filter, onChange, sort, onSort, kind = 'a
               <button key={v} role="radio" aria-checked={sort === v} onClick={() => onSort(v)} className={chip(sort === v)}>{SORT_LABELS[v]}</button>
             ))}
           </div>
-        </Part>
+        </Part>}
 
         {(active > 0 || sorted) && (
           <button
@@ -174,17 +180,30 @@ export function LandscapeFilterPanel({ filter, onChange, sort, onSort, kind = 'a
           </button>
         )}
       </div>
+  );
+  if (bare) return parts;
+  return (
+    <Collapsible
+      className="shrink-0"
+      icon={<Mountain className="w-4 h-4 text-emerald-300" />}
+      title="נוף: סינון וסדר"
+      summary={gist ? <span className="text-emerald-300">{gist}</span> : 'הכל'}
+    >
+      {parts}
     </Collapsible>
   );
 }
 
 // "הרים דרמטיים · יער 45% מחטני · נחלים זורמים" — one line, three icons.
+// A country or an area leaves the rivers out: nearly every one has flowing
+// streams somewhere, so the words said nothing and cost a line on a phone.
+// A trail keeps them — there they tell one walk from another.
 export function LandscapeLine({ s, bins, kind = 'area' }: { s: LandscapeSummary; bins: number[]; kind?: Kind }) {
   return (
     <span className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs font-semibold text-white">
       <span className="flex items-center gap-1"><Mountain className="w-3.5 h-3.5 shrink-0 text-amber-300" />{reliefShort(s, bins)}</span>
       <span className="flex items-center gap-1"><Trees className="w-3.5 h-3.5 shrink-0 text-emerald-300" />{forestShort(s)}</span>
-      <span className="flex items-center gap-1"><Waves className="w-3.5 h-3.5 shrink-0 text-sky-300" />{waterShort(s, kind)}</span>
+      {kind === 'trail' && <span className="flex items-center gap-1"><Waves className="w-3.5 h-3.5 shrink-0 text-sky-300" />{waterShort(s, kind)}</span>}
     </span>
   );
 }

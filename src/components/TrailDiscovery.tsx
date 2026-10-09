@@ -1,17 +1,17 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import type { MapPack } from '../lib/offlineMap';
-import { MapPin, Loader2, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Search, X, Droplets, Trees, WifiOff, BookOpen, Gauge } from 'lucide-react';
+import { MapPin, Loader2, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Search, X, Droplets, Trees, WifiOff, BookOpen } from 'lucide-react';
 import {
   matchesShade, matchesWater, SHADE_FILTER_LABELS, WATER_FILTER_LABELS,
   type ShadeFilter, type WaterFilter, type TrailSummer,
 } from '../lib/summerFilters';
 import { NO_DIFFICULTY_FILTER, passesDifficulty, type Difficulty, type DifficultyFilter } from '../lib/difficulty';
-import { DifficultyBadge, DifficultyChips } from './DifficultyFilter';
+import { DifficultyBadge, DifficultyChips, difficultyGist } from './DifficultyFilter';
+import FilterDropdown, { CheckRow, SELECT_ACTIVE_CLASS, SELECT_CLASS } from './FilterDropdown';
 import GPXLoader from './GPXLoader';
 import WorldByMonth from './WorldByMonth';
 import type { WmtRouteSummary } from '../lib/waymarked';
-import InfoButton from './help/InfoButton';
 import { useOutsideTap } from '../hooks/useOutsideTap';
 import { useHelpChatBeside } from '../hooks/useHelpChatBeside';
 import { useCountryGuideMap, type GuideMapView } from '../hooks/useCountryGuideMap';
@@ -357,20 +357,26 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
 
   const regions = Array.from(new Set(trails.map(t => t.region)));
   const types = Array.from(new Set(trails.map(t => t.type)));
+  const features = [
+    filterType,
+    filterShade && SHADE_FILTER_LABELS[filterShade],
+    filterWater && WATER_FILTER_LABELS[filterWater],
+  ].filter((f): f is string => !!f);
 
   return (
-    // Open, it sits above the control rails (z-42) — the rails used to float
-    // over the list — and below the place search (z-45), whose suggestions
-    // drop down over it.
-    <div ref={setPanel} data-tour="discovery" className={`absolute left-4 ${isExpanded ? 'right-4' : 'right-[72px]'} ${isExpanded ? 'z-[44] md:z-40' : 'z-40'} flex flex-col md:w-[380px] md:bottom-6 md:right-6 md:left-auto md:top-6 md:max-h-[calc(100vh-3rem)] bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl transition-all
-      ${isExpanded ? 'bottom-16 top-[108px] md:top-6 rounded-3xl p-5 md:bottom-6' : 'bottom-16 rounded-2xl p-4 md:rounded-3xl md:p-5 md:bottom-6'} 
+    // Open on a phone, it takes the whole height of the screen down to the
+    // help chat's button — the lists need the room more than the map does —
+    // above the control rails (z-42) and the place search (z-45), which come
+    // back when it folds. On a wide screen it is a column beside the map.
+    <div ref={setPanel} data-tour="discovery" className={`absolute left-4 ${isExpanded ? 'right-4' : 'right-[72px]'} ${isExpanded ? 'z-[46] md:z-40' : 'z-40'} flex flex-col md:w-[380px] md:bottom-6 md:right-6 md:left-auto md:top-6 md:max-h-[calc(100vh-3rem)] bg-black/85 backdrop-blur-xl border border-white/10 shadow-2xl transition-all
+      ${isExpanded ? 'bottom-16 top-3 md:top-6 rounded-3xl p-4 md:p-5 md:bottom-6' : 'bottom-16 rounded-2xl p-4 md:rounded-3xl md:p-5 md:bottom-6'} 
       `} dir="rtl">
       
       <div 
         className="flex justify-between items-center cursor-pointer md:cursor-default" 
         onClick={() => setIsExpanded(!isExpanded)}
       >
-        <h2 className={`font-extrabold text-white flex items-center gap-2 tracking-tight leading-snug transition-all ${isExpanded ? 'text-lg md:text-xl mb-2 md:mb-5' : 'text-base md:text-xl md:mb-5'}`}>
+        <h2 className={`font-extrabold text-white flex items-center gap-2 tracking-tight leading-snug transition-all ${isExpanded ? 'text-base md:text-xl mb-1 md:mb-5' : 'text-base md:text-xl md:mb-5'}`}>
           <MapPin className="text-orange-500 fill-orange-500/20 shrink-0" size={24} />
           מסלולים לפי מדינות, עונות ומאפיינים נוספים
         </h2>
@@ -400,7 +406,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
         </div>
       )}
 
-      <div className={`flex-col gap-4 md:flex overflow-hidden ${isExpanded ? 'flex flex-1 mt-2 md:mt-0' : 'hidden'}`}>
+      <div className={`flex-col gap-3 md:gap-4 md:flex overflow-hidden ${isExpanded ? 'flex flex-1 mt-2 md:mt-0' : 'hidden'}`}>
         {onPickWorldTrail && (
           <div className="flex rounded-xl bg-white/5 border border-white/10 p-0.5 shrink-0" role="tablist">
             {([['israel', 'מסלולים בארץ'], ['world', 'מסלולים בעולם']] as const).map(([v, label]) => (
@@ -461,78 +467,73 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
           )}
         </div>
 
-        <div className="flex flex-wrap gap-2 shrink-0">
-          {types.map(type => (
-            <button
-              key={type}
-              onClick={() => setFilterType(filterType === type ? null : type)}
-              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all shadow-sm ${filterType === type ? 'bg-orange-500 text-white shadow-orange-500/30' : 'bg-white/5 text-white border border-white/10 hover:bg-white/10'}`}
-            >
-              {type}
-            </button>
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-2 shrink-0">
-          {regions.map(region => (
-            <button
-              key={region}
-              onClick={() => setFilterRegion(filterRegion === region ? null : region)}
-              className={`px-3 py-1 rounded-full text-xs font-bold transition-all border ${filterRegion === region ? 'bg-white/20 text-white border-white/20' : 'bg-transparent text-white border-white/15 hover:bg-white/5'}`}
-            >
-              {region}
-            </button>
-          ))}
-        </div>
-
-        {hasDifficulty && (
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            <span className="flex items-center gap-1 text-xs font-bold text-white">
-              <Gauge className="w-3.5 h-3.5 text-yellow-300 shrink-0" />
-              רמת קושי
-            </span>
-            <DifficultyChips filter={filterDifficulty} onChange={setFilterDifficulty} />
-            <InfoButton label="רמת קושי">
-              לפי האורך והעליות של המסלול: כל 100 מ׳ עלייה נחשבים כמו קילומטר הליכה במישור. <b>קל</b> — עד 10 ק״מ כאלה,
-              <b> בינוני</b> — עד 18, <b>קשה</b> — יותר. אותה הערכה שמופיעה בכרטיס המסלול. מסלול של כמה ימים נחשב קשה
-              כמכלול. אפשר לבחור יותר מרמה אחת.
-            </InfoButton>
-          </div>
-        )}
-
-        {/* Summer: shade and water, two steps each. The numbers behind them are
-            estimates from maps, so the chips deliberately offer coarse steps
+        {/* The filters, as one row of drop-downs (FilterDropdown): as rows of
+            chips they took half a phone's panel. "מאפייני המסלול" gathers the
+            kind of trail with the summer's shade and water. Each pair in it is
+            one choice — picking one of a pair clears the other. The shade and
+            water figures are estimates from maps, so they come in coarse steps
             rather than a threshold anyone could mistake for a measurement. */}
-        {hasSummerData && (
-          <div className="flex flex-wrap items-center gap-2 shrink-0 pb-2 border-b border-white/5">
-            <Trees className="w-3.5 h-3.5 text-lime-400 shrink-0" />
-            {(['some', 'lots'] as ShadeFilter[]).map(level => (
-              <button
-                key={level}
-                onClick={() => setFilterShade(filterShade === level ? null : level)}
-                className={`px-3 py-1 rounded-full text-xs font-bold transition-all border ${filterShade === level ? 'bg-lime-500 text-black border-lime-400' : 'bg-transparent text-white border-white/15 hover:bg-white/5'}`}
-              >
-                {SHADE_FILTER_LABELS[level]}
-              </button>
+        <div className={`relative grid gap-2 shrink-0 ${hasDifficulty ? 'grid-cols-3' : 'grid-cols-2'}`}>
+          <select
+            className={filterRegion ? SELECT_ACTIVE_CLASS : SELECT_CLASS}
+            value={filterRegion ?? ''}
+            onChange={(e) => setFilterRegion(e.target.value || null)}
+            aria-label="אזור"
+          >
+            <option value="">כל הארץ</option>
+            {regions.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+
+          {hasDifficulty && (
+            <FilterDropdown label="רמת קושי" value={difficultyGist(filterDifficulty)} active={filterDifficulty.levels.length > 0}>
+              <span className="text-xs">
+                לפי האורך והעליות של המסלול: כל 100 מ׳ עלייה נחשבים כמו קילומטר הליכה במישור. <b>קל</b> — עד 10 ק״מ כאלה,
+                <b> בינוני</b> — עד 18, <b>קשה</b> — יותר. אותה הערכה שמופיעה בכרטיס המסלול. מסלול של כמה ימים נחשב קשה
+                כמכלול. אפשר לבחור יותר מרמה אחת.
+              </span>
+              <DifficultyChips filter={filterDifficulty} onChange={setFilterDifficulty} />
+            </FilterDropdown>
+          )}
+
+          <FilterDropdown label="מאפייני המסלול" short="מאפיינים" value={`מאפיינים (${features.length})`} active={features.length > 0}>
+            {types.map(type => (
+              <CheckRow key={type} on={filterType === type} onToggle={() => setFilterType(filterType === type ? null : type)}>{type}</CheckRow>
             ))}
-            <Droplets className="w-3.5 h-3.5 text-sky-400 shrink-0 mr-1" />
-            {(['any', 'lots'] as WaterFilter[]).map(level => (
+            {hasSummerData && (
+              <>
+                <div className="border-t border-white/10 mt-1 pt-2 flex items-center gap-1.5 text-xs font-bold text-lime-300">
+                  <Trees className="w-3.5 h-3.5 shrink-0" /> צל
+                </div>
+                {(['some', 'lots'] as ShadeFilter[]).map(level => (
+                  <CheckRow key={level} on={filterShade === level} onToggle={() => setFilterShade(filterShade === level ? null : level)}>
+                    {SHADE_FILTER_LABELS[level]}
+                  </CheckRow>
+                ))}
+                <div className="border-t border-white/10 mt-1 pt-2 flex items-center gap-1.5 text-xs font-bold text-sky-300">
+                  <Droplets className="w-3.5 h-3.5 shrink-0" /> מים לרחצה (לא מי שתייה)
+                </div>
+                {(['any', 'lots'] as WaterFilter[]).map(level => (
+                  <CheckRow key={level} on={filterWater === level} onToggle={() => setFilterWater(filterWater === level ? null : level)}>
+                    {WATER_FILTER_LABELS[level]}
+                  </CheckRow>
+                ))}
+                <span className="text-xs border-t border-white/10 pt-2">
+                  <b>צל:</b> כמה מהמסלול עובר בין עצים. ״קצת צל״ הוא רבע ממנו לפחות, ״מסלול מוצל״ חצי לפחות.
+                  {' '}<b>מים לרחצה:</b> ״מים לרחצה בדרך״ אומר שיש לפחות בריכה או נחל איתן ליד השביל; ״מסלול מים״ אומר שרבע
+                  מהדרך ליד מים כאלה. הערכה לפי מפות, לא בדיקה בשטח.
+                </span>
+              </>
+            )}
+            {features.length > 0 && (
               <button
-                key={level}
-                onClick={() => setFilterWater(filterWater === level ? null : level)}
-                className={`px-3 py-1 rounded-full text-xs font-bold transition-all border ${filterWater === level ? 'bg-sky-500 text-white border-sky-400' : 'bg-transparent text-white border-white/15 hover:bg-white/5'}`}
+                onClick={() => { setFilterType(null); setFilterShade(null); setFilterWater(null); }}
+                className="self-start text-xs font-bold text-sky-300 underline"
               >
-                {WATER_FILTER_LABELS[level]}
+                ניקוי
               </button>
-            ))}
-            <InfoButton label="סינון לפי צל ומים">
-              <b>צל:</b> כמה מהמסלול עובר בין עצים. ״קצת צל״ הוא רבע ממנו לפחות, ״מסלול מוצל״ חצי לפחות.
-              <br />
-              <b>מים לרחצה</b> (לא מי שתייה): ״מים לרחצה בדרך״ אומר שיש לפחות בריכה או נחל איתן ליד השביל; ״מסלול מים״ אומר שרבע מהדרך ליד מים כאלה.
-              <br />
-              הערכה לפי מפות, לא בדיקה בשטח.
-            </InfoButton>
-          </div>
-        )}
+            )}
+          </FilterDropdown>
+        </div>
 
         <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar flex flex-col gap-3 min-h-0">
           {offlinePacks.length > 0 && onSelectPack && (
@@ -589,10 +590,10 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
           )}
         </div>
 
-        <div className="mt-5 pt-4 border-t border-white/10 text-center">
+        <div className="shrink-0 pt-3 border-t border-white/10 text-center">
           <button
             onClick={() => setShowUploader(true)}
-            className="shrink-0 w-full mt-2 text-sm font-bold text-orange-400 p-3 rounded-xl border border-orange-500/20 bg-orange-500/5 hover:bg-orange-500/10 transition-colors"
+            className="shrink-0 w-full text-sm font-bold text-orange-400 p-2.5 rounded-xl border border-orange-500/20 bg-orange-500/5 hover:bg-orange-500/10 transition-colors"
           >
             העלה קובץ GPX או KML אישי
           </button>

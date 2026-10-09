@@ -97,6 +97,10 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   `bottom-[76px]`. "Hide all" (`uiHidden`) must hide every panel — hide a
   stateful one with a `hidden` wrapper rather than unmounting it. Long
   sections open as one line with a summary (`Collapsible`).
+  A list's filters and its order stand in one fixed row of drop-downs above
+  the list (`FilterDropdown`, or a `<select>` styled `SELECT_CLASS`) — never
+  as rows of chips, and never inside the scrolling list. Opened on a phone,
+  the trail list takes the screen's height down to the help chat's button.
 - **"מה אומרים מטיילים" is derived in one place.** The traffic tier and the
   rating are computed only in `src/lib/trailCrowd/score.ts` (list, filters,
   trail card, and the leading trails via `leadersOf` — list, country picker and

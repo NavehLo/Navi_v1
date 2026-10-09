@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ArrowRight, BookOpen, ChevronLeft, Footprints, Loader2, RefreshCw, Search, Star, Trophy, X } from 'lucide-react';
 import InfoButton from './help/InfoButton';
 import Collapsible from './Collapsible';
@@ -16,10 +16,10 @@ import {
 } from '../lib/trailCrowd/score';
 import { useLeaders } from '../lib/trailLeadersClient';
 import {
-  LANDSCAPE_VERSION, NO_LANDSCAPE_FILTER, landscapeFilterCount, passesLandscape, rangeName, sortBadge, sortValue,
+  LANDSCAPE_SORTS, LANDSCAPE_VERSION, NO_LANDSCAPE_FILTER, SORT_LABELS, landscapeFilterCount, passesLandscape, rangeName, sortBadge, sortValue,
   type LandscapeData, type LandscapeFilter, type LandscapeSort, type LandscapeSummary,
 } from '../lib/landscape';
-import { LandscapeFilterPanel, LandscapeLine } from './LandscapeFilters';
+import { LandscapeFilterParts, LandscapeLine } from './LandscapeFilters';
 import { CONTINENTS, inContinent, type Continent } from '../lib/continents';
 import CountryGuide from './CountryGuide';
 import { guideCountries, loadGuide } from '../lib/countryGuide/client';
@@ -27,7 +27,8 @@ import type { CountryGuide as Guide } from '../lib/countryGuide/types';
 import type { GuideMapView } from '../hooks/useCountryGuideMap';
 import WorldRanking from './WorldRanking';
 import { NO_DIFFICULTY_FILTER, passesDifficulty, type DifficultyFilter } from '../lib/difficulty';
-import { DifficultyBadge, DifficultyFilterPanel } from './DifficultyFilter';
+import { DifficultyBadge, DifficultyFilterBody } from './DifficultyFilter';
+import FilterDropdown, { SELECT_CLASS } from './FilterDropdown';
 
 // "מסלולים בעולם": marked trails abroad, chosen by when they are in season,
 // or by how popular they are.
@@ -106,7 +107,7 @@ function passesCrowd(t: ListTrail, f: CrowdFilter): boolean {
 }
 
 function crowdFilterCount(f: CrowdFilter): number {
-  return (f.traffic.length ? 1 : 0) + (f.minRating ? 1 : 0) + (f.sort !== NO_CROWD_FILTER.sort ? 1 : 0);
+  return (f.traffic.length ? 1 : 0) + (f.minRating ? 1 : 0);
 }
 const trailsMemo = new Map<string, CountryData>();
 
@@ -490,12 +491,6 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
   const activeCrowd = crowdFilterCount(crowdFilter);
 
   const crowdFilters = (
-    <Collapsible
-      className="shrink-0"
-      icon={<Footprints className="w-4 h-4 text-sky-300" />}
-      title="סינון לפי מטיילים"
-      summary={activeCrowd ? <span className="text-sky-300">{activeCrowd === 1 ? 'מסנן אחד פעיל' : `${activeCrowd} מסננים פעילים`}</span> : 'הכל'}
-    >
       <div className="flex flex-col gap-3 text-sm text-white">
         <div className="flex flex-col gap-1.5">
           <span className="font-bold">כמות מטיילים</span>
@@ -535,30 +530,19 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
           />
           להשאיר מסלולים שאין עליהם מספיק מידע
         </label>
-        <div className="flex flex-col gap-1.5">
-          <span className="font-bold">סדר</span>
-          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="סדר הרשימה">
-            {([['traffic', 'הכי הרבה מטיילים'], ['rating', 'לפי ציון'], ['default', 'טיולי יום קודם']] as const).map(([v, label]) => (
-              <button key={v} role="radio" aria-checked={crowdFilter.sort === v} onClick={() => setF({ sort: v })} className={chip(crowdFilter.sort === v)}>
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
         {activeCrowd > 0 && (
           <button onClick={() => setCrowdFilter(NO_CROWD_FILTER)} className="self-start text-xs font-bold text-sky-300 underline">
             ניקוי הסינון
           </button>
         )}
       </div>
-    </Collapsible>
   );
 
   // Komoot grades only the trails it lists, so most of a country's have no
   // level; how many, of the ones in view, the checkbox says.
   const ungraded = (countryList ?? []).filter((t) => !t.crowd?.difficulty && (!region || region === 'all' || t.regions.includes(region))).length;
   const difficultyPanel = (
-    <DifficultyFilterPanel
+    <DifficultyFilterBody
       filter={difficultyFilter}
       onChange={setDifficultyFilter}
       unknown={ungraded}
@@ -566,16 +550,53 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
     />
   );
 
-  const landscapeFilters = (what: string, kind: 'area' | 'trail' = 'area') => (
-    <LandscapeFilterPanel
-      filter={landscapeFilter}
-      onChange={setLandscapeFilter}
-      sort={landscapeSort}
-      onSort={setLandscapeSort}
-      kind={kind}
-      what={what}
-    />
-  );
+  // The filters and the order, in one fixed row above the list — not in
+  // the list, where they scrolled away, nor as sections that pushed it down.
+  // "סינון" opens everything that narrows the list; "סדר" is one choice for
+  // what used to be two (the landscape's order and the hikers').
+  type View = 'countries' | 'regions' | 'trails';
+  const filterRow = (view: View) => {
+    const land = view === 'countries' ? landscape : view === 'regions' ? countryLandscape : trailLand;
+    const crowd = view !== 'countries' && hasCrowd;
+    const what = view === 'countries' ? 'מדינות' : view === 'regions' ? 'אזורים' : 'מסלולים';
+    const kind = view === 'trails' ? 'trail' : 'area';
+    const active = (land ? activeLandscape : 0) + (crowd ? activeCrowd + (difficultyFilter.levels.length ? 1 : 0) : 0);
+
+    const sorts: Array<[string, string]> = view === 'trails' && hasCrowd
+      ? [['crowd:traffic', 'הכי הרבה מטיילים'], ['crowd:rating', 'לפי ציון מטיילים'], ['crowd:default', 'טיולי יום קודם']]
+      : [['default', view === 'trails' ? 'טיולי יום קודם' : 'סדר רגיל']];
+    if (land) for (const v of LANDSCAPE_SORTS) if (v !== 'default') sorts.push([v, SORT_LABELS[v]]);
+    const sortChoice = landscapeSort !== 'default' && land ? landscapeSort
+      : view === 'trails' && hasCrowd ? `crowd:${crowdFilter.sort}` : 'default';
+    const onSort = (v: string) => {
+      if (v.startsWith('crowd:')) {
+        setLandscapeSort('default');
+        setF({ sort: v.slice(6) as CrowdSort });
+      } else setLandscapeSort(v as LandscapeSort);
+    };
+    if (!land && !crowd && sorts.length < 2) return null;
+
+    const section = (title: string, node: ReactNode) => (
+      <div className="flex flex-col gap-1.5 border-t border-white/10 pt-2 first:border-t-0 first:pt-0">
+        <span className="text-sm font-extrabold text-sky-200">{title}</span>
+        {node}
+      </div>
+    );
+    return (
+      <div className="relative grid grid-cols-2 gap-2 shrink-0">
+        {land || crowd ? (
+          <FilterDropdown label="סינון" value={active === 1 ? 'מסנן אחד' : `${active} מסננים`} active={active > 0}>
+            {land && section('נוף', <LandscapeFilterParts filter={landscapeFilter} onChange={setLandscapeFilter} kind={kind} what={what} />)}
+            {crowd && section('מטיילים', crowdFilters)}
+            {crowd && section('רמת קושי', difficultyPanel)}
+          </FilterDropdown>
+        ) : <span />}
+        <select className={SELECT_CLASS} value={sortChoice} onChange={(e) => onSort(e.target.value)} aria-label="סדר הרשימה">
+          {sorts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+      </div>
+    );
+  };
 
   // What is being looked at — the area chosen, or the whole country — and its
   // main mountain ranges.
@@ -648,6 +669,7 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
           {monthSelect}
           {ratingSelect}
         </div>
+        {countryList && filterRow(choosingRegion ? 'regions' : 'trails')}
 
         <div
           ref={listRef}
@@ -666,10 +688,6 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
               onPick={(t) => onPickTrail({ type: 'relation', id: t.id, name: t.name, group: t.group, linear: t.linear })}
             />
           )}
-          {choosingRegion && countryLandscape && landscapeFilters('אזורים')}
-          {!choosingRegion && trailLand && landscapeFilters('מסלולים', 'trail')}
-          {hasCrowd && crowdFilters}
-          {hasCrowd && difficultyPanel}
           {countryStatus === 'loading' && (
             <div className="flex items-center gap-2 text-sm text-white py-4">
               <Loader2 className="w-4 h-4 animate-spin text-orange-400 shrink-0" />
@@ -867,8 +885,9 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
         )}
       </div>
 
+      {filterRow('countries')}
+
       <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar flex flex-col gap-1.5 min-h-0">
-        {landscape && landscapeFilters('מדינות')}
         {climateStatus === 'loading' && <div className="text-sm text-white py-3">טוען…</div>}
         {(climateStatus === 'unavailable' || climateStatus === 'rate-limited') &&
           failure(climateStatus, () => { setClimateStatus('loading'); setClimateAttempt((n) => n + 1); }, 'את רשימת המדינות')}
