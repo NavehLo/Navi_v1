@@ -83,10 +83,10 @@ function walkedOf(details: WmtRouteDetails): Walked {
   return { ways, pts };
 }
 
-// The way the nearest point of the trail is on, and how far it is (metres).
-function nearestWay(lat: number, lon: number, w: Walked): { way: number; d: number } {
+// How far (metres) a point is from each way of the trail.
+function wayDistances(lat: number, lon: number, w: Walked): number[] {
   const ky = 111_320, kx = 111_320 * Math.cos((lat * Math.PI) / 180);
-  let best = { way: -1, d: Infinity };
+  const out = w.ways.map(() => Infinity);
   for (let i = 1; i < w.pts.length; i++) {
     const a = w.pts[i - 1], b = w.pts[i];
     if (a[2] !== b[2]) continue; // not across two ways
@@ -95,9 +95,17 @@ function nearestWay(lat: number, lon: number, w: Walked): { way: number; d: numb
     const dx = bx - ax, dy = by - ay, len = dx * dx + dy * dy;
     const t = len ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len)) : 0;
     const d = Math.hypot(ax + t * dx, ay + t * dy);
-    if (d < best.d) best = { way: b[2], d };
+    if (d < out[b[2]]) out[b[2]] = d;
   }
-  return best;
+  return out;
+}
+
+// The way the nearest point of the trail is on, and how far it is (metres).
+function nearestWay(lat: number, lon: number, w: Walked): { way: number; d: number } {
+  const ds = wayDistances(lat, lon, w);
+  let way = -1;
+  ds.forEach((d, i) => { if (way < 0 || d < ds[way]) way = i; });
+  return { way, d: way < 0 ? Infinity : ds[way] };
 }
 
 function waysKm(ways: WmtWay[]): number {
@@ -109,11 +117,26 @@ function evenly<T>(items: T[], count: number): T[] {
   return Array.from({ length: count }, (_, i) => items[Math.round((i * (items.length - 1)) / (count - 1))]);
 }
 
-// The ways from the one nearest `start` to the one nearest `end`.
-function rangeOf(w: Walked, start: [number, number], end: [number, number]): [number, number] {
-  const a = nearestWay(start[0], start[1], w).way;
-  const b = nearestWay(end[0], end[1], w).way;
-  return a <= b ? [a, b] : [b, a];
+// The ways from the one at `start` to the one at `end`. A trail can pass the
+// same spot twice (up a valley and back down it): of the ways at each end,
+// the pair whose stretch is nearest the section's length.
+function rangeOf(w: Walked, start: [number, number], end: [number, number], km?: number): [number, number] {
+  const near = (ds: number[]) => {
+    const best = Math.min(...ds);
+    return ds.flatMap((d, i) => (d <= Math.max(30, best + 10) ? [i] : []));
+  };
+  const as = near(wayDistances(start[0], start[1], w));
+  const bs = near(wayDistances(end[0], end[1], w));
+  let pick: [number, number] = [-1, -1];
+  let off = Infinity;
+  for (const a of as) {
+    for (const b of bs) {
+      const r: [number, number] = a <= b ? [a, b] : [b, a];
+      const o = km == null ? 0 : Math.abs(waysKm(w.ways.slice(r[0], r[1] + 1)) - km);
+      if (o < off) { off = o; pick = r; }
+    }
+  }
+  return pick;
 }
 
 // The section's part of the long trail's details: its ways alone, as one
@@ -122,7 +145,7 @@ function rangeOf(w: Walked, start: [number, number], end: [number, number]): [nu
 export function cutSection(parent: WmtRouteDetails, s: TrailSection): WmtRouteDetails | null {
   const w = walkedOf(parent);
   if (!w.ways.length) return null;
-  const [a, b] = rangeOf(w, s.start, s.end);
+  const [a, b] = rangeOf(w, s.start, s.end, s.km);
   if (a < 0 || b < 0) return null;
   const ways = w.ways.slice(a, b + 1);
   const xs = ways.flatMap((x) => x.geometry.coordinates.map((c) => c[0]));
@@ -235,7 +258,7 @@ export async function findSections(
   for (const s of existing) {
     const w = await walkedFor(s.parentId);
     if (!w) continue;
-    parts.push({ section: s, source: null as unknown as CrowdSource, isNew: false, range: rangeOf(w, s.start, s.end) });
+    parts.push({ section: s, source: null as unknown as CrowdSource, isNew: false, range: rangeOf(w, s.start, s.end, s.km) });
   }
   const credited = new Set<number>();
 
