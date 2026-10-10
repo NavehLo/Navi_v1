@@ -388,6 +388,35 @@ alter table public.trail_crowd enable row level security;
 -- אין policy: רק השרת עם service_role קורא וכותב.
 grant select, insert, update on public.trail_crowd to service_role;
 
+-- ── קטעים פופולריים של שבילים ארוכים ────────────────────────────────────────
+-- טיול יום מפורסם שהוא חלק משביל ארוך (מעבר ולבונה ב-Peaks of the Balkans,
+-- Conic Hill ב-West Highland Way): הקטע של השביל שבין שתי נקודות, כפי שהוא
+-- ב-OSM (src/lib/trailCrowd/sections.ts). נשמרים רק הקצוות, כמה נקודות לאורכו
+-- והשם — הכל מ-OpenStreetMap, אף פעם לא הקו של Komoot. ה-id שלילי
+-- (-(שביל × 100 + n)), והמספרים של הקטע ב-trail_crowd תחת אותו id.
+create table if not exists public.trail_sections (
+  id bigint primary key,
+  country text not null,
+  parent_id bigint not null,
+  parent_name text,
+  parent_group text,
+  name text not null,
+  start_lat double precision not null,
+  start_lon double precision not null,
+  end_lat double precision not null,
+  end_lon double precision not null,
+  km real not null,
+  samples jsonb not null default '[]',
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists trail_sections_country_idx on public.trail_sections (country);
+create index if not exists trail_sections_parent_idx on public.trail_sections (parent_id);
+
+alter table public.trail_sections enable row level security;
+-- אין policy: רק השרת עם service_role קורא וכותב.
+grant select, insert, update on public.trail_sections to service_role;
+
 -- ── הקלטות מסלול ───────────────────────────────────────────────────────────
 -- הליכה שהמשתמש הקליט בטלפון (src/lib/recording/). ההקלטה נשמרת קודם במכשיר;
 -- כאן העותק בחשבון, כדי שתופיע בכל מכשיר ושאפשר יהיה לשתף אותה בקישור.

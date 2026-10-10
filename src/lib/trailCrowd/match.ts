@@ -22,9 +22,17 @@ import type { CrowdSource } from './score';
 // tens of metres.
 const NEAR_M = 150;
 // Share of the route's points that must be on the trail.
-const MIN_SHARE = 0.6;
+export const MIN_SHARE = 0.6;
+// Or less of the route — down to this — when the trail is, the other way
+// round, nearly all on the route, and of a like length: the same walk, with
+// Komoot's line straying to a car park or a viewpoint (the Daffodil Route,
+// Fairy Pools). A loop that only shares half its way with a trail (Grunas
+// Waterfall on "7 (The Blue Eye)": 60% and 56%) stays apart.
+const MUTUAL_SHARE = 0.45;
+const MUTUAL_BACK = 0.7;
+const MUTUAL_LENGTH: [number, number] = [0.4, 2.5];
 // A trail is credited only up to this many times the route's length.
-const LONGER_FACTOR = 5;
+export const LONGER_FACTOR = 5;
 // Komoot's difficulty grade is the trail's only when the route is at least
 // this share of the trail: a stage of a long trail, or a loop on one end of
 // it, is graded for itself (lib/difficulty.ts).
@@ -134,25 +142,50 @@ export function routeKm(r: KomootRoute): number {
   return m / 1000;
 }
 
-// The trails a route runs along.
-export function trailsOf(r: KomootRoute, trails: TrailLines[]): number[] {
-  const pad = 0.003;
+function routeBox(r: KomootRoute, pad: number): [number, number, number, number] {
   const lats = r.points.map((p) => p[0]);
   const lons = r.points.map((p) => p[1]);
-  const [w, s, e, n] = [Math.min(...lons) - pad, Math.min(...lats) - pad, Math.max(...lons) + pad, Math.max(...lats) + pad];
-  const on: TrailLines[] = [];
-  for (const t of trails) {
-    if (t.bbox[0] > e || t.bbox[2] < w || t.bbox[1] > n || t.bbox[3] < s) continue;
-    // Given up on as soon as too many points are off it: a long-distance
-    // path's line has thousands of segments.
-    const allowedOff = r.points.length * (1 - MIN_SHARE);
-    let off = 0;
-    for (const [lat, lon] of r.points) {
-      if (distanceTo(lat, lon, t.lines) > NEAR_M && ++off > allowedOff) break;
-    }
-    if (off <= allowedOff) on.push(t);
+  return [Math.min(...lons) - pad, Math.min(...lats) - pad, Math.max(...lons) + pad, Math.max(...lats) + pad];
+}
+
+// Whether at least `share` of the route's points are on the trail. Given up
+// on as soon as too many are off it: a long-distance path's line has
+// thousands of segments.
+function mostlyOn(r: KomootRoute, t: TrailLines, share: number): boolean {
+  const allowedOff = r.points.length * (1 - share);
+  let off = 0;
+  for (const [lat, lon] of r.points) {
+    if (distanceTo(lat, lon, t.lines) > NEAR_M && ++off > allowedOff) return false;
   }
+  return true;
+}
+
+// Share of the trail's line (sampled) that lies on the route.
+function trailOnRoute(r: KomootRoute, t: TrailLines): number {
+  const pts = t.lines.flat();
+  const step = Math.max(1, Math.floor(pts.length / 150));
+  const routeLine: LonLat[][] = [r.points.map(([lat, lon]) => [lon, lat])];
+  let on = 0, all = 0;
+  for (let i = 0; i < pts.length; i += step) {
+    all++;
+    if (distanceTo(pts[i][1], pts[i][0], routeLine) <= NEAR_M) on++;
+  }
+  return all ? on / all : 0;
+}
+
+// The trails at least `share` of the route runs along — whatever their length.
+export function alongTrails(r: KomootRoute, trails: TrailLines[], share = MIN_SHARE): TrailLines[] {
+  const [w, s, e, n] = routeBox(r, 0.003);
+  return trails.filter((t) => !(t.bbox[0] > e || t.bbox[2] < w || t.bbox[1] > n || t.bbox[3] < s) && mostlyOn(r, t, share));
+}
+
+// The trails a route runs along.
+export function trailsOf(r: KomootRoute, trails: TrailLines[]): number[] {
   const length = routeKm(r);
+  const on = alongTrails(r, trails, MUTUAL_SHARE).filter((t) =>
+    mostlyOn(r, t, MIN_SHARE) ||
+    (t.km >= length * MUTUAL_LENGTH[0] && t.km <= length * MUTUAL_LENGTH[1] && trailOnRoute(r, t) >= MUTUAL_BACK)
+  );
   const fits = on.filter((t) => t.km <= length * LONGER_FACTOR).sort((a, b) => a.km - b.km);
   if (!fits.length) return [];
   // The shortest, and any other of comparable length (two mapped trails along

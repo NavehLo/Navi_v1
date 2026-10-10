@@ -5,6 +5,7 @@ import { lookupEnglish, saveEnglish, searchEnglish } from '../../../lib/trailNam
 import { englishFromTags, needsEnglish } from '../../../lib/trailNames';
 import { wmtParents, wmtStages, type WmtElevation, type WmtRouteDetails, type WmtRouteSummary } from '../../../lib/waymarked';
 import { countriesFor } from '../../../lib/trailCountry';
+import { cutElevation, cutSection, sectionById } from '../../../lib/trailCrowd/sections';
 
 // Proxy for the Waymarked Trails API (marked hiking routes from OSM, worldwide).
 // Four reads, all GET:
@@ -12,6 +13,11 @@ import { countriesFor } from '../../../lib/trailCountry';
 //   ?q=<text>                   routes by name, for the search box
 //   ?id=<relation id>           one route: name, length, geometry
 //   ?id=<relation id>&elevation=1   DEM elevation samples along its ways
+//   ?id=<negative id>           a popular part of a long trail
+//                               (lib/trailCrowd/sections.ts): the long trail's
+//                               ways between its two ends, in the same shape,
+//                               with the long trail as its parent — and so
+//                               with &elevation=1 and &stages=1 likewise
 //   ?id=<relation id>&stages=1      a long trail's stages, and the long
 //                                   trails it is itself a stage of — a few
 //                                   hundred bytes where the details are
@@ -126,7 +132,7 @@ export async function GET(request: Request) {
   const wantElevation = url.searchParams.get('elevation') === '1';
   const wantStages = url.searchParams.get('stages') === '1';
 
-  if (!bbox && !(Number.isInteger(id) && id > 0)) {
+  if (!bbox && !(Number.isInteger(id) && id !== 0)) {
     return NextResponse.json({ error: 'bbox or id required' }, { status: 400 });
   }
 
@@ -135,6 +141,7 @@ export async function GET(request: Request) {
   }
 
   try {
+    if (!bbox && id < 0) return NextResponse.json(await sectionOf(id, wantElevation, wantStages));
     if (!bbox && wantStages) return NextResponse.json(await stagesOf(id, url.searchParams.get('climb') !== '0'));
     if (bbox) {
       const data = (await fetchWmt(
@@ -155,6 +162,23 @@ export async function GET(request: Request) {
     console.error('World trails error:', error);
     return NextResponse.json({ status: 'unavailable' satisfies Status });
   }
+}
+
+// A popular part of a long trail, cut out of the long trail's details (and
+// elevation), which fetchWmt keeps — opening the long trail after it is free.
+async function sectionOf(id: number, wantElevation: boolean, wantStages: boolean) {
+  const section = await sectionById(id);
+  if (!section) return { status: 'unavailable' satisfies Status };
+  if (wantStages) {
+    return { status: 'ok' satisfies Status, stages: [], parents: [{ id: section.parentId, name: section.parentName }], climb: true };
+  }
+  const parent = (await fetchWmt(`/details/relation/${section.parentId}?locale=he`)) as WmtRouteDetails | null;
+  const data = parent && cutSection(parent, section);
+  if (!data) return { status: 'unavailable' satisfies Status };
+  if (!wantElevation) return { status: 'ok' satisfies Status, data };
+  const elevation = (await fetchWmt(`/details/relation/${section.parentId}/way-elevation?simplify=50`)) as WmtElevation | null;
+  if (!elevation) return { status: 'unavailable' satisfies Status };
+  return { status: 'ok' satisfies Status, data: cutElevation(elevation, data) };
 }
 
 // The details and the elevation are both cached in fetchWmt, and the card

@@ -21,7 +21,7 @@ import { addTrails, type CountryTrail, type CountryTrailList } from '../countryT
 import { discoverTrails } from './discover';
 import { countryEnglish } from '../trailInfo/sources';
 import { findGuides, readGuides, type KomootRoute } from './komoot';
-import { matchRoutes, routeKm, trailLines, trailsOf } from './match';
+import { matchRoutes, routeKm, trailLines, trailsOf, type TrailLines } from './match';
 import { pageviewsFor } from './collect';
 import { writeCrowdRows } from './store';
 import type { CrowdData, CrowdSource } from './score';
@@ -64,6 +64,17 @@ export async function matchAll(
   all: KomootRoute[],
   opts: { deadline?: number } = {},
 ): Promise<Record<number, CrowdSource>> {
+  return (await matchAllDetailed(list, all, opts)).matches;
+}
+
+// matchAll, and the routes that ran along no trail it could credit but along
+// one far longer than themselves — each with those long trails — for the
+// popular parts of long trails (sections.ts).
+export async function matchAllDetailed(
+  list: CountryTrailList,
+  all: KomootRoute[],
+  opts: { deadline?: number } = {},
+): Promise<{ matches: Record<number, CrowdSource>; onLong: Map<KomootRoute, TrailLines[]> }> {
   // A search for a country's areas also finds pages about places of the same
   // name elsewhere (Malta's searches: Ireland, Bohemia, Australia). Only the
   // routes that pass through the country count.
@@ -82,13 +93,17 @@ export async function matchAll(
     else unsettled.push(r);
   }
   const matches = matchRoutes(settled, lines);
-  const found = await discoverTrails(unsettled, new Set(list.trails.map((t) => t.id)), opts);
+  const longOut = new Map<KomootRoute, TrailLines[]>();
+  const found = await discoverTrails(unsettled, new Set(list.trails.map((t) => t.id)), { ...opts, listLines: lines, longOut });
   // The list's trails and the ones found compete: the shortest wins.
   for (const [id, s] of matchRoutes(unsettled, [...lines, ...found])) {
     const prev = matches.get(id);
     if (!prev || (prev.hikers ?? 0) < (s.hikers ?? 0)) matches.set(id, s);
   }
-  return Object.fromEntries(matches);
+  // A route that discover found nothing for may still have matched a list
+  // trail in the step above (one 2–5 times its length).
+  const onLong = new Map([...longOut].filter(([r]) => trailsOf(r, [...lines, ...found]).length === 0));
+  return { matches: Object.fromEntries(matches), onLong };
 }
 
 // The list with the trails found under the routes added to it.
@@ -115,7 +130,8 @@ export function mergeMatches(into: Record<number, CrowdSource>, more: Record<num
 // path no site lists has none (in Greece, 14 of 600 names appear anywhere on
 // Wikipedia at all).
 export function wikiCandidates(list: CountryTrailList, matches: Record<number, CrowdSource>): CountryTrail[] {
-  return list.trails.filter((t) => t.group !== 'LOC' || matches[t.id]);
+  // A popular part of a long trail (sections.ts) has no article of its own.
+  return list.trails.filter((t) => !t.section && (t.group !== 'LOC' || matches[t.id]));
 }
 
 export async function pageviewsOf(trails: CountryTrail[]): Promise<Record<number, number>> {
@@ -130,9 +146,10 @@ export async function pageviewsOf(trails: CountryTrail[]): Promise<Record<number
 export async function saveCountry(
   list: CountryTrailList,
   matches: Record<number, CrowdSource>,
-  views: Record<number, number>
+  views: Record<number, number>,
+  // When the numbers were read — now, unless they come from pages read earlier.
+  at = new Date().toISOString(),
 ): Promise<boolean> {
-  const at = new Date().toISOString();
   const rows: CrowdData[] = list.trails.map((t) => ({
     id: t.id,
     pageviews: views[t.id] ?? 0,

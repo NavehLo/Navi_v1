@@ -46,6 +46,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const { storedCountryTrails, rebuildCountryTrails, builtCountryCounts, readByIds } = await import('../src/lib/countryTrails.ts');
+const { sectionsOfCountry } = await import('../src/lib/trailCrowd/sections.ts');
 const { LANDSCAPE_VERSION } = await import('../src/lib/landscape.ts');
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -237,7 +238,12 @@ for (const country of countries) {
   if (!list) { console.log(`${country}: no stored list — open the country in the app first, or pass --build`); continue; }
   const ids = list.trails.map((t) => t.id);
   console.log(`${country}: ${ids.length} trails, reading outlines…`);
-  const found = await readByIds(country, ids);
+  // A popular part of a long trail (negative id) is not a route of its own:
+  // its line is the points kept along it (src/lib/trailCrowd/sections.ts).
+  const found = await readByIds(country, ids.filter((id) => id > 0));
+  if (ids.some((id) => id < 0)) {
+    for (const s of await sectionsOfCountry(country)) found.set(s.id, { lines: [s.samples] });
+  }
   const trails = {};
   let missing = 0;
   for (const id of ids) {

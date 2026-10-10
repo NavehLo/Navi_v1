@@ -20,7 +20,7 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   if (params.has('trail')) {
     const id = Number(params.get('trail'));
-    if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'trail: relation id' }, { status: 400 });
+    if (!Number.isInteger(id) || id === 0) return NextResponse.json({ error: 'trail: relation id' }, { status: 400 });
     const result = trailLandscape(id);
     return NextResponse.json(result ? { status: 'ok', ...result } : { status: 'none' }, { headers: CACHE });
   }

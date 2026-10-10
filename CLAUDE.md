@@ -137,6 +137,18 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   (`addTrails`) and live on through `trail_crowd`: `build()` re-adds every
   trail with numbers there. Never delete a country's `trail_crowd` rows to
   "clean up" — its list would lose its most walked local paths.
+  A famous day walk on a far longer trail becomes a **section**
+  (`trailCrowd/sections.ts`): a negative id, `group: 'SEC'`, cut from the long
+  trail's own OSM ways. Only its two ends, points along it and a name from OSM
+  places are stored (`trail_sections`) — never Komoot's line (their terms,
+  §1.4). Sections are made only from the Mac (Nominatim, one request a second).
+  Anything that takes a world trail's id must accept a negative one (the card,
+  "טען", saving, sharing, `/api/world-trails`), and send a section's long
+  trail where only an OSM relation will do ("על המסלול"). A stage of an
+  international path (≤ 50 km) may join a list by id; the path itself never.
+  Komoot's pages are kept only in `~/.cache/navi-komoot/dumps` (never in git or
+  the database); after changing a matching rule, match again from them
+  (`crowdRound.sh --from-dumps`) — free — and measure with `crowdGap.mjs`.
   "מפת חום של מטיילים" weighs a trail only with `heatWeight`
   (`src/lib/trailHeat.ts`), from Komoot's hikers only, against the same fixed
   ceiling — the map's colours and the legend share `HEAT_STOPS` there.

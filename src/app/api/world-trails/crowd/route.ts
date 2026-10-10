@@ -11,7 +11,7 @@ import { storedCountryTrails } from '../../../../lib/countryTrails';
 
 export async function GET(request: Request) {
   const id = Number(new URL(request.url).searchParams.get('id'));
-  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'id' }, { status: 400 });
+  if (!Number.isInteger(id) || id === 0) return NextResponse.json({ error: 'id' }, { status: 400 });
   if (!(await rateLimit(`trail-crowd:${clientIp(request)}`, 60, 60_000))) {
     return NextResponse.json({ status: 'rate-limited' }, { status: 429 });
   }

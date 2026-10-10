@@ -342,8 +342,11 @@ export function useWorldTrails(map: mapboxgl.Map | null, styleRev: number, { onL
 
   const loadSelected = useCallback(() => {
     if (!selection?.details || selection.coords.length < 2) return;
+    // A popular part of a long trail (negative id) always keeps its long trail,
+    // for "חזרה למסלול הראשי" and "על המסלול".
+    const parent = selection.cameFrom ?? (selection.id < 0 ? selection.parent : null);
     onLoadTrail(selection.coords, selection.details.name ?? `מסלול ${selection.id}`, {
-      kind: 'wmt', id: selection.id, ...(selection.cameFrom ? { parent: selection.cameFrom } : {}),
+      kind: 'wmt', id: selection.id, ...(parent ? { parent } : {}),
     });
     clearSelection();
   }, [selection, onLoadTrail, clearSelection]);
@@ -361,7 +364,8 @@ export function useWorldTrails(map: mapboxgl.Map | null, styleRev: number, { onL
     }
     const { coords } = wmtRouteToCoords(entry.details, entry.elevation);
     if (coords.length < 2) return false;
-    onLoadTrail(coords, entry.details.name ?? `מסלול ${id}`, { kind: 'wmt', id, ...(parent ? { parent } : {}) });
+    const up = parent ?? (id < 0 ? wmtParents(entry.details)[0] : undefined);
+    onLoadTrail(coords, entry.details.name ?? `מסלול ${id}`, { kind: 'wmt', id, ...(up ? { parent: up } : {}) });
     return true;
   }, [onLoadTrail]);
 

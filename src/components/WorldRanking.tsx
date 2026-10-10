@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Footprints, Loader2, RefreshCw, Star, Trophy } from 'lucide-react';
 import { RATING_DOT, RATING_TEXT } from './BestMonthsSection';
 import { LandscapeLine } from './LandscapeFilters';
+import SectionBadge from './SectionBadge';
 import { MONTH_NAMES, RATING_LABELS } from '../lib/climate';
 import { countryName } from '../lib/worldTrailSearch';
 import { groupLabel, type WmtRouteSummary } from '../lib/waymarked';
@@ -242,6 +243,7 @@ function RankedRow({ t, rank, month, bins, onPick }: {
           <span className="min-w-0">{title}</span>
         </span>
         {latin && latin !== title && <span className="text-xs text-white" dir="ltr">{latin}</span>}
+        {t.section && <SectionBadge parentGroup={t.section.parentGroup} />}
         {waymark && <span className="text-xs font-semibold text-amber-200">סימון בשטח: <bdi>{waymark}</bdi></span>}
         <span className="text-xs text-white">
           {t.multiDay ? 'רב-יומי' : groupLabel(t.group)} · {t.km >= 10 ? Math.round(t.km) : t.km} ק״מ · <span className="font-bold text-amber-200">{countryName(t.country)}</span>

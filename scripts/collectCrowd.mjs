@@ -14,6 +14,8 @@
 //   crawl         Komoot's own links only, from the country's page. Free.
 //   codex-only    Codex's pages alone, without the crawl.
 // --pages N: how many pages the crawl reads at most (default 200).
+// --dry: match and find the popular parts of long trails, print them, and
+//   save nothing (with CROWD_ROUTES=<file>, a free rehearsal).
 // --dump-only: read the pages and keep their routes on this Mac
 //   (~/.cache/navi-komoot/dumps/crowd-<CC>.json, for crowdGap.mjs and for
 //   matching again with CROWD_ROUTES) — nothing is written to the database.
@@ -34,13 +36,14 @@ const flag = (name, fallback) => {
 const FIND = flag('--find', 'tavily');
 const PAGES = Number(flag('--pages', '200'));
 const DUMP_ONLY = args.includes('--dump-only');
+const DRY = args.includes('--dry');
 const countries = args.filter((a, i) => /^[A-Za-z]{2}$/.test(a) && !['--find', '--pages'].includes(args[i - 1])).map((a) => a.toUpperCase());
 if (!countries.length || !['tavily', 'codex', 'crawl', 'codex-only'].includes(FIND) || !(PAGES > 0)) {
   console.error('usage: node scripts/collectCrowd.mjs <ISO code>… [--find tavily|codex|crawl|codex-only] [--pages 200]');
   process.exit(1);
 }
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -49,7 +52,8 @@ const { readGuides } = await import('../src/lib/trailCrowd/komoot.ts');
 const { countryTrails, rebuildCountryTrails } = await import('../src/lib/countryTrails.ts');
 const c = await import('../src/lib/trailCrowd/country.ts');
 const { crowdRows } = await import('../src/lib/trailCrowd/store.ts');
-const { storedCountryTrails } = await import('../src/lib/countryTrails.ts');
+const { storedCountryTrails, addSections } = await import('../src/lib/countryTrails.ts');
+const { findSections, sectionsOfCountry, writeSections, isSectionsTableMissing } = await import('../src/lib/trailCrowd/sections.ts');
 const { crowdSummaries, trafficSignal, TRAFFIC_ORDER } = await import('../src/lib/trailCrowd/score.ts');
 const { findGuidesWithCodex, countryGuidePage, crawlGuides } = await import('../src/lib/trailCrowd/findGuides.ts');
 const { countryEnglish } = await import('../src/lib/trailInfo/sources.ts');
@@ -103,7 +107,7 @@ await withAiArea('trail_crowd', async () => {
   // CROWD_REBUILD=1: the country's list built afresh first (it then brings
   // back the trails earlier runs added, under their names).
   // --dump-only never builds a list: building one writes it to the table.
-  let list = DUMP_ONLY ? await storedCountryTrails(country)
+  let list = DUMP_ONLY || DRY ? await storedCountryTrails(country)
     : process.env.CROWD_REBUILD ? await rebuildCountryTrails(country) : await countryTrails(country);
   if (!list) throw new Error(`no trail list for ${country}`);
   console.log(`${country}: ${list.trails.length} trails, ${list.regions.length} areas`);
@@ -134,9 +138,31 @@ await withAiArea('trail_crowd', async () => {
   // A page lists ten routes. Far fewer means the pages were not read, and
   // saving would replace good numbers with none.
   if (routes.length < guides.length * 3) throw new Error(`only ${routes.length} routes from ${guides.length} pages — not saving`);
-  const matches = await c.matchAll(list, routes);
+  const { matches, onLong } = await c.matchAllDetailed(list, routes);
+  const have = new Set(list.trails.map((t) => t.id));
+  const hikers = (ids) => ids.reduce((n, id) => n + (matches[id].hikers ?? 0), 0);
+  const fresh = Object.keys(matches).map(Number).filter((id) => !have.has(id));
+  console.log(`${Object.keys(matches).length} trails matched (${hikers(Object.keys(matches).map(Number))} hikers), ${fresh.length} of them new to the list`);
+
+  // The popular parts of long trails (src/lib/trailCrowd/sections.ts).
+  console.log(`${onLong.size} routes run only along a far longer trail — looking for the part they walk…`);
+  const sections = await findSections(country, onLong, await sectionsOfCountry(country), { log: console.log });
+  console.log(`${sections.length} sections (${sections.filter((s) => s.isNew).length} new), ${sections.reduce((n, s) => n + (s.source.hikers ?? 0), 0)} hikers`);
+  if (DRY) {
+    console.log('--dry: nothing saved');
+    return;
+  }
+
   const before = list.trails.length;
   list = await c.withAddedTrails(list, matches);
+  if (sections.length) {
+    if (await writeSections(sections.filter((s) => s.isNew).map((s) => s.section))) {
+      list = (await addSections(country, sections.map((s) => s.section))) ?? list;
+      for (const s of sections) matches[s.section.id] = s.source;
+    } else {
+      console.log(isSectionsTableMissing() ? 'sections not saved: run supabase/schema.sql (trail_sections)' : 'sections not saved');
+    }
+  }
   const inList = list.trails.filter((t) => matches[t.id]).length;
   console.log(`${inList} of the list's trails matched, ${list.trails.length - before} of them just added (${list.trails.length} trails now)`);
 
@@ -144,7 +170,9 @@ await withAiArea('trail_crowd', async () => {
   const views = await c.pageviewsOf(ask);
   console.log(`Wikipedia: ${Object.values(views).filter((v) => v > 0).length} of ${ask.length} asked have reads`);
 
-  if (!(await c.saveCountry(list, matches, views))) throw new Error('could not save (table? key?)');
+  // From an earlier run's pages, the numbers are as old as the pages.
+  const at = process.env.CROWD_ROUTES ? statSync(process.env.CROWD_ROUTES).mtime.toISOString() : undefined;
+  if (!(await c.saveCountry(list, matches, views, at))) throw new Error('could not save (table? key?)');
 
   const rows = await crowdRows(country, { fresh: true });
   const s = crowdSummaries(rows);

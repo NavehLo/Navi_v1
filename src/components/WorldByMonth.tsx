@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { track } from '../lib/track';
 import { ArrowRight, BookOpen, ChevronLeft, Footprints, Loader2, RefreshCw, Search, Star, Trophy, X } from 'lucide-react';
 import InfoButton from './help/InfoButton';
+import SectionBadge from './SectionBadge';
 import Collapsible from './Collapsible';
 import { RATING_DOT, RATING_TEXT } from './BestMonthsSection';
 import { CLIMATE_VERSION, MONTH_NAMES, RATING_LABELS, type MonthRating } from '../lib/climate';
@@ -784,6 +785,7 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, onCountryView, g
                 <span className="min-w-0">{trailTitle(t.name, t.crowd?.komootName).title}</span>
               </span>
               <LatinLine t={t} country={country} />
+              {t.section && <SectionBadge parentGroup={t.section.parentGroup} />}
               {trailTitle(t.name, t.crowd?.komootName).waymark && <span className="text-xs font-semibold text-amber-200">סימון בשטח: <bdi>{t.name}</bdi></span>}
               <span className="text-xs text-white">
                 {t.multiDay ? 'רב-יומי' : groupLabel(t.group)} · {t.km >= 10 ? Math.round(t.km) : t.km} ק״מ
@@ -1018,6 +1020,7 @@ function LeadersSection({ area, country, leaders, month, regionLabel, onPick }: 
           <span className={`w-2 h-2 rounded-full shrink-0 ${RATING_DOT[t.months[month]]}`} title={RATING_LABELS[t.months[month]]} />
         </span>
         <LatinLine t={t} country={country} />
+        {t.section && <SectionBadge parentGroup={t.section.parentGroup} />}
         {trailTitle(t.name, t.crowd?.komootName).waymark && <span className="text-xs font-semibold text-amber-200">סימון בשטח: <bdi>{t.name}</bdi></span>}
         <span className="text-xs text-white">
           {t.km >= 10 ? Math.round(t.km) : t.km} ק״מ

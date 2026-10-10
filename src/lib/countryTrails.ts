@@ -9,6 +9,7 @@ import { lookupEnglish } from './trailNameCache';
 import { needsEnglish } from './trailNames';
 import { regionsAlong, regionInfo, type RegionInfo } from './regions';
 import { CROWD_VERSION } from './trailCrowd/score';
+import { isSectionId, sectionsOfCountry, type TrailSection } from './trailCrowd/sections';
 
 // A country's marked trails with the twelve months rated for each — the list
 // behind "מסלולים בעולם". Server only.
@@ -45,6 +46,9 @@ export interface CountryTrail {
   lon: number;
   regions: string[];        // ids of the areas it passes through (see regions.ts)
   months: MonthRating[];    // 12
+  // A popular part of a long trail (trailCrowd/sections.ts), not a route of
+  // its own: its id is negative, its group 'SEC'.
+  section?: { parent: number; parentName: string | null; parentGroup: string };
 }
 
 export interface CountryTrailList {
@@ -59,7 +63,9 @@ export interface CountryTrailList {
 // What a stored list is checked against: the rating rules, and the shape of
 // the list itself (LIST_FORMAT — 2 added the areas, 4 left out the
 // international paths). Both live in the table's climate_version column, so a
-// change to either rebuilds every country.
+// change to either rebuilds every country. The popular parts of long trails
+// (`section`, 2026-10) did not bump it: an optional field, which a list
+// without it is still right without — they are added to it as they are found.
 const LIST_FORMAT = 4;
 const STORED_VERSION = CLIMATE_VERSION * 100 + LIST_FORMAT;
 
@@ -248,11 +254,20 @@ function rateTrail(samples: Sample[], km: number, multiDay: boolean, gorge: bool
 
 // ── Building ─────────────────────────────────────────────────────────────────
 
-type Candidate = { summary: WmtRouteSummary; km: number; crossesBorder: boolean; samples: Sample[]; regions: string[] };
+type Candidate = {
+  summary: WmtRouteSummary; km: number; crossesBorder: boolean; samples: Sample[]; regions: string[]; byId?: boolean;
+  section?: CountryTrail['section'];
+};
 
 // Each route: its length here, and a few points on it that are in this
 // country (a square at a border holds the neighbour's trails too).
-function candidatesFrom(country: string, found: Map<number, Found>): Candidate[] {
+// `byId`: the trails added by id (see "Trails added by id"). Among them a
+// stage of an international path — a day's walk of the Peaks of the Balkans
+// or the E4, a route of its own in OSM — is kept: its card and "טען" are that
+// stage, not the whole path. A longer one is the path itself, and is not.
+const INT_STAGE_KM = 50;
+
+function candidatesFrom(country: string, found: Map<number, Found>, byId = false): Candidate[] {
   const candidates: Candidate[] = [];
   for (const { summary, lines } of found.values()) {
     const sampled = evenly(lines.flat(), 30);
@@ -264,11 +279,11 @@ function candidatesFrom(country: string, found: Map<number, Found>): Candidate[]
     // border — but its card and "טען" are the whole of it, and load its
     // longest piece, in Spain. Its parts in this country are mapped as routes
     // of their own ("E4 – part Greece, Central"), and those are kept.
-    if (summary.group === 'INT') continue;
+    if (summary.group === 'INT' && !(byId && lines.reduce((s, l) => s + lineKm(l), 0) <= INT_STAGE_KM)) continue;
     // The squares reach over the border; only the share inside counts.
     const km = lines.reduce((s, l) => s + lineKm(l), 0) * (inside.length / sampled.length);
     if (km < 0.5) continue;
-    candidates.push({ summary, km, crossesBorder: inside.length < sampled.length, regions: regionsAlong(country, inside), samples: evenly(inside, SAMPLES).map(([lon, lat]) => ({ lon, lat, ele: null })) });
+    candidates.push({ summary, km, crossesBorder: inside.length < sampled.length, regions: regionsAlong(country, inside), samples: evenly(inside, SAMPLES).map(([lon, lat]) => ({ lon, lat, ele: null })), byId });
   }
   return candidates;
 }
@@ -283,7 +298,9 @@ async function trailsFrom(chosen: Candidate[], fallbackNames: Record<number, str
 
   const trails: CountryTrail[] = [];
   for (const c of chosen) {
-    const multiDay = c.km > MULTI_DAY_KM || c.summary.group === 'INT' || c.summary.group === 'NAT';
+    // A trail found under a day walk — a stage of a national or international
+    // path among them — is judged by its length alone, as its card is.
+    const multiDay = c.km > MULTI_DAY_KM || (!c.byId && (c.summary.group === 'INT' || c.summary.group === 'NAT'));
     const gorge = isGorgeName(c.summary.name) || isGorgeName(english.get(c.summary.id));
     const months = rateTrail(c.samples, c.km, multiDay, gorge);
     if (!months) continue;
@@ -301,6 +318,7 @@ async function trailsFrom(chosen: Candidate[], fallbackNames: Record<number, str
       lon: Math.round(mid.lon * 1e4) / 1e4,
       regions: c.regions,
       months,
+      ...(c.section ? { section: c.section } : {}),
     });
   }
   return trails;
@@ -395,8 +413,12 @@ async function build(country: string, budgetMs = BUILD_BUDGET_MS): Promise<Count
   // The trails added by id earlier, which the squares do not reach.
   const have = new Set(chosen.map((c) => c.summary.id));
   const crowd = await crowdTrails(country);
-  const extra = [...crowd.keys()].filter((id) => !have.has(id));
-  if (extra.length) chosen.push(...candidatesFrom(country, await readByIds(country, extra)));
+  const extra = [...crowd.keys()].filter((id) => !have.has(id) && !isSectionId(id));
+  if (extra.length) chosen.push(...candidatesFrom(country, await readByIds(country, extra), true));
+  // And the popular parts of long trails, from their own table.
+  if ([...crowd.keys()].some(isSectionId)) {
+    chosen.push(...sectionCandidates(country, (await sectionsOfCountry(country)).filter((s) => crowd.has(s.id))));
+  }
 
   const trails = await trailsFrom(chosen, Object.fromEntries(crowd));
   const regions = regionInfo(country, new Set(trails.flatMap((t) => t.regions)));
@@ -544,7 +566,7 @@ export async function addTrails(country: string, ids: number[], names: Record<nu
   const have = new Set(list.trails.map((t) => t.id));
   const missing = [...new Set(ids)].filter((id) => !have.has(id));
   if (!missing.length) return list;
-  const added = await trailsFrom(candidatesFrom(country, await readByIds(country, missing)), names);
+  const added = await trailsFrom(candidatesFrom(country, await readByIds(country, missing), true), names);
   if (!added.length) return list;
   const trails = [...list.trails, ...added];
   const updated: CountryTrailList = {
@@ -552,6 +574,40 @@ export async function addTrails(country: string, ids: number[], names: Record<nu
     trails,
     regions: regionInfo(country, new Set(trails.flatMap((t) => t.regions))),
   };
+  memory.set(country, updated);
+  await writeTable(updated);
+  return updated;
+}
+
+// The popular parts of long trails (trailCrowd/sections.ts) as candidates:
+// from the points kept along each, like a route's outline.
+function sectionCandidates(country: string, sections: TrailSection[]): Candidate[] {
+  const out: Candidate[] = [];
+  for (const s of sections) {
+    const inside = s.samples.filter(([lon, lat]) => iso1A2Code([lon, lat]) === country);
+    if (!inside.length) continue;
+    out.push({
+      summary: { type: 'relation', id: s.id, name: s.name, group: 'SEC', linear: 'yes' },
+      km: s.km,
+      crossesBorder: inside.length < s.samples.length,
+      regions: regionsAlong(country, inside),
+      samples: evenly(inside, SAMPLES).map(([lon, lat]) => ({ lon, lat, ele: null })),
+      byId: true,
+      section: { parent: s.parentId, parentName: s.parentName, parentGroup: s.parentGroup },
+    });
+  }
+  return out;
+}
+
+// Adds popular parts of long trails to a country's stored list (or puts back
+// the ones it has, renamed or moved), and returns the list.
+export async function addSections(country: string, sections: TrailSection[]): Promise<CountryTrailList | null> {
+  const list = await countryTrails(country);
+  if (!list || !sections.length) return list;
+  const ids = new Set(sections.map((s) => s.id));
+  const added = await trailsFrom(sectionCandidates(country, sections));
+  const trails = [...list.trails.filter((t) => !ids.has(t.id)), ...added];
+  const updated: CountryTrailList = { ...list, trails, regions: regionInfo(country, new Set(trails.flatMap((t) => t.regions))) };
   memory.set(country, updated);
   await writeTable(updated);
   return updated;

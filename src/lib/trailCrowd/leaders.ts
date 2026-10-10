@@ -7,7 +7,7 @@ import { countryTrails, type CountryTrail } from '../countryTrails';
 import { CROWD_VERSION, crowdSummaries, leadersOf, type CrowdData, type CrowdSummary } from './score';
 import { crowdRows } from './store';
 
-export type LeaderTrail = Pick<CountryTrail, 'id' | 'name' | 'name_en' | 'group' | 'linear' | 'multiDay' | 'km' | 'lat' | 'lon'> & {
+export type LeaderTrail = Pick<CountryTrail, 'id' | 'name' | 'name_en' | 'group' | 'linear' | 'multiDay' | 'km' | 'lat' | 'lon' | 'section'> & {
   crowd: CrowdSummary;
 };
 
@@ -81,6 +81,7 @@ export async function allLeaders(): Promise<Record<string, CountryLeaders>> {
     const slim = (t: (typeof trails)[number]): LeaderTrail => ({
       id: t.id, name: t.name, name_en: t.name_en, group: t.group, linear: t.linear,
       multiDay: t.multiDay, km: t.km, lat: t.lat, lon: t.lon, crowd: t.crowd!,
+      ...(t.section ? { section: t.section } : {}),
     });
     if (day.length || long.length) out[country] = { day: day.map(slim), long: long.map(slim) };
   }

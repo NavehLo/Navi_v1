@@ -109,6 +109,8 @@ export function groupLabel(group: WmtGroup): string {
     case 'NAT': return 'שביל לאומי';
     case 'REG': return 'שביל אזורי';
     case 'LOC': return 'שביל מקומי';
+    // A popular part of a long trail (trailCrowd/sections.ts).
+    case 'SEC': return 'קטע של שביל ארוך';
     default: return 'שביל מסומן';
   }
 }
@@ -235,6 +237,16 @@ function chainToCoords(chain: WmtSegment[], elevation?: WmtElevation | null): { 
     }
   }
   return { coords, withEle };
+}
+
+// The ways of the route's longest walkable piece, in the order it walks them
+// (each way's geometry already turned to follow the route) — what
+// wmtRouteToCoords draws, way by way, for cutting a part out of it.
+export function wmtWalkedWays(details: WmtRouteDetails): WmtWay[] {
+  const chains = chainSegments(leafSegments(details.route?.main ?? []));
+  if (chains.length === 0) return [];
+  const longest = chains.reduce((a, b) => (chainLength(b) > chainLength(a) ? b : a), chains[0]);
+  return longest.flatMap((s) => s.ways ?? []).filter((w) => w.geometry?.coordinates?.length);
 }
 
 export function wmtRouteToCoords(details: WmtRouteDetails, elevation?: WmtElevation | null): WmtCoordsResult {

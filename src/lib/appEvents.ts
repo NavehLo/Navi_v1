@@ -11,6 +11,7 @@ export const EVENT_LABELS = {
   trail_open_file: 'טעינת קובץ מסלול (GPX/KML)',
   drive_open: 'פתיחת טיול בכביש',
   world_card: 'כרטיס מסלול בעולם (מהמפה או מהרשימה)',
+  trail_section: 'כרטיס של קטע פופולרי משביל ארוך',
   trail_discovery: 'רשימת מסלולי ישראל',
   world_by_month: 'מסלולים בעולם — לפי חודש ומדינה',
   world_ranking: 'מסלולים בעולם — לפי דירוג',

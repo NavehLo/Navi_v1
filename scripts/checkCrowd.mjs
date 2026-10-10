@@ -1,7 +1,8 @@
 // Checks the rules of "מה אומרים מטיילים" (src/lib/trailCrowd/score.ts) on a
 // made-up country: the five traffic tiers and their shares, "no information"
 // never becoming "few", the minimum for comparing at all, and the weighted
-// rating; and the world ranking's popularity score.
+// rating; the world ranking's popularity score; and tying a Komoot route to a
+// trail by where it goes.
 //
 //   node scripts/checkCrowd.mjs
 
@@ -105,6 +106,29 @@ for (const w of ['GG-2', 'RYF75', 'PR-LP 13', 'Tk9', 'GR 20', '1A']) check(`${w}
 for (const n of ['Harzklub-Weg 10F', 'Seeweg', 'נחל עמוד', 'VIA ALPINA', 'Σ2 Βίκος']) check(`${n} is a name`, trailTitle(n, 'x').waymark === null);
 check('a real name stays', trailTitle('PR 8 - Vereda da Ponta', 'x').title === 'PR 8 - Vereda da Ponta' && trailTitle('Σ2 Βίκος', 'x').waymark === null);
 check('no Komoot name: the waymark stays', trailTitle('105', null).title === '105');
+
+// Tying a Komoot route to a trail by where it goes (src/lib/trailCrowd/match.ts),
+// on made-up lines running east from 20°E along 42°N (a kilometre ≈ 0.0122°).
+const { trailsOf } = await import('../src/lib/trailCrowd/match.ts');
+const KM = 1 / (111.32 * Math.cos((42 * Math.PI) / 180));
+const east = (from, to, lat = 42) => Array.from({ length: Math.round((to - from) * 4) + 1 }, (_, i) => [lat, 20 + (from + i / 4) * KM]);
+const trail = (id, from, to, lat = 42) => {
+  const line = east(from, to, lat).map(([la, lo]) => [lo, la]);
+  return { id, km: to - from, lines: [line], bbox: [line[0][0], lat, line[line.length - 1][0], lat] };
+};
+const route = (points) => ({ guide: 'g', rank: 1, name: 'r', rating: 4.8, ratings: 50, hikers: 1000, km: null, points });
+// A 10 km route: out along the trail, then 2 km north and back west.
+const along = route(east(0, 10));
+check('a route on a trail of its length gets it', trailsOf(along, [trail(1, 0, 10)]).join() === '1');
+check('the shortest of the trails it runs along', trailsOf(along, [trail(1, 0, 10), trail(2, -5, 30)]).join() === '1');
+check('a trail far longer than the route is not credited (the E4)', trailsOf(along, [trail(3, -200, 200)]).length === 0);
+// Half the route on a 5 km trail that is all of it on the route: the same walk,
+// Komoot's line coming back 300 m off it (a parallel track, a car park).
+const half = route([...east(0, 5), ...east(0, 5, 42.003).reverse()]);
+check('half the route, on a trail wholly on it, of a like length', trailsOf(half, [trail(4, 0, 5)]).join() === '4');
+// Half the route on a trail of which only half is on the route: two walks
+// sharing a stretch (Grunas Waterfall on "7 (The Blue Eye)": 60% and 56%).
+check('two walks sharing half their way stay apart', trailsOf(along, [trail(5, 5, 15)]).length === 0);
 
 console.log(failed ? `\n${failed} FAILED` : '\nall ok');
 process.exit(failed ? 1 : 0);

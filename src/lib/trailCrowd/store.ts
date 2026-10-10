@@ -121,3 +121,30 @@ export async function crowdCountryOf(id: number): Promise<string | null> {
     return null;
   }
 }
+
+// The numbers of some trails, whatever their country — the popular parts of a
+// long trail, for its card. A trail with rows in two countries keeps one.
+export async function crowdOfIds(ids: number[]): Promise<Map<number, CrowdData>> {
+  const out = new Map<number, CrowdData>();
+  const db = serviceClient();
+  if (!db || tableMissing || !ids.length) return out;
+  try {
+    const { data, error } = await db
+      .from('trail_crowd')
+      .select('trail_id, pageviews, sources, fetched_at')
+      .in('trail_id', ids)
+      .eq('crowd_version', CROWD_VERSION);
+    if (error) throw error;
+    for (const r of data ?? []) {
+      out.set(Number(r.trail_id), {
+        id: Number(r.trail_id),
+        pageviews: Number(r.pageviews) || 0,
+        sources: Array.isArray(r.sources) ? r.sources : [],
+        fetchedAt: r.fetched_at,
+      });
+    }
+  } catch (e) {
+    noteError('read', e);
+  }
+  return out;
+}

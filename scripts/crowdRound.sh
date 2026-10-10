@@ -5,6 +5,9 @@
 #   scripts/crowdRound.sh BG RO PL CZ                 # Codex finds the pages, then the free crawl
 #   scripts/crowdRound.sh --find crawl BG RO PL CZ    # the crawl alone (when Codex's allowance is out)
 #   scripts/crowdRound.sh --find tavily BG RO         # Tavily (from the 1st of the month)
+#   scripts/crowdRound.sh --from-dumps GR ES AL       # no Komoot at all: the pages kept on
+#                                                     # this Mac, matched again (free — after
+#                                                     # a change to the matching rules)
 #
 #   1. collects the countries one by one (scripts/collectCrowd.mjs) — saved
 #      straight to the database, on the site at once; the Komoot pages read
@@ -24,9 +27,11 @@ set -o pipefail
 cd "$(dirname "$0")/.."
 
 FIND=codex
+FROM_DUMPS=
 if [ "$1" = "--find" ]; then FIND="$2"; shift 2; fi
+if [ "$1" = "--from-dumps" ]; then FROM_DUMPS=1; shift; fi
 if [ $# -eq 0 ]; then
-  echo "usage: scripts/crowdRound.sh [--find codex|crawl|tavily] <country codes…>"
+  echo "usage: scripts/crowdRound.sh [--find codex|crawl|tavily | --from-dumps] <country codes…>"
   exit 1
 fi
 
@@ -39,8 +44,15 @@ quiet() { grep -v -e MODULE_TYPELESS -e Reparsing -e 'To eliminate' -e trace-war
 DUMPS="$HOME/.cache/navi-komoot/dumps"
 mkdir -p "$DUMPS"
 for CC in "$@"; do
+  DUMP="$DUMPS/crowd-$(echo "$CC" | tr a-z A-Z).json"
+  if [ -n "$FROM_DUMPS" ]; then
+    if [ ! -f "$DUMP" ]; then echo "── $CC: no saved pages in $DUMPS — skipped" | tee -a "$LOG"; continue; fi
+    echo "── $(date '+%H:%M') matching $CC again, from its saved pages" | tee -a "$LOG"
+    CROWD_ROUTES="$DUMP" node scripts/collectCrowd.mjs "$CC" 2>&1 | quiet | tee -a "$LOG"
+    continue
+  fi
   echo "── $(date '+%H:%M') collecting $CC (--find $FIND)" | tee -a "$LOG"
-  CROWD_DUMP="$DUMPS/crowd-$(echo "$CC" | tr a-z A-Z).json" node scripts/collectCrowd.mjs "$CC" --find "$FIND" 2>&1 | quiet | tee -a "$LOG"
+  CROWD_DUMP="$DUMP" node scripts/collectCrowd.mjs "$CC" --find "$FIND" 2>&1 | quiet | tee -a "$LOG"
 done
 
 echo "── $(date '+%H:%M') landscape for $*" | tee -a "$LOG"

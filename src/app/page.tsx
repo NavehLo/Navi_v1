@@ -241,7 +241,9 @@ export default function TrailApp() {
   const openTrailInfo = useMemo<TrailInfoRequest | null>(() => {
     if (!trail || !trailSource || trail.kind === 'drive') return null;
     const url = trailSource.kind === 'url' ? trailSource.url : trailSource.kind === 'pack' ? trailSource.sourceUrl : null;
-    const wmtId = trailSource.kind === 'wmt' ? trailSource.id : Number(/^wmt:(\d+)$/.exec(url ?? '')?.[1] ?? NaN);
+    let wmtId = trailSource.kind === 'wmt' ? trailSource.id : Number(/^wmt:(-?\d+)$/.exec(url ?? '')?.[1] ?? NaN);
+    // A popular part of a long trail (negative id) is described by its long trail.
+    if (wmtId < 0) wmtId = trailSource.kind === 'wmt' && trailSource.parent ? trailSource.parent.id : NaN;
     if (Number.isFinite(wmtId)) return { kind: 'wmt', id: wmtId, name: trail.name };
     const nakebId = nakebIdFromUrl(url);
     if (nakebId == null) return null;
@@ -256,7 +258,9 @@ export default function TrailApp() {
 
   // A world trail made of stages lists them on its card, and a stage leads
   // back to its long trail. Either opens as the trail, in place of this one.
-  const openWmtId = openTrailInfo?.kind === 'wmt' ? openTrailInfo.id : null;
+  // A popular part of a long trail goes by its own (negative) id here: its
+  // "stages" answer is just its long trail, to go back to.
+  const openWmtId = trailSource?.kind === 'wmt' ? trailSource.id : openTrailInfo?.kind === 'wmt' ? openTrailInfo.id : null;
   const wmtStructure = useWmtStages(openWmtId);
   const [stageLoading, setStageLoading] = useState<number | null>(null);
   const { loadById: loadWorldTrailById } = worldTrails;
@@ -474,7 +478,7 @@ export default function TrailApp() {
 
   const handleLoadSavedTrail = useCallback((saved: SavedTrail) => {
     setShowPersonalArea(false);
-    const wmtId = saved.source_url?.match(/^wmt:(\d+)$/)?.[1];
+    const wmtId = saved.source_url?.match(/^wmt:(-?\d+)$/)?.[1];
     const drive = decodeDrive(saved.source_url);
     const savedCoords = coordsFromGpxText(saved.source_content);
     if (drive) {
@@ -933,7 +937,12 @@ export default function TrailApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trail?.coords]);
   const selectedWorldId = worldTrails.selection?.id ?? null;
-  useEffect(() => { if (selectedWorldId != null) track('world_card'); }, [selectedWorldId]);
+  useEffect(() => {
+    if (selectedWorldId == null) return;
+    track('world_card');
+    // A popular part of a long trail (lib/trailCrowd/sections.ts).
+    if (selectedWorldId < 0) track('trail_section');
+  }, [selectedWorldId]);
   useEffect(() => { if (isTourActive) track('virtual_tour'); }, [isTourActive]);
   useEffect(() => { if (isGuideEnabled) track('guide_on'); }, [isGuideEnabled]);
   useEffect(() => { if (infoRequest) track('trail_info'); }, [infoRequest]);
@@ -1171,7 +1180,7 @@ export default function TrailApp() {
     } else if (shared) {
       loadTrailFromUrl(shared);
       window.history.replaceState({}, '', window.location.pathname);
-    } else if (sharedWmt && /^\d+$/.test(sharedWmt)) {
+    } else if (sharedWmt && /^-?\d+$/.test(sharedWmt) && sharedWmt !== '0') {
       worldTrails.loadById(Number(sharedWmt));
       window.history.replaceState({}, '', window.location.pathname);
     } else if (sharedDrive) {
@@ -1819,9 +1828,18 @@ export default function TrailApp() {
           } : undefined}
           onShowInfo={() => setInfoRequest({
             kind: 'wmt',
-            id: worldTrails.selection!.id,
+            // A popular part of a long trail is described by the long trail.
+            id: worldTrails.selection!.id < 0 ? worldTrails.selection!.parent?.id ?? 0 : worldTrails.selection!.id,
             name: worldTrails.selection!.details?.name ?? worldTrails.selection!.summary?.name,
           })}
+          onPickSection={(section) => {
+            const sel = worldTrails.selection!;
+            worldTrails.select(
+              section.id,
+              { type: 'relation', id: section.id, name: section.name, group: 'SEC', linear: 'yes' },
+              { fit: true, cameFrom: { id: sel.id, name: sel.details?.name ?? sel.summary?.name ?? null } },
+            );
+          }}
           onPickStage={(stage) => {
             const sel = worldTrails.selection!;
             worldTrails.select(
@@ -1830,7 +1848,7 @@ export default function TrailApp() {
               { fit: true, cameFrom: { id: sel.id, name: sel.details?.name ?? sel.summary?.name ?? null } },
             );
           }}
-          siblings={worldSiblings?.stages.length ? worldSiblings.stages : null}
+          siblings={worldSiblings?.stages.length && worldTrails.selection!.id > 0 ? worldSiblings.stages : null}
           onStep={(stage) => {
             worldTrails.select(
               stage.id,

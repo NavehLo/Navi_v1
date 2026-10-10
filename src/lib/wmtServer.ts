@@ -23,9 +23,16 @@ export async function fetchWmt(path: string, timeoutMs = 20000, remember = true)
   const hit = remember ? cache.get(path) : undefined;
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.body;
   try {
-    const res = await fetch(`${BASE}${path}`, {
+    const ask = () => fetch(`${BASE}${path}`, {
       headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
       signal: AbortSignal.timeout(timeoutMs),
+    });
+    // A connection dropped under load is asked once more, a moment later;
+    // a timeout or an error answer is not.
+    const res = await ask().catch(async (e) => {
+      if ((e as Error)?.name === 'TimeoutError') throw e;
+      await new Promise((r) => setTimeout(r, 2000));
+      return ask();
     });
     if (!res.ok) {
       console.error('Waymarked Trails error:', path, res.status);

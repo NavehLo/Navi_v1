@@ -11,6 +11,8 @@ import TrailCrowdSection, { useTrailCrowd } from './TrailCrowdSection';
 import { trailDifficulty } from '../lib/difficulty';
 import { DifficultyLine } from './DifficultyFilter';
 import TrailLandscapeSection from './TrailLandscapeSection';
+import SectionBadge from './SectionBadge';
+import TrailSectionsList, { type SectionItem } from './TrailSectionsList';
 
 // The trail's English name, when its own is in a script the reader may not
 // read: OSM's, if a mapper wrote one, else a translation from the server;
@@ -40,7 +42,7 @@ function useEnglishName(id: number, name: string | undefined, tags: Record<strin
 // route it describes can be looked at on the map — on a phone the open card
 // covers much of it. A new card always opens unfolded.
 export default function WorldTrailCard({
-  selection, onClose, onLoad, onShowInfo, onPickStage, onBackToParent, siblings = null, onStep, onBackToList,
+  selection, onClose, onLoad, onShowInfo, onPickStage, onPickSection, onBackToParent, siblings = null, onStep, onBackToList,
 }: {
   selection: WorldTrailSelection;
   onClose: () => void;
@@ -50,6 +52,8 @@ export default function WorldTrailCard({
   // A long trail made of stages: one of them opens in this card, and from a
   // stage the long trail opens again.
   onPickStage: (stage: WmtStage) => void;
+  // A long trail's popular parts (TrailSectionsList): one opens in this card.
+  onPickSection: (section: SectionItem) => void;
   onBackToParent: () => void;
   // On a stage: its long trail's stages, to step to the one before or after.
   siblings?: WmtStage[] | null;
@@ -61,6 +65,8 @@ export default function WorldTrailCard({
   const name = d?.name ?? selection.summary?.name ?? 'מסלול מסומן';
   const english = useEnglishName(selection.id, d?.name ?? selection.summary?.name, d?.tags);
   const group = d?.group ?? selection.summary?.group ?? '';
+  // A popular part of a long trail (negative id): the long trail it is cut from.
+  const section = selection.id < 0 ? Object.values(d?.superroutes ?? {})[0] ?? null : null;
   const wiki = wikipediaUrl(d?.wikipedia);
   // OSM puts a route's site under `website` as often as under `url`.
   const site = d?.url ?? d?.tags?.website ?? null;
@@ -106,7 +112,9 @@ export default function WorldTrailCard({
           aria-expanded={!collapsed}
           className="flex-1 min-w-0 text-right"
         >
-          <div className="text-xs text-orange-400 font-bold tracking-wide">{groupLabel(group)}</div>
+          {section
+            ? <SectionBadge parentGroup={section.group} />
+            : <div className="text-xs text-orange-400 font-bold tracking-wide">{groupLabel(group)}</div>}
           <div className={`font-extrabold text-white leading-tight break-words ${collapsed ? 'text-base line-clamp-2' : 'text-lg'}`}>{name}</div>
           {english && (
             <div
@@ -143,6 +151,13 @@ export default function WorldTrailCard({
         >
           <List className="w-3.5 h-3.5" /> חזרה לרשימה
         </button>
+      )}
+
+      {section && !collapsed && (
+        <div className="text-sm text-white leading-snug">
+          החלק של <bdi className="font-bold">{section.name ?? 'השביל'}</bdi> שבו הולכים הכי הרבה מטיילים — לא שביל נפרד:
+          הסימון בשטח הוא של השביל הארוך.
+        </div>
       )}
 
       {selection.parent && (
@@ -236,6 +251,7 @@ export default function WorldTrailCard({
             </div>
           )}
 
+          {selection.id > 0 && <TrailSectionsList parent={selection.id} parentName={d.name ?? null} onPick={onPickSection} />}
           <TrailCrowdSection id={selection.id} />
           <TrailLandscapeSection id={selection.id} />
 
