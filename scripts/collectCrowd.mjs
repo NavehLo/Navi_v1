@@ -14,6 +14,9 @@
 //   crawl         Komoot's own links only, from the country's page. Free.
 //   codex-only    Codex's pages alone, without the crawl.
 // --pages N: how many pages the crawl reads at most (default 200).
+// --dump-only: read the pages and keep their routes on this Mac
+//   (~/.cache/navi-komoot/dumps/crowd-<CC>.json, for crowdGap.mjs and for
+//   matching again with CROWD_ROUTES) — nothing is written to the database.
 //
 // Needs in .env.local: SUPABASE_SERVICE_ROLE_KEY and NEXT_PUBLIC_SUPABASE_URL,
 // and TAVILY_API_KEY for --find tavily; Codex installed and signed in for
@@ -30,19 +33,23 @@ const flag = (name, fallback) => {
 };
 const FIND = flag('--find', 'tavily');
 const PAGES = Number(flag('--pages', '200'));
+const DUMP_ONLY = args.includes('--dump-only');
 const countries = args.filter((a, i) => /^[A-Za-z]{2}$/.test(a) && !['--find', '--pages'].includes(args[i - 1])).map((a) => a.toUpperCase());
 if (!countries.length || !['tavily', 'codex', 'crawl', 'codex-only'].includes(FIND) || !(PAGES > 0)) {
   console.error('usage: node scripts/collectCrowd.mjs <ISO code>… [--find tavily|codex|crawl|codex-only] [--pages 200]');
   process.exit(1);
 }
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 const { withAiArea } = await import('../src/lib/aiUsage.ts');
 const { readGuides } = await import('../src/lib/trailCrowd/komoot.ts');
 const { countryTrails, rebuildCountryTrails } = await import('../src/lib/countryTrails.ts');
 const c = await import('../src/lib/trailCrowd/country.ts');
 const { crowdRows } = await import('../src/lib/trailCrowd/store.ts');
+const { storedCountryTrails } = await import('../src/lib/countryTrails.ts');
 const { crowdSummaries, trafficSignal, TRAFFIC_ORDER } = await import('../src/lib/trailCrowd/score.ts');
 const { findGuidesWithCodex, countryGuidePage, crawlGuides } = await import('../src/lib/trailCrowd/findGuides.ts');
 const { countryEnglish } = await import('../src/lib/trailInfo/sources.ts');
@@ -95,7 +102,9 @@ async function collect(country) {
 await withAiArea('trail_crowd', async () => {
   // CROWD_REBUILD=1: the country's list built afresh first (it then brings
   // back the trails earlier runs added, under their names).
-  let list = process.env.CROWD_REBUILD ? await rebuildCountryTrails(country) : await countryTrails(country);
+  // --dump-only never builds a list: building one writes it to the table.
+  let list = DUMP_ONLY ? await storedCountryTrails(country)
+    : process.env.CROWD_REBUILD ? await rebuildCountryTrails(country) : await countryTrails(country);
   if (!list) throw new Error(`no trail list for ${country}`);
   console.log(`${country}: ${list.trails.length} trails, ${list.regions.length} areas`);
 
@@ -114,6 +123,14 @@ await withAiArea('trail_crowd', async () => {
     ({ guides, routes } = await findAndRead(list));
   }
   if (process.env.CROWD_DUMP) writeFileSync(process.env.CROWD_DUMP, JSON.stringify({ guides, routes }));
+  if (DUMP_ONLY) {
+    // Komoot's lines stay on this Mac: never in the repository or the database.
+    const dir = join(homedir(), '.cache/navi-komoot/dumps');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `crowd-${country}.json`), JSON.stringify({ guides, routes }));
+    console.log(`kept ${routes.length} routes from ${guides.length} pages in ${dir} — nothing saved to the database`);
+    return;
+  }
   // A page lists ten routes. Far fewer means the pages were not read, and
   // saving would replace good numbers with none.
   if (routes.length < guides.length * 3) throw new Error(`only ${routes.length} routes from ${guides.length} pages — not saving`);

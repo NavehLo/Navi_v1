@@ -762,6 +762,14 @@ Komoot שנקראו (`~/.cache/navi-komoot/dumps/crowd-<קוד>.json`), כדי �
 בוויקיפדיה (כבר חלק מהדירוג, ותופס את הטרקים המפורסמים) ו"אין מספיק מידע".
 
 מפת האתר של Komoot (כ-38MB) נשמרת במחשב ב-`~/.cache/navi-komoot` ומתרעננת אחרי חודש.
+
+**מה לא מגיע לרשימה, ולמה** (`node scripts/crowdGap.mjs`, קורא בלבד): לכל מסלול של Komoot
+במדינה — נקשר לשביל ברשימה, "מוצל" (השביל ברשימה, אבל מסלול מטויל יותר לקח אותו), שביל
+מסומן שחסר ברשימה, שביל ארוך מדי בשבילו, התאמה חלקית (40–60%), או בלי שביל מסומן בכלל
+(ואז Overpass בודק אם הוא על דרכים ושבילים של OSM; `--no-overpass` כש-Overpass עמוס). הוא
+עובד על המסלולים ששמורים במחשב ב-`~/.cache/navi-komoot/dumps/crowd-<CC>.json` — רק במחשב,
+לא בגיט ולא בבסיס הנתונים, כי יש בהם את הקווים של Komoot. שמירה כזו בלי לשנות שום דבר:
+`node scripts/collectCrowd.mjs GR --find crawl --dump-only`. התוצאות ב-`logs/crowd-gap-<תאריך>.log`.
 כמה מדינות ברצף: `node scripts/collectCrowd.mjs BA XK MK --find codex`, ואחר כך
 `node scripts/collectLandscape.mjs BA XK MK` (נוף למסלולים שנוספו — קובץ שצריך commit ו-deploy).
 אלבניה (2026-10-10) נאספה כך: Codex מצא 41 דפים בדקה, הסריקה 66 דפים באלבניה ו-430
