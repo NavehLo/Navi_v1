@@ -38,7 +38,7 @@ import { register } from 'node:module';
 register('./tsResolve.mjs', import.meta.url);
 try { process.loadEnvFile('.env.local'); } catch { /* the environment may already hold the keys */ }
 
-import { existsSync, openSync, readSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, openSync, readSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { gzipSync, gunzipSync } from 'node:zlib';
@@ -215,12 +215,24 @@ if (file.version !== LANDSCAPE_VERSION || String(file.reliefBins) !== String(BIN
 }
 
 // The file is written after every country, so a long run stopped halfway
-// keeps what it did.
-function save() {
+// keeps what it did. It is read again just before, and only this country
+// replaced: two runs at once (a round of the hiker metrics, and matching the
+// saved pages again) would otherwise each write back their own countries over
+// the other's.
+function save(country) {
+  // Without a country (the last write), what is on disk already holds this
+  // run's countries, each saved as it was done.
+  if (existsSync(OUT)) {
+    const disk = JSON.parse(gunzipSync(readFileSync(OUT)).toString('utf8'));
+    if (disk.version === file.version && String(disk.reliefBins) === String(file.reliefBins)) {
+      file.countries = country ? { ...disk.countries, [country]: file.countries[country] } : disk.countries;
+    }
+  }
   const used = new Set(Object.values(file.countries).flatMap((c) => Object.values(c.trails).flatMap((t) => t.ranges)));
   file.ranges = rangeNames(used);
   const raw = Buffer.from(JSON.stringify(file));
-  writeFileSync(OUT, gzipSync(raw, { level: 9 }));
+  writeFileSync(`${OUT}.tmp`, gzipSync(raw, { level: 9 }));
+  renameSync(`${OUT}.tmp`, OUT);
   return raw.length;
 }
 
@@ -260,7 +272,7 @@ for (const country of countries) {
   }
   file.countries[country] = { builtAt: new Date().toISOString().slice(0, 10), trails };
   console.log(`${country}: ${Object.keys(trails).length} trails${missing ? `, ${missing} without an outline` : ''}${list.partial ? ' (its list is still partial)' : ''}`);
-  save();
+  save(country);
 }
 
 const size = save();
