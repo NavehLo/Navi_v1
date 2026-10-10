@@ -43,6 +43,7 @@ const { trailLines, trailLinesOf, trailsOf, routeKm } = await import('../src/lib
 const { discoverTrails } = await import('../src/lib/trailCrowd/discover.ts');
 const { fetchWmt } = await import('../src/lib/wmtServer.ts');
 const { lonLatToMercator } = await import('../src/lib/waymarked.ts');
+const { sectionsOfCountry } = await import('../src/lib/trailCrowd/sections.ts');
 
 const DUMPS = join(homedir(), '.cache/navi-komoot/dumps');
 const OVERPASS_CACHE = join(homedir(), '.cache/navi-komoot/overpass');
@@ -161,7 +162,12 @@ function osmWays(r) {
   return run;
 }
 
+// Overpass refusing three routes in a row is down: the rest of the run does
+// not wait on it (group 3 stays unchecked).
+let overpassFailures = 0;
+
 async function osmWaysNow(r) {
+  if (overpassFailures >= 3) return null;
   const [w, s, e, n] = bboxOf(r.points, 0.001);
   const q = `[out:json][timeout:90];way[highway](${s.toFixed(4)},${w.toFixed(4)},${n.toFixed(4)},${e.toFixed(4)});out geom qt;`;
   const file = join(OVERPASS_CACHE, createHash('sha1').update(q).digest('hex') + '.json');
@@ -182,15 +188,18 @@ async function osmWaysNow(r) {
         await sleep(Math.min(60_000, 10_000 * 2 ** attempt));
         continue;
       }
-      if (!res.ok) return null;
+      // A mirror that refuses us (403) is not asked again this time.
+      if (!res.ok) continue;
       const body = await res.json();
       const lines = (body.elements ?? []).filter((x) => x.geometry).map((x) => x.geometry.map((g) => [g.lon, g.lat]));
       writeFileSync(file, JSON.stringify(lines));
+      overpassFailures = 0;
       return lines;
     } catch {
       await sleep(Math.min(60_000, 10_000 * 2 ** attempt));
     }
   }
+  if (++overpassFailures === 3) console.log('  Overpass is not answering — the rest of the run goes without it');
   return null;
 }
 
@@ -216,7 +225,12 @@ for (const cc of countries) {
   }
   routes.sort((a, b) => b.hikers - a.hikers);
   log(`\n${cc}: ${routes.length} routes in the country, ${list.trails.length} trails in the list`);
-  const lines = await trailLines(list.trails);
+  // The popular parts of long trails (sections.ts) are trails of the list too:
+  // a route along one counts as matched. Their line is the points kept along it.
+  const lines = [
+    ...(await trailLines(list.trails.filter((t) => t.id > 0))),
+    ...(await sectionsOfCountry(cc)).map((s) => trailLinesOf(s.id, { type: 'LineString', coordinates: s.samples.map(([lon, lat]) => lonLatToMercator(lon, lat)) }, s.km)).filter(Boolean),
+  ];
   const known = new Set(list.trails.map((t) => t.id));
 
   // matched / shadowed: each trail keeps its most walked route.
