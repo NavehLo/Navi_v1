@@ -4,8 +4,8 @@ import { heatPoints } from '../../../../lib/trailCrowd/heat';
 // A country's list may have to be built first (tens of seconds, rarely).
 export const maxDuration = 60;
 
-// GET → {status, points: [[lon, lat, weight]], countries: ['GR', …]}: the
-// "מפת חום של מטיילים" layer — one point per trail Komoot counts hikers on.
+// GET → {status, trails: [{id, name, lat, lon, hikers, w, …}], countries}: the
+// "מפת חום של מטיילים" layer — every trail Komoot counts hikers on.
 // The same for everybody, and changed only by an admin's run, so the CDN may
 // keep it a while.
 

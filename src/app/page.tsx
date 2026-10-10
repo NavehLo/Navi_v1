@@ -233,12 +233,6 @@ export default function TrailApp() {
     });
   }, [lastClosed, loadTrailFromCoords]);
 
-  // The leading trails of the collected countries, as stars over the overlay.
-  useTrailLeaders(map, styleRev, {
-    enabled: worldTrails.enabled,
-    muted: !!trail || !!worldTrails.selection,
-    onPick: pickFromMap,
-  });
 
   // "על המסלול": which trail's description is open, if any.
   const [infoRequest, setInfoRequest] = useState<TrailInfoRequest | null>(null);
@@ -745,7 +739,14 @@ export default function TrailApp() {
   // turning it off puts back the map and the 3D that were there — unless the
   // reader picked another map in between. With no reception the downloaded
   // style stays (it is the one with tiles).
-  const hikerHeat = useHikerHeat(map, styleRev);
+  const hikerHeat = useHikerHeat(map, styleRev, { muted: !!trail || !!worldTrails.selection, onPick: pickFromMap });
+  // The leading trails of the collected countries, as stars over the overlay
+  // and over the heat.
+  useTrailLeaders(map, styleRev, {
+    enabled: worldTrails.enabled || hikerHeat.enabled,
+    muted: !!trail || !!worldTrails.selection,
+    onPick: pickFromMap,
+  });
   const { setEnabled: setHikerHeat } = hikerHeat;
   const beforeHeatRef = useRef<{ style: string; is3D: boolean } | null>(null);
   const styleLocked = !online && !!trail && !!packStyleKey;
