@@ -2,11 +2,13 @@
 // owner, in the terminal. Reads only.
 //
 //   node scripts/crowdStatus.mjs
+//   node scripts/crowdStatus.mjs --collected    # only the codes collected (for crowdRound.sh)
 //
 //   1. the countries collected: trails, how many with Komoot's numbers, with
-//      a rating, and when
-//   2. still to collect, where Komoot covers the country well or fairly
-//   3. still to collect, where Komoot is weak or almost absent
+//      a rating, and when — and what a round (crowdRound.sh) is collecting now
+//   2. still to collect: where Komoot covers the country well, fairly or
+//      weakly — something is better than nothing
+//   3. not worth collecting: where Komoot is almost absent
 //
 // How well Komoot covers a country comes from scripts/komootCoverage.json
 // (scripts/measureKomootCoverage.mjs): the hikers of the ten routes on the
@@ -19,7 +21,7 @@ import { register } from 'node:module';
 register('./tsResolve.mjs', import.meta.url);
 try { process.loadEnvFile('.env.local'); } catch { /* the environment may already hold the keys */ }
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 
 const { serviceClient } = await import('../src/lib/supabaseService.ts');
 const { CROWD_VERSION, komootOf } = await import('../src/lib/trailCrowd/score.ts');
@@ -65,6 +67,22 @@ for (const r of rows) {
   by.set(r.country, c);
 }
 
+if (process.argv.includes('--collected')) {
+  console.log([...by.keys()].join(' '));
+  process.exit(0);
+}
+
+// What the rounds running now are collecting (crowdRound.sh writes
+// logs/running-<pid>.txt, and removes it when it ends).
+const running = new Set();
+const LOGS = new URL('../logs/', import.meta.url);
+for (const f of existsSync(LOGS) ? readdirSync(LOGS) : []) {
+  const pid = /^running-(\d+)\.txt$/.exec(f)?.[1];
+  if (!pid) continue;
+  try { process.kill(Number(pid), 0); } catch { continue; } // a round that died without cleaning up
+  for (const cc of readFileSync(new URL(f, LOGS), 'utf8').split(/\s+/).filter(Boolean)) running.add(cc);
+}
+
 const rank = (cc) => (order.indexOf(cc) + 1) || 999;
 const name = (cc) => countryEnglish(cc).slice(0, 22).padEnd(22);
 const cont = (cc) => (continentOf.get(cc) ?? '').padEnd(14);
@@ -80,24 +98,26 @@ for (const cc of done) {
 }
 const total = (k) => [...by.values()].reduce((n, c) => n + c[k], 0);
 console.log(`\n   ${total('komoot')} trails with Komoot's numbers (${total('rated')} rated), ${total('trails')} trails in all`);
+const runningNow = [...running].filter((cc) => !by.has(cc));
+if (runningNow.length) console.log(`   being collected now: ${runningNow.map((cc) => `${cc} ${countryEnglish(cc)}`).join(', ')}`);
 
 // ── 2 and 3. Still to collect ────────────────────────────────────────────────
-const left = order.filter((cc) => !by.has(cc));
+const left = order.filter((cc) => !by.has(cc) && !running.has(cc));
 const line = (cc) => {
   const c = coverage?.countries[cc];
   const t = tierOf(cc);
   return `   ${cc} ${name(cc)} ${cont(cc)} ${(t ?? 'not measured').padEnd(12)} ${c ? num(c.hikers.toLocaleString('en'), 8) : ''}`;
 };
 const header = `   ${'country'.padEnd(25)} ${'continent'.padEnd(14)} ${'Komoot'.padEnd(12)} hikers*`;
-const worth = left.filter((cc) => ['good', 'fair', null].includes(tierOf(cc)));
-const thin = left.filter((cc) => ['weak', 'almost none'].includes(tierOf(cc)));
+const worth = left.filter((cc) => tierOf(cc) !== 'almost none');
+const thin = left.filter((cc) => tierOf(cc) === 'almost none');
 
-console.log(`\n2. TO COLLECT — Komoot covers them well or fairly (${worth.length}), in order:\n`);
+console.log(`\n2. TO COLLECT — Komoot covers them well, fairly or weakly (${worth.length}), in order:\n`);
 console.log(header);
 for (const cc of worth) console.log(line(cc));
 if (worth.length) console.log(`\n   next round: scripts/crowdRound.sh ${worth.slice(0, 4).join(' ')}`);
 
-console.log(`\n3. KOMOOT IS WEAK OR ALMOST ABSENT (${thin.length}) — little to gain; Wikipedia's reads still rate the famous treks:\n`);
+console.log(`\n3. NOT WORTH COLLECTING — Komoot is almost absent (${thin.length}); Wikipedia's reads still rate the famous treks:\n`);
 console.log(header);
 for (const cc of thin) console.log(line(cc));
 
