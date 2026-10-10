@@ -126,7 +126,11 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   come from Komoot's per-area "best hikes" pages, tied to our trails by
   geometry (`match.ts`) — no per-trail search, no model. Collecting a country
   is an admin run (settings → מתקדם, or `scripts/collectCrowd.mjs`), never
-  triggered by a visitor; a run that read too few routes must not save. Bump
+  triggered by a visitor; a run that read too few routes must not save.
+  The pages are found by Tavily, Codex or a crawl of Komoot's own links
+  (`--find`, `findGuides.ts`); whatever finds them, a page counts only once
+  it is read and most of its routes lie in the country — never trust a URL a
+  model gave. Bump
   `CROWD_VERSION` only when what is stored changes. Google ratings may not be
   stored, so they are not a source.
   Trails found under Komoot's routes (`discover.ts`) join the country's list
