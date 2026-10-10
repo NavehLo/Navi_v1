@@ -1,0 +1,641 @@
+{
+ "countries": {
+  "GR": {
+   "page": "https://www.komoot.com/guide/71927/hiking-in-greece",
+   "routes": 10,
+   "hikers": 45375,
+   "ratings": 8748
+  },
+  "ES": {
+   "page": "https://www.komoot.com/guide/521/hiking-in-spain",
+   "routes": 10,
+   "hikers": 62786,
+   "ratings": 11956
+  },
+  "IT": {
+   "page": "https://www.komoot.com/guide/537/hiking-in-italy",
+   "routes": 10,
+   "hikers": 118493,
+   "ratings": 23204
+  },
+  "PT": {
+   "page": "https://www.komoot.com/guide/541/hiking-in-portugal",
+   "routes": 10,
+   "hikers": 216976,
+   "ratings": 41073
+  },
+  "MT": {
+   "page": "https://www.komoot.com/guide/1877/hiking-in-malta",
+   "routes": 10,
+   "hikers": 5435,
+   "ratings": 1066
+  },
+  "CH": {
+   "page": "https://www.komoot.com/guide/525/hiking-in-switzerland",
+   "routes": 10,
+   "hikers": 33088,
+   "ratings": 4744
+  },
+  "AT": {
+   "page": "https://www.komoot.com/guide/553/hiking-in-austria",
+   "routes": 10,
+   "hikers": 78919,
+   "ratings": 18843
+  },
+  "FR": {
+   "page": "https://www.komoot.com/guide/533/hiking-in-france",
+   "routes": 10,
+   "hikers": 51424,
+   "ratings": 9878
+  },
+  "SI": {
+   "page": "https://www.komoot.com/guide/1853/hiking-in-slovenia",
+   "routes": 10,
+   "hikers": 38258,
+   "ratings": 7495
+  },
+  "NO": {
+   "page": "https://www.komoot.com/guide/72442/hiking-in-norway",
+   "routes": 10,
+   "hikers": 65873,
+   "ratings": 11179
+  },
+  "GB": {
+   "page": "https://www.komoot.com/guide/72314/hiking-in-the-united-kingdom",
+   "routes": 10,
+   "hikers": 70096,
+   "ratings": 10441
+  },
+  "DE": {
+   "page": "https://www.komoot.com/guide/549/hiking-in-germany",
+   "routes": 10,
+   "hikers": 188960,
+   "ratings": 51889
+  },
+  "IE": {
+   "page": "https://www.komoot.com/guide/71983/hiking-in-ireland",
+   "routes": 10,
+   "hikers": 30741,
+   "ratings": 6157
+  },
+  "IS": {
+   "page": "https://www.komoot.com/guide/71967/hiking-in-iceland",
+   "routes": 10,
+   "hikers": 26511,
+   "ratings": 2990
+  },
+  "HR": {
+   "page": "https://www.komoot.com/guide/1857/hiking-in-croatia",
+   "routes": 10,
+   "hikers": 22938,
+   "ratings": 3949
+  },
+  "ME": {
+   "page": "https://www.komoot.com/guide/72090/hiking-in-montenegro",
+   "routes": 10,
+   "hikers": 14887,
+   "ratings": 2682
+  },
+  "AL": {
+   "page": "https://www.komoot.com/guide/71719/hiking-in-albania",
+   "routes": 10,
+   "hikers": 26662,
+   "ratings": 4714
+  },
+  "BA": {
+   "page": "https://www.komoot.com/guide/71779/hiking-in-bosnia-and-herzegovina",
+   "routes": 10,
+   "hikers": 2982,
+   "ratings": 626
+  },
+  "XK": {
+   "page": "https://www.komoot.com/guide/9051/hiking-in-kosovo",
+   "routes": 10,
+   "hikers": 773,
+   "ratings": 160
+  },
+  "MK": {
+   "page": "https://www.komoot.com/guide/72054/hiking-in-macedonia",
+   "routes": 10,
+   "hikers": 2091,
+   "ratings": 351
+  },
+  "RS": {
+   "page": "https://www.komoot.com/guide/72202/hiking-in-serbia",
+   "routes": 10,
+   "hikers": 2092,
+   "ratings": 486
+  },
+  "BG": {
+   "page": "https://www.komoot.com/guide/71795/hiking-in-bulgaria",
+   "routes": 9,
+   "hikers": 3911,
+   "ratings": 737
+  },
+  "RO": {
+   "page": "https://www.komoot.com/guide/72170/hiking-in-romania",
+   "routes": 10,
+   "hikers": 6375,
+   "ratings": 1097
+  },
+  "PL": {
+   "page": "https://www.komoot.com/guide/72162/hiking-in-poland",
+   "routes": 10,
+   "hikers": 52383,
+   "ratings": 3858
+  },
+  "CZ": {
+   "page": "https://www.komoot.com/guide/561/hiking-in-the-czech-republic",
+   "routes": 10,
+   "hikers": 23736,
+   "ratings": 6393
+  },
+  "SK": {
+   "page": "https://www.komoot.com/guide/72214/hiking-in-slovakia",
+   "routes": 10,
+   "hikers": 13322,
+   "ratings": 1724
+  },
+  "HU": {
+   "page": "https://www.komoot.com/guide/71963/hiking-in-hungary",
+   "routes": 10,
+   "hikers": 6580,
+   "ratings": 805
+  },
+  "SE": {
+   "page": "https://www.komoot.com/guide/72258/hiking-in-sweden",
+   "routes": 10,
+   "hikers": 22207,
+   "ratings": 5400
+  },
+  "FI": {
+   "page": "https://www.komoot.com/guide/71907/hiking-in-finland",
+   "routes": 10,
+   "hikers": 9924,
+   "ratings": 1457
+  },
+  "DK": {
+   "page": "https://www.komoot.com/guide/565/hiking-in-denmark",
+   "routes": 10,
+   "hikers": 11416,
+   "ratings": 2423
+  },
+  "NL": {
+   "page": "https://www.komoot.com/guide/529/hiking-in-the-netherlands",
+   "routes": 10,
+   "hikers": 26363,
+   "ratings": 6313
+  },
+  "BE": {
+   "page": "https://www.komoot.com/guide/557/hiking-in-belgium",
+   "routes": 8,
+   "hikers": 42237,
+   "ratings": 9288
+  },
+  "LU": {
+   "page": "https://www.komoot.com/guide/545/hiking-in-luxemburg",
+   "routes": 10,
+   "hikers": 10481,
+   "ratings": 3019
+  },
+  "EE": {
+   "page": "https://www.komoot.com/guide/71887/hiking-in-estonia",
+   "routes": 10,
+   "hikers": 5080,
+   "ratings": 1037
+  },
+  "LV": {
+   "page": "https://www.komoot.com/guide/72031/hiking-in-latvia",
+   "routes": 10,
+   "hikers": 5230,
+   "ratings": 881
+  },
+  "LT": {
+   "page": "https://www.komoot.com/guide/72050/hiking-in-lithuania",
+   "routes": 10,
+   "hikers": 5679,
+   "ratings": 436
+  },
+  "MD": {
+   "page": "https://www.komoot.com/guide/72078/hiking-in-moldova",
+   "routes": 10,
+   "hikers": 251,
+   "ratings": 8
+  },
+  "CY": {
+   "page": "https://www.komoot.com/guide/1873/hiking-in-cyprus",
+   "routes": 10,
+   "hikers": 10135,
+   "ratings": 2395
+  },
+  "AD": {
+   "page": "https://www.komoot.com/guide/71727/hiking-in-andorra",
+   "routes": 10,
+   "hikers": 4362,
+   "ratings": 636
+  },
+  "LI": {
+   "page": "https://www.komoot.com/guide/1125/hiking-in-liechtenstein",
+   "routes": 10,
+   "hikers": 6132,
+   "ratings": 1092
+  },
+  "SM": {
+   "page": "https://www.komoot.com/guide/72190/hiking-in-san-marino",
+   "routes": 10,
+   "hikers": 1626,
+   "ratings": 313
+  },
+  "GE": {
+   "page": "https://www.komoot.com/guide/26055/hiking-in-georgia",
+   "routes": 10,
+   "hikers": 853,
+   "ratings": 63
+  },
+  "AM": {
+   "page": "https://www.komoot.com/guide/3677122/hiking-in-armenia",
+   "routes": 4,
+   "hikers": 236,
+   "ratings": 52
+  },
+  "MX": {
+   "page": "https://www.komoot.com/guide/72074/hiking-in-mexico",
+   "routes": 10,
+   "hikers": 762,
+   "ratings": 86
+  },
+  "GT": {
+   "page": "https://www.komoot.com/guide/2894969/hiking-in-guatemala",
+   "routes": 9,
+   "hikers": 627,
+   "ratings": 38
+  },
+  "BZ": {
+   "page": "https://www.komoot.com/guide/71763/hiking-in-belize",
+   "routes": 10,
+   "hikers": 172,
+   "ratings": 6
+  },
+  "SV": {
+   "page": "https://www.komoot.com/guide/71875/hiking-in-el-salvador",
+   "routes": 10,
+   "hikers": 900,
+   "ratings": 87
+  },
+  "HN": {
+   "page": "https://www.komoot.com/guide/3700782/hiking-in-honduras",
+   "routes": 10,
+   "hikers": 226,
+   "ratings": 28
+  },
+  "NI": {
+   "page": "https://www.komoot.com/guide/72122/hiking-in-nicaragua",
+   "routes": 10,
+   "hikers": 1150,
+   "ratings": 169
+  },
+  "CR": {
+   "page": "https://www.komoot.com/guide/71847/hiking-in-costa-rica",
+   "routes": 10,
+   "hikers": 15948,
+   "ratings": 1149
+  },
+  "PA": {
+   "page": "https://www.komoot.com/guide/72150/hiking-in-panama",
+   "routes": 9,
+   "hikers": 3279,
+   "ratings": 668
+  },
+  "CU": {
+   "page": "https://www.komoot.com/guide/71851/hiking-in-cuba",
+   "routes": 10,
+   "hikers": 714,
+   "ratings": 138
+  },
+  "DO": {
+   "page": "https://www.komoot.com/guide/71863/hiking-in-the-dominican-republic",
+   "routes": 10,
+   "hikers": 698,
+   "ratings": 95
+  },
+  "PR": {
+   "page": "https://www.komoot.com/guide/52347/hiking-in-puerto-rico",
+   "routes": 5,
+   "hikers": 364,
+   "ratings": 21
+  },
+  "JM": {
+   "page": "https://www.komoot.com/guide/72406/hiking-in-jamaica",
+   "routes": 8,
+   "hikers": 107,
+   "ratings": 14
+  },
+  "CO": {
+   "page": "https://www.komoot.com/guide/71835/hiking-in-colombia",
+   "routes": 10,
+   "hikers": 7364,
+   "ratings": 1155
+  },
+  "EC": {
+   "page": "https://www.komoot.com/guide/72362/hiking-in-ecuador",
+   "routes": 10,
+   "hikers": 4449,
+   "ratings": 592
+  },
+  "PE": {
+   "page": "https://www.komoot.com/guide/72158/hiking-in-peru",
+   "routes": 10,
+   "hikers": 9112,
+   "ratings": 594
+  },
+  "BO": {
+   "page": "https://www.komoot.com/guide/71775/hiking-in-bolivia",
+   "routes": 10,
+   "hikers": 1217,
+   "ratings": 166
+  },
+  "CL": {
+   "page": "https://www.komoot.com/guide/71827/hiking-in-chile",
+   "routes": 10,
+   "hikers": 16111,
+   "ratings": 1661
+  },
+  "AR": {
+   "page": "https://www.komoot.com/guide/71735/hiking-in-argentina",
+   "routes": 10,
+   "hikers": 15273,
+   "ratings": 2178
+  },
+  "UY": {
+   "page": "https://www.komoot.com/guide/72322/hiking-in-uruguay",
+   "routes": 10,
+   "hikers": 255,
+   "ratings": 33
+  },
+  "PY": {
+   "page": "https://www.komoot.com/guide/72154/hiking-in-paraguay",
+   "routes": 5,
+   "hikers": 84,
+   "ratings": 3
+  },
+  "BR": {
+   "page": "https://www.komoot.com/guide/71787/hiking-in-brazil",
+   "routes": 10,
+   "hikers": 4298,
+   "ratings": 755
+  },
+  "GY": {
+   "page": null,
+   "routes": 0,
+   "hikers": 0,
+   "ratings": 0
+  },
+  "SR": {
+   "page": "https://www.komoot.com/guide/72250/hiking-in-suriname",
+   "routes": 8,
+   "hikers": 60,
+   "ratings": 3
+  },
+  "NP": {
+   "page": "https://www.komoot.com/guide/72118/hiking-in-nepal",
+   "routes": 10,
+   "hikers": 8507,
+   "ratings": 337
+  },
+  "IN": {
+   "page": "https://www.komoot.com/guide/71971/hiking-in-india",
+   "routes": 10,
+   "hikers": 679,
+   "ratings": 101
+  },
+  "BT": {
+   "page": "https://www.komoot.com/guide/71771/hiking-in-bhutan",
+   "routes": 10,
+   "hikers": 886,
+   "ratings": 100
+  },
+  "LK": {
+   "page": "https://www.komoot.com/guide/72242/hiking-in-sri-lanka",
+   "routes": 10,
+   "hikers": 10149,
+   "ratings": 1595
+  },
+  "CN": {
+   "page": null,
+   "routes": 0,
+   "hikers": 0,
+   "ratings": 0
+  },
+  "MN": {
+   "page": "https://www.komoot.com/guide/72086/hiking-in-mongolia",
+   "routes": 5,
+   "hikers": 220,
+   "ratings": 21
+  },
+  "JP": {
+   "page": "https://www.komoot.com/guide/71995/hiking-in-japan",
+   "routes": 10,
+   "hikers": 8934,
+   "ratings": 885
+  },
+  "KR": {
+   "page": "https://www.komoot.com/guide/72230/hiking-in-south-korea",
+   "routes": 10,
+   "hikers": 3947,
+   "ratings": 546
+  },
+  "TW": {
+   "page": null,
+   "routes": 0,
+   "hikers": 0,
+   "ratings": 0
+  },
+  "TH": {
+   "page": "https://www.komoot.com/guide/72274/hiking-in-thailand",
+   "routes": 10,
+   "hikers": 10879,
+   "ratings": 1195
+  },
+  "VN": {
+   "page": "https://www.komoot.com/guide/72342/hiking-in-vietnam",
+   "routes": 10,
+   "hikers": 5009,
+   "ratings": 652
+  },
+  "LA": {
+   "page": "https://www.komoot.com/guide/72027/hiking-in-laos",
+   "routes": 10,
+   "hikers": 1497,
+   "ratings": 191
+  },
+  "KH": {
+   "page": "https://www.komoot.com/guide/71807/hiking-in-cambodia",
+   "routes": 10,
+   "hikers": 702,
+   "ratings": 75
+  },
+  "MM": {
+   "page": null,
+   "routes": 0,
+   "hikers": 0,
+   "ratings": 0
+  },
+  "PH": {
+   "page": "https://www.komoot.com/guide/72454/hiking-in-the-philippines",
+   "routes": 10,
+   "hikers": 941,
+   "ratings": 52
+  },
+  "SG": {
+   "page": "https://www.komoot.com/guide/72210/hiking-in-singapore",
+   "routes": 10,
+   "hikers": 9934,
+   "ratings": 883
+  },
+  "HK": {
+   "page": null,
+   "routes": 0,
+   "hikers": 0,
+   "ratings": 0
+  },
+  "US": {
+   "page": "https://www.komoot.com/guide/72318/hiking-in-the-united-states-of-america",
+   "routes": 10,
+   "hikers": 34241,
+   "ratings": 3092
+  },
+  "CA": {
+   "page": "https://www.komoot.com/guide/71815/hiking-in-canada",
+   "routes": 10,
+   "hikers": 18369,
+   "ratings": 2142
+  },
+  "ZA": {
+   "page": "https://www.komoot.com/guide/72226/hiking-in-south-africa",
+   "routes": 10,
+   "hikers": 18488,
+   "ratings": 1389
+  },
+  "NA": {
+   "page": "https://www.komoot.com/guide/72110/hiking-in-namibia",
+   "routes": 10,
+   "hikers": 1351,
+   "ratings": 96
+  },
+  "BW": {
+   "page": null,
+   "routes": 0,
+   "hikers": 0,
+   "ratings": 0
+  },
+  "ZW": {
+   "page": "https://www.komoot.com/guide/72354/hiking-in-zimbabwe",
+   "routes": 5,
+   "hikers": 144,
+   "ratings": 6
+  },
+  "ZM": {
+   "page": "https://www.komoot.com/guide/72350/hiking-in-zambia",
+   "routes": 5,
+   "hikers": 94,
+   "ratings": 6
+  },
+  "MW": {
+   "page": "https://www.komoot.com/guide/72062/hiking-in-malawi",
+   "routes": 10,
+   "hikers": 120,
+   "ratings": 17
+  },
+  "MZ": {
+   "page": null,
+   "routes": 0,
+   "hikers": 0,
+   "ratings": 0
+  },
+  "TZ": {
+   "page": "https://www.komoot.com/guide/72270/hiking-in-tanzania",
+   "routes": 10,
+   "hikers": 2492,
+   "ratings": 62
+  },
+  "KE": {
+   "page": "https://www.komoot.com/guide/72011/hiking-in-kenya",
+   "routes": 10,
+   "hikers": 281,
+   "ratings": 29
+  },
+  "UG": {
+   "page": "https://www.komoot.com/guide/72306/hiking-in-uganda",
+   "routes": 10,
+   "hikers": 223,
+   "ratings": 12
+  },
+  "RW": {
+   "page": "https://www.komoot.com/guide/72178/hiking-in-rwanda",
+   "routes": 10,
+   "hikers": 149,
+   "ratings": 52
+  },
+  "ET": {
+   "page": "https://www.komoot.com/guide/71891/hiking-in-ethiopia",
+   "routes": 8,
+   "hikers": 101,
+   "ratings": 8
+  },
+  "MG": {
+   "page": "https://www.komoot.com/guide/72058/hiking-in-madagascar",
+   "routes": 10,
+   "hikers": 719,
+   "ratings": 50
+  },
+  "LS": {
+   "page": "https://www.komoot.com/guide/72039/hiking-in-lesotho",
+   "routes": 10,
+   "hikers": 1173,
+   "ratings": 162
+  },
+  "SZ": {
+   "page": null,
+   "routes": 0,
+   "hikers": 0,
+   "ratings": 0
+  },
+  "GH": {
+   "page": "https://www.komoot.com/guide/71919/hiking-in-ghana",
+   "routes": 6,
+   "hikers": 261,
+   "ratings": 31
+  },
+  "CV": {
+   "page": "https://www.komoot.com/guide/72414/hiking-in-cape-verde",
+   "routes": 10,
+   "hikers": 4082,
+   "ratings": 869
+  },
+  "MU": {
+   "page": "https://www.komoot.com/guide/72434/hiking-in-mauritius",
+   "routes": 10,
+   "hikers": 3354,
+   "ratings": 666
+  },
+  "SC": {
+   "page": "https://www.komoot.com/guide/72470/hiking-in-the-seychelles",
+   "routes": 10,
+   "hikers": 3434,
+   "ratings": 587
+  },
+  "NZ": {
+   "page": "https://www.komoot.com/guide/72438/hiking-in-new-zealand",
+   "routes": 10,
+   "hikers": 29868,
+   "ratings": 3253
+  },
+  "AU": {
+   "page": "https://www.komoot.com/guide/72689/hiking-in-australia",
+   "routes": 10,
+   "hikers": 13604,
+   "ratings": 1471
+  }
+ },
+ "measuredAt": "2026-10-10"
+}
