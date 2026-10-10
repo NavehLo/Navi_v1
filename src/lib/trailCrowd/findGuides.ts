@@ -20,7 +20,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { iso1A2Code } from '@rapideditor/country-coder';
-import { guideUrl, parseGuide, type KomootRoute } from './komoot';
+import { guideUrl, own, parseGuide, type KomootRoute } from './komoot';
 import { writeWithCodex } from '../countryGuide/subscription';
 
 const GUIDE_ANY = /https?:\/\/(?:www\.)?komoot\.com\/(?:[a-z]{2}-[a-z]{2}\/)?guide\/\d+\/[a-z0-9-]+/gi;
@@ -144,8 +144,9 @@ export async function crawlGuides(
     }
     for (const m of html.matchAll(LINK)) {
       if (!WALKING.test(m[2]) || seen.has(m[1])) continue;
-      seen.add(m[1]);
-      queue.push(`https://www.komoot.com/guide/${m[1]}/${m[2]}`);
+      // Copies (own): a piece of the page kept in the queue keeps the page.
+      seen.add(own(m[1]));
+      queue.push(own(`https://www.komoot.com/guide/${m[1]}/${m[2]}`));
     }
     if (read % 25 === 0) opts.log?.(`crawl: ${read} pages read, ${guides.length} in the country, ${routes.length} routes, ${queue.length} waiting`);
     await new Promise((r) => setTimeout(r, 400));

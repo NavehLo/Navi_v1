@@ -96,6 +96,14 @@ export function decodeLine(s: string): Array<[number, number]> {
 
 const USER_AGENT = 'Mozilla/5.0 (compatible; Navi-Trail-App/1.0; naveh@hamarag.com)';
 
+// A copy of a piece of a page that does not keep the page alive. V8 keeps a
+// short string cut from a long one as a view into it, so a route's name kept
+// from a 5 MB page kept the whole page in memory — a crawl of the United
+// States ran out of memory (4 GB) that way.
+export function own(s: string): string {
+  return Buffer.from(s, 'utf8').toString('utf8');
+}
+
 // The routes of one page, from the data it carries for its list
 // ("discoverTours": id, name, distance, map picture, visitors, ratings,
 // difficulty).
@@ -128,12 +136,12 @@ export function parseGuide(url: string, html: string): KomootRoute[] {
     routes.push({
       guide: url,
       rank: routes.length + 1,
-      name: heads[k][2].replace(/\\(.)/g, '$1'),
+      name: own(heads[k][2].replace(/\\(.)/g, '$1')),
       rating: count > 0 && score > 0 ? Math.round(score * 10) / 10 : null,
       ratings: count,
       hikers: Number(visitors),
       km: Number.isFinite(distance) ? Math.round(distance / 100) / 10 : null,
-      grade: isKomootGrade(grade) ? grade : null,
+      grade: isKomootGrade(grade) ? (own(grade) as typeof grade) : null,
       points,
     });
   }
