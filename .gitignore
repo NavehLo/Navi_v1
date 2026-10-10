@@ -44,3 +44,6 @@ scripts/.summer-cache.json
 
 # Which writeCountryGuide.mjs run is writing which country (transient)
 docs/country-guides/.claims/
+
+# logs of the admin scripts (scripts/crowdRound.sh)
+/logs
