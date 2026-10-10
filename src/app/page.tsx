@@ -746,6 +746,7 @@ export default function TrailApp() {
     enabled: worldTrails.enabled || hikerHeat.enabled,
     muted: !!trail || !!worldTrails.selection,
     onPick: pickFromMap,
+    minZoom: worldTrails.enabled ? undefined : 6.5,
   });
   const { setEnabled: setHikerHeat } = hikerHeat;
   const beforeHeatRef = useRef<{ style: string; is3D: boolean } | null>(null);

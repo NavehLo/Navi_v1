@@ -111,7 +111,8 @@ export function useHikerHeat(
         paint: {
           'heatmap-weight': ['get', 'w'],
           // Wide enough that a valley's trails run together into one area.
-          'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 2, 0.5, 6, 0.8, 9, 1.4],
+          // Tuned to the square-root weights (half the trails weigh under 0.07).
+          'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 2, 1.5, 6, 2.2, 9, 3.4],
           'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 2, 8, 5, 22, 8, 36, 11, 50],
           'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], ...HEAT_STOPS.flat()],
           'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 9, 0.85, 12, 0.3],
@@ -124,8 +125,9 @@ export function useHikerHeat(
         id: HEAT_TRAIL_DOT, type: 'circle', source: SOURCE, minzoom: DOT_ZOOM,
         layout: { 'circle-sort-key': ['get', 'w'] },
         paint: {
-          'circle-color': ['interpolate', ['linear'], ['get', 'w'], 0.3, '#fd8d3c', 0.6, '#e31a1c', 0.9, '#800026'],
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], DOT_ZOOM, ['interpolate', ['linear'], ['get', 'w'], 0, 3, 1, 7], 12, ['interpolate', ['linear'], ['get', 'w'], 0, 6, 1, 12]],
+          // About 500, 5,000 and 20,000 hikers.
+          'circle-color': ['interpolate', ['linear'], ['get', 'w'], 0.1, '#fd8d3c', 0.3, '#e31a1c', 0.63, '#800026'],
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], DOT_ZOOM, ['interpolate', ['linear'], ['get', 'w'], 0, 3, 0.6, 7], 12, ['interpolate', ['linear'], ['get', 'w'], 0, 6, 0.6, 12]],
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 2,
           'circle-opacity': ['interpolate', ['linear'], ['zoom'], DOT_ZOOM, 0, DOT_ZOOM + 0.5, fade],

@@ -21,7 +21,12 @@ const LABEL_ZOOM = 7.5;
 export function useTrailLeaders(
   map: mapboxgl.Map | null,
   styleRev: number,
-  { enabled, muted, onPick }: { enabled: boolean; muted: boolean; onPick: (summary: WmtRouteSummary) => void }
+  { enabled, muted, onPick, minZoom = MIN_ZOOM }: {
+    enabled: boolean; muted: boolean; onPick: (summary: WmtRouteSummary) => void;
+    // Over the hiker heat alone the stars wait a step closer, so a whole
+    // country's heat reads clearly first.
+    minZoom?: number;
+  }
 ) {
   const leaders = useLeaders(enabled);
   const onPickRef = useRef(onPick);
@@ -60,11 +65,11 @@ export function useTrailLeaders(
       // Under the open trail and the selected route, over the overlay tiles.
       const beforeId = ['route-casing', 'wmt-selection-casing', 'clusters'].find((id) => map.getLayer(id));
       map.addLayer({
-        id: LEADERS_DOT, type: 'circle', source: LEADERS_SOURCE, minzoom: MIN_ZOOM,
+        id: LEADERS_DOT, type: 'circle', source: LEADERS_SOURCE, minzoom: minZoom,
         layout: { 'circle-sort-key': ['-', 100, ['get', 'rank']] },
         paint: {
           'circle-color': '#fbbf24',
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], MIN_ZOOM, 5, 10, 8],
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], minZoom, 5, Math.max(10, minZoom + 1), 8],
           'circle-stroke-color': '#18181b',
           'circle-stroke-width': 2,
           'circle-opacity': muted ? 0.5 : 1,
@@ -109,5 +114,5 @@ export function useTrailLeaders(
       map.off('mouseleave', LEADERS_DOT, leave);
       remove();
     };
-  }, [map, enabled, leaders, muted, styleRev]);
+  }, [map, enabled, leaders, muted, minZoom, styleRev]);
 }
