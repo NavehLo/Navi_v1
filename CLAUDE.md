@@ -141,7 +141,9 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   (`trailCrowd/sections.ts`): a negative id, `group: 'SEC'`, cut from the long
   trail's own OSM ways. Only its two ends, points along it and a name from OSM
   places are stored (`trail_sections`) — never Komoot's line (their terms,
-  §1.4). Sections are made only from the Mac (Nominatim, one request a second).
+  §1.4). Its number must be free on the whole long trail, not only in the
+  country: a trail across a border has sections in each (2026-10, Montenegro's
+  overwrote Albania's Valbona). Sections are made only from the Mac (Nominatim, one request a second).
   Anything that takes a world trail's id must accept a negative one (the card,
   "טען", saving, sharing, `/api/world-trails`), and send a section's long
   trail where only an OSM relation will do ("על המסלול"). A stage of an

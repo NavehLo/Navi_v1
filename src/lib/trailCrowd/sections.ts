@@ -245,6 +245,7 @@ export async function findSections(
   const walked = new Map<number, Walked>();
   const parts: Array<FoundSection & { range: [number, number] }> = [];
   const used = new Set(existing.map((s) => s.id));
+  const parentsRead = new Set<number>();
 
   const walkedFor = async (id: number): Promise<Walked | null> => {
     if (!details.has(id)) details.set(id, (await fetchWmt(`/details/relation/${id}`, 60_000, false)) as WmtRouteDetails | null);
@@ -304,6 +305,12 @@ export async function findSections(
       const first = pts[0], last = pts[pts.length - 1];
       const start: [number, number] = [round(first[1]), round(first[0])];
       const end: [number, number] = [round(last[1]), round(last[0])];
+      // A trail across a border has sections in each country: the number is
+      // free on the whole trail, or one country's would overwrite another's.
+      if (!parentsRead.has(t.id)) {
+        parentsRead.add(t.id);
+        for (const other of await sectionsOfParent(t.id)) used.add(other.id);
+      }
       let n = 1;
       while (used.has(sectionId(t.id, n))) n++;
       const id = sectionId(t.id, n);
@@ -400,6 +407,12 @@ export async function writeSections(sections: TrailSection[]): Promise<boolean> 
   if (!db || tableMissing) return false;
   if (!sections.length) return true;
   try {
+    // Never over another country's section (see sectionId).
+    const { data: taken, error: readError } = await db.from('trail_sections').select('id, country').in('id', sections.map((s) => s.id));
+    if (readError) throw readError;
+    const owner = new Map((taken ?? []).map((r) => [Number(r.id), r.country as string]));
+    const clash = sections.filter((s) => owner.has(s.id) && owner.get(s.id) !== s.country);
+    if (clash.length) throw new Error(`section ids held by another country: ${clash.map((s) => s.id).join(', ')}`);
     const { error } = await db.from('trail_sections').upsert(sections.map((s) => ({
       id: s.id, country: s.country, parent_id: s.parentId, parent_name: s.parentName, parent_group: s.parentGroup, name: s.name,
       start_lat: s.start[0], start_lon: s.start[1], end_lat: s.end[0], end_lon: s.end[1], km: s.km, samples: s.samples,
