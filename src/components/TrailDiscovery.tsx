@@ -12,6 +12,7 @@ import { DifficultyBadge, DifficultyChips, difficultyGist } from './DifficultyFi
 import FilterDropdown, { CheckRow, SELECT_ACTIVE_CLASS, SELECT_CLASS } from './FilterDropdown';
 import GPXLoader from './GPXLoader';
 import WorldByMonth from './WorldByMonth';
+import type { Bounds } from '../lib/trailHeat';
 import type { WmtRouteSummary } from '../lib/waymarked';
 import { useOutsideTap } from '../hooks/useOutsideTap';
 import { useHelpChatBeside } from '../hooks/useHelpChatBeside';
@@ -51,6 +52,8 @@ interface TrailDiscoveryProps {
   // A world trail picked from "מסלולים בעולם": opens its card, as the search
   // box does.
   onPickWorldTrail?: (summary: WmtRouteSummary) => void;
+  // A country opened in "מסלולים בעולם", as the box around its trails.
+  onCountryView?: (box: Bounds) => void;
   // Raised by the page to open the panel on the list the reader came from
   // ("חזרה לרשימה" on a trail's card, or closing a trail opened from it).
   openSignal?: number;
@@ -73,7 +76,7 @@ function packDaysLeft(pack: MapPack): number {
   return Math.ceil((pack.expiresAt - Date.now()) / (24 * 60 * 60 * 1000));
 }
 
-export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading, error, styleRev, offlinePacks = [], onSelectPack, online = true, onPickWorldTrail, openSignal = 0 }: TrailDiscoveryProps) {
+export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading, error, styleRev, offlinePacks = [], onSelectPack, online = true, onPickWorldTrail, onCountryView, openSignal = 0 }: TrailDiscoveryProps) {
   const [trails, setTrails] = useState<TrailInfo[]>([]);
   const [filterRegion, setFilterRegion] = useState<string | null>(kept.region ?? null);
   const [filterType, setFilterType] = useState<string | null>(kept.type ?? null);
@@ -429,7 +432,7 @@ export default function TrailDiscovery({ map, onSelectTrail, onFileLoad, loading
         )}
 
         {scope === 'world' && onPickWorldTrail ? (
-          <WorldByMonth onPickTrail={onPickWorldTrail} onGuideMap={showGuideRegion} guideShown={guideView?.index ?? null} />
+          <WorldByMonth onPickTrail={onPickWorldTrail} onCountryView={onCountryView} onGuideMap={showGuideRegion} guideShown={guideView?.index ?? null} />
         ) : (<>
         <div className="relative shrink-0">
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-300" size={16} />

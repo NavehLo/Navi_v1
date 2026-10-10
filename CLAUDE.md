@@ -133,6 +133,9 @@ API routes in `src/app/api/*`, server logic in `src/lib/*`, UI in
   (`addTrails`) and live on through `trail_crowd`: `build()` re-adds every
   trail with numbers there. Never delete a country's `trail_crowd` rows to
   "clean up" — its list would lose its most walked local paths.
+  "מפת חום של מטיילים" weighs a trail only with `heatWeight`
+  (`src/lib/trailHeat.ts`), from Komoot's hikers only, against the same fixed
+  ceiling — the map's colours and the legend share `HEAT_STOPS` there.
   The world ranking ("מסלולים בעולם" → "לפי דירוג") scores trails only with
   `popularityScore` (`score.ts`), from Komoot's numbers only (`komootOf`),
   against fixed ceilings — never the largest value seen, or a trail's score

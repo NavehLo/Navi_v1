@@ -14,6 +14,7 @@ export const EVENT_LABELS = {
   trail_discovery: 'רשימת מסלולי ישראל',
   world_by_month: 'מסלולים בעולם — לפי חודש ומדינה',
   world_ranking: 'מסלולים בעולם — לפי דירוג',
+  hiker_heat: 'מפת חום של מטיילים',
   country_guide: 'אזורי טיול של מדינה',
   place_search: 'חיפוש מקום',
   virtual_tour: 'סיור וירטואלי',

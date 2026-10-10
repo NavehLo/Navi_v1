@@ -23,6 +23,7 @@ type Needs = 'trail' | 'noTrail' | 'any';
 export const HELP_ACTIONS = {
   openDiscovery: { label: 'פתח את רשימת המסלולים', needs: 'noTrail', about: 'רשימת המסלולים עם חיפוש וסינון, כולל לשונית "מסלולים בעולם"' },
   openWorldTrails: { label: 'הצג מסלולים בעולם על המפה', needs: 'any', about: 'שכבת המסלולים המסומנים מכל העולם על המפה' },
+  openHikerHeat: { label: 'הצג מפת חום של מטיילים', needs: 'any', about: 'מפת חום על המפה הבהירה: איפה מטיילים הכי הרבה, לפי Komoot' },
   openDrive: { label: 'פתח נסיעה ברכב', needs: 'noTrail', about: 'תכנון נסיעה בכביש' },
   planRoute: { label: 'פתח תכנון מסלול', needs: 'any', about: 'תכנון מסלול הליכה בין נקודות' },
   locate: { label: 'הצג את המיקום שלי', needs: 'any', about: 'המיקום החי על המפה' },
@@ -44,7 +45,7 @@ export function availableActions(screen: HelpScreen): HelpActionId[] {
     // An open drive has no guide points and no tour of its own, and the list
     // is on the trails side.
     if (screen.driveTrail && (id === 'openGuidePoints' || id === 'showTour')) return false;
-    if (screen.mode === 'drive' && !screen.hasTrail && (id === 'openDiscovery' || id === 'openWorldTrails')) return false;
+    if (screen.mode === 'drive' && !screen.hasTrail && (id === 'openDiscovery' || id === 'openWorldTrails' || id === 'openHikerHeat')) return false;
     if (id === 'record' && screen.recording) return false;
     return true;
   });

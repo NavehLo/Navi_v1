@@ -30,6 +30,7 @@ import WorldRanking from './WorldRanking';
 import { NO_DIFFICULTY_FILTER, passesDifficulty, type DifficultyFilter } from '../lib/difficulty';
 import { DifficultyBadge, DifficultyFilterBody } from './DifficultyFilter';
 import FilterDropdown, { SELECT_CLASS } from './FilterDropdown';
+import { trimmedBounds, type Bounds } from '../lib/trailHeat';
 
 // "מסלולים בעולם": marked trails abroad, chosen by when they are in season,
 // or by how popular they are.
@@ -139,8 +140,10 @@ function defaultMonth(): number {
   return Number.isInteger(m) && m >= 0 && m < 12 ? m : new Date().getMonth();
 }
 
-export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = null }: {
+export default function WorldByMonth({ onPickTrail, onGuideMap, onCountryView, guideShown = null }: {
   onPickTrail: (summary: WmtRouteSummary) => void;
+  // A country just opened, as the box around its trails (the map may go there).
+  onCountryView?: (box: Bounds) => void;
   // "אזורי טיול" on the map: a region (or all), or nothing.
   onGuideMap?: (view: GuideMapView | null) => void;
   guideShown?: number | null;
@@ -297,6 +300,18 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
 
   const countryData = country ? trailsMemo.get(country) ?? (trails?.country === country ? trails.list : null) : null;
   const countryList = countryData?.trails ?? null;
+
+  // A country the reader just opened (not one come back to) is handed to the
+  // map once its trails are in.
+  const viewPending = useRef<string | null>(null);
+  const onCountryViewRef = useRef(onCountryView);
+  useEffect(() => { onCountryViewRef.current = onCountryView; });
+  useEffect(() => {
+    if (!country || viewPending.current !== country || !countryList) return;
+    viewPending.current = null;
+    const box = trimmedBounds(countryList);
+    if (box) onCountryViewRef.current?.(box);
+  }, [country, countryList]);
   const hasCrowd = !!countryData?.hasCrowd;
   const crowdF = hasCrowd ? crowdFilter : NO_CROWD_FILTER;
   // Komoot's grade comes with the hikers' numbers: no numbers, no filter.
@@ -427,6 +442,7 @@ export default function WorldByMonth({ onPickTrail, onGuideMap, guideShown = nul
   };
 
   const openCountry = (code: string) => {
+    viewPending.current = code;
     setCountry(code);
     setGuideOpen(false);
     setRegion(null);

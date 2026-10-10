@@ -54,6 +54,8 @@ import { useTrailClimate } from "@/hooks/useTrailClimate";
 import { useWorldTrails } from "@/hooks/useWorldTrails";
 import { usePlacePhotos } from "@/hooks/usePlacePhotos";
 import { useTrailLeaders } from "@/hooks/useTrailLeaders";
+import { useHikerHeat, readHikerHeat } from "@/hooks/useHikerHeat";
+import type { Bounds } from "@/lib/trailHeat";
 import { useWmtStages } from "@/hooks/useWmtStages";
 import type { TrailStages } from "@/components/StatsPanel";
 import type { WmtRouteSummary } from "@/lib/waymarked";
@@ -737,6 +739,70 @@ export default function TrailApp() {
       map.easeTo({ pitch: 0, duration: 800 });
     }
   }, [map, is3D]);
+
+  // ── "מפת חום של מטיילים" ─────────────────────────────────────────────────
+  // Read over the light map, flat: turning it on switches to both, and
+  // turning it off puts back the map and the 3D that were there — unless the
+  // reader picked another map in between. With no reception the downloaded
+  // style stays (it is the one with tiles).
+  const hikerHeat = useHikerHeat(map, styleRev);
+  const { setEnabled: setHikerHeat } = hikerHeat;
+  const beforeHeatRef = useRef<{ style: string; is3D: boolean } | null>(null);
+  const styleLocked = !online && !!trail && !!packStyleKey;
+  const flatten = useCallback(() => {
+    if (!map || !is3DRef.current) return;
+    is3DRef.current = false;
+    setIs3D(false);
+    try { map.setTerrain(null); } catch {}
+    map.easeTo({ pitch: 0, duration: 800 });
+  }, [map]);
+  const showHikerHeat = useCallback(() => {
+    if (!map) return;
+    beforeHeatRef.current = { style: styleKey, is3D: is3DRef.current };
+    flatten();
+    if (styleKey !== 'light' && !styleLocked) handleStyleChange('light');
+    setHikerHeat(true);
+    track('hiker_heat');
+  }, [map, styleKey, styleLocked, flatten, handleStyleChange, setHikerHeat]);
+  const hideHikerHeat = useCallback(() => {
+    setHikerHeat(false);
+    const before = beforeHeatRef.current;
+    beforeHeatRef.current = null;
+    if (!map || !before || styleKey !== 'light') return;
+    if (before.style !== 'light' && !styleLocked) handleStyleChange(before.style);
+    if (before.is3D && !is3DRef.current) {
+      is3DRef.current = true;
+      setIs3D(true);
+      try { map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.8 }); } catch {}
+      map.easeTo({ pitch: 60, duration: 800 });
+    }
+  }, [map, styleKey, styleLocked, handleStyleChange, setHikerHeat]);
+  const toggleHikerHeat = useCallback(() => {
+    if (hikerHeat.enabled) hideHikerHeat(); else showHikerHeat();
+  }, [hikerHeat.enabled, hideHikerHeat, showHikerHeat]);
+  // Left on last time: the map opens on the light style, flat.
+  const heatRestored = useRef(false);
+  useEffect(() => {
+    if (!map || heatRestored.current) return;
+    heatRestored.current = true;
+    if (!readHikerHeat()) return;
+    beforeHeatRef.current = { style: 'satellite', is3D: true };
+    flatten();
+    handleStyleChange('light');
+  }, [map, flatten, handleStyleChange]);
+  // A country picked in "מסלולים בעולם" while the heat is on: the map goes
+  // there, so its busy areas show at once.
+  const viewCountry = useCallback((box: Bounds) => {
+    if (!map || !readHikerHeat()) return;
+    const wide = window.innerWidth >= 768;
+    map.fitBounds([[box[0], box[1]], [box[2], box[3]]], {
+      // Clear of the place search and the control rail as well as the panel.
+      padding: wide ? { top: 100, bottom: 50, left: 120, right: 440 } : { top: 130, bottom: 210, left: 70, right: 20 },
+      maxZoom: 8,
+      duration: 1400,
+      pitch: 0,
+    });
+  }, [map]);
 
   const updateUserLocLayer = useCallback((longitude: number, latitude: number) => {
     if (!map) return;
@@ -1482,6 +1548,7 @@ export default function TrailApp() {
     switch (id) {
       case 'openDiscovery': setDiscoveryOpen((n) => n + 1); break;
       case 'openWorldTrails': worldTrails.enable(); break;
+      case 'openHikerHeat': if (!hikerHeat.enabled) showHikerHeat(); break;
       case 'openDrive': switchAppMode('drive'); break;
       case 'planRoute': if (!isMeasuring) handleToggleMeasure(); break;
       case 'locate': handleLocateUser(); break;
@@ -1552,6 +1619,7 @@ export default function TrailApp() {
             onSelectPack={openPack}
             online={online}
             onPickWorldTrail={pickFromList}
+            onCountryView={viewCountry}
             openSignal={discoveryOpen}
           />
         </div>
@@ -1692,6 +1760,9 @@ export default function TrailApp() {
         onHideUI={() => setUiHidden(true)}
         showWorldTrails={worldTrails.enabled}
         onToggleWorldTrails={worldTrails.toggle}
+        showHikerHeat={hikerHeat.enabled}
+        onToggleHikerHeat={toggleHikerHeat}
+        hikerHeatCountries={hikerHeat.countries?.length ?? null}
       />}
 
       {/* "שאלו את Navi". Hidden rather than unmounted with "הסתר הכל", like

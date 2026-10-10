@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import type mapboxgl from "mapbox-gl";
 import ScaleBar from "./ScaleBar";
+import { HEAT_STOPS } from "../lib/trailHeat";
 import { useOutsideTap } from "../hooks/useOutsideTap";
 import type { TrailKind } from "../hooks/useTrailData";
 import { tourSpeedsFor } from "../hooks/useTour";
@@ -46,6 +47,11 @@ interface ControlsProps {
   onHideUI?: () => void;
   showWorldTrails?: boolean;
   onToggleWorldTrails?: () => void;
+  // "מפת חום של מטיילים", and how many countries it has numbers for (null
+  // until it has loaded).
+  showHikerHeat?: boolean;
+  onToggleHikerHeat?: () => void;
+  hikerHeatCountries?: number | null;
   // With no reception, only the style the trail was downloaded in has tiles
   // to show; the other two would be a blank screen. Set, it greys them out.
   offlineStyleKey?: string | null;
@@ -123,6 +129,7 @@ export default function Controls(props: ControlsProps) {
     onLocateUser, onZoomIn, onZoomOut, onCompass, mapBearing,
     onFitToTrail, hasTrail, onHome, onOpenSettings, isGuideEnabled, onToggleGuide,
     onOpenGuidePoints, guidePointCount, onHideUI, showWorldTrails, onToggleWorldTrails,
+    showHikerHeat, onToggleHikerHeat, hikerHeatCountries,
     offlineStyleKey, isTracking, onMeasure, isMeasuring, onRecord, recStatus = 'idle', onDrive, isDriving, map,
   } = props;
 
@@ -365,7 +372,17 @@ export default function Controls(props: ControlsProps) {
               {showWorldTrails ? 'מסלולים בעולם — הסתר' : 'מסלולים בעולם — הצג'}
             </button>
           )}
-          <MapLegend showWorldTrails={showWorldTrails} />
+          {onToggleHikerHeat && (
+            <button
+              onClick={onToggleHikerHeat}
+              aria-pressed={!!showHikerHeat}
+              className={`text-sm p-2 rounded-lg font-bold text-right ${showHikerHeat ? 'text-orange-400' : 'text-white'}`}
+              title="איפה מטיילים הכי הרבה, לפי Komoot — על המפה הבהירה"
+            >
+              {showHikerHeat ? 'מפת חום של מטיילים — הסתר' : 'מפת חום של מטיילים — הצג'}
+            </button>
+          )}
+          <MapLegend showWorldTrails={showWorldTrails} showHikerHeat={showHikerHeat} hikerHeatCountries={hikerHeatCountries} />
         </div>
       )}
 
@@ -375,7 +392,9 @@ export default function Controls(props: ControlsProps) {
 
 // What the marks drawn on the map mean. The colours are the ones page.tsx
 // paints the layers with; change one there, change it here.
-function MapLegend({ showWorldTrails }: { showWorldTrails?: boolean }) {
+function MapLegend({ showWorldTrails, showHikerHeat, hikerHeatCountries }: {
+  showWorldTrails?: boolean; showHikerHeat?: boolean; hikerHeatCountries?: number | null;
+}) {
   const dot = (fill: string, stroke: string) => (
     <span className="w-3 h-3 rounded-full shrink-0 border-2" style={{ background: fill, borderColor: stroke }} />
   );
@@ -405,6 +424,19 @@ function MapLegend({ showWorldTrails }: { showWorldTrails?: boolean }) {
           <span className="w-4 flex justify-center">{mark}</span>{label}
         </div>
       ))}
+      {showHikerHeat && (
+        <>
+          <div className="text-white text-xs font-bold mt-1">מפת חום של מטיילים</div>
+          <span
+            className="h-2.5 rounded-full"
+            style={{ background: `linear-gradient(to left, ${HEAT_STOPS.slice(1).map(([, c]) => c).join(', ')})` }}
+          />
+          <div className="flex justify-between text-white text-xs"><span>מעט מטיילים</span><span>הרבה</span></div>
+          <div className="text-white text-xs">
+            לפי Komoot{hikerHeatCountries ? `, ב-${hikerHeatCountries} מדינות שנאספו` : ''}. מדינה בלי צבע — עוד אין לה מידע.
+          </div>
+        </>
+      )}
       {showWorldTrails && (
         <>
           <div className="text-white text-xs font-bold mt-1">צבעי "מסלולים בעולם"</div>
